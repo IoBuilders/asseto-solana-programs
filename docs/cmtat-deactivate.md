@@ -1,0 +1,60 @@
+# cmtat-deactivate — Program Reference
+
+Program ID: `8rds1q4evGug816bswEEmDmJSymq86sq7mgYRcPQP996`
+
+Permanently deactivates a Token-2022 mint by creating an on-chain marker PDA. Once deactivated, the mint cannot be minted, burned, or operated on — every other CMTAT program checks `verify_deactivate` before executing.
+
+Deactivation is intentionally one-way: there is no `reactivate` instruction and the `deactivate_pda` is never closed.
+
+---
+
+## State: `DeactivateStatus`
+
+```rust
+#[account]
+pub struct DeactivateStatus {
+    pub bump: u8,
+}
+// LEN = 8 (discriminator) + 1 (bump) = 9 bytes
+// Seeds: ["deactivate", mint]
+```
+
+Marker PDA. Its existence on-chain is the deactivation signal. `cmtat-common::verify_deactivate` checks `data_is_empty()` on this account — if non-empty (i.e., initialized), it returns `Err(CmtatCommonError::Deactivated)`.
+
+---
+
+## Instruction: `deactivate` (Management)
+
+No parameters.
+
+Creates the `deactivate_pda` marker. After this call, all calls to `cmtat-mint::mint`, `cmtat-operations::burn`, `cmtat-transfer::transfer`, `cmtat-pause::pause/unpause`, and `cmtat-transfer-control::set_mode` will fail with `CmtatCommonError::Deactivated`.
+
+### Preconditions
+
+- `verify_deployer` — only the deployer may deactivate.
+- `verify_unpause` — mint must not be paused (deactivation from paused state is disallowed).
+
+### Accounts
+
+| Account | Mut | Signer | Type | Notes |
+|---|---|---|---|---|
+| `deployer` | yes | yes | Signer | Funds the PDA creation |
+| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
+| `mint` | no | no | UncheckedAccount | Read by `verify_unpause` (checks the Pausable extension) |
+| `deactivate_pda` | yes | no | `Account<DeactivateStatus>` | init; seeds `["deactivate", mint]` |
+| `system_program` | no | no | Program<System> | |
+
+### Execution
+
+1. `verify_deployer(&mint_owner_pda, &deployer.key())`
+2. `verify_unpause(&mint)` — ensures the mint is not already paused
+3. Anchor `init` constraint creates and initializes `deactivate_pda` with `bump`
+
+---
+
+## constants.rs
+
+```rust
+// Sourced from crate — single source of truth.
+pub use cmtat_deploy::ID as CMTAT_DEPLOY_PROGRAM_ID;
+```

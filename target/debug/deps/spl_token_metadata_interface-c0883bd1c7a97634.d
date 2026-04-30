@@ -1,0 +1,8 @@
+/Users/pedropolo/Documents/Tutorials/Solana/Workshop/solana-training/cmtat-one-atelier-poc/target/debug/deps/spl_token_metadata_interface-c0883bd1c7a97634.d: /Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/lib.rs /Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/error.rs /Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/instruction.rs /Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/state.rs
+
+/Users/pedropolo/Documents/Tutorials/Solana/Workshop/solana-training/cmtat-one-atelier-poc/target/debug/deps/libspl_token_metadata_interface-c0883bd1c7a97634.rmeta: /Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/lib.rs /Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/error.rs /Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/instruction.rs /Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/state.rs
+
+/Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/lib.rs:
+/Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/error.rs:
+/Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/instruction.rs:
+/Users/pedropolo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.7.0/src/state.rs:

@@ -1,0 +1,44 @@
+[toolchain]
+package_manager = "npm"
+
+[workspace]
+members = [
+    "programs/cmtat-deactivate",
+    "programs/cmtat-freeze",
+    "programs/cmtat-deploy",
+    "programs/cmtat-metadata-update",
+    "programs/cmtat-mint",
+    "programs/cmtat-operations",
+    "programs/cmtat-pause",
+    "programs/cmtat-snapshot",
+    "programs/cmtat-transfer",
+    "programs/cmtat-transfer-control",
+    "programs/cmtat-transfer-hook",
+]
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+cmtat_freeze = "ERyVR64dpCpoEa335A7LfJZnrEUeL7bxgqfqTogXYoAr"
+cmtat_deactivate = "8rds1q4evGug816bswEEmDmJSymq86sq7mgYRcPQP996"
+cmtat_deploy = "2XMEMg7FUxWksDRZQU9vtGHHSyKoSaH9bncj1noe38QK"
+cmtat_metadata_update = "Ei1dX3P7N9cBz2Vs28iB8nsWFqUAWTDicGX7YZSc5HXU"
+cmtat_mint = "AXGtgWoPXfyfQ7o823WG2ip6qSRw1s3wA3RCSdtCyN1P"
+cmtat_operations = "BANmGRnoLxXCTzKm2aM1Zww8qn7GN2KBkbyY7QpW3vcX"
+cmtat_pause = "9GjHsbG5MgerXdyWRmNVMP9uXzi9iZyRyCrKw1LnSw1w"
+cmtat_snapshot = "BcuEispMLyXAa44oRbxjgacAJWdEhFXqrBNXQfgHnfWW"
+cmtat_transfer = "EY3ndaFy8e647firyg1MiyNH9LJkBKfV9VK8CNc4N1MD"
+cmtat_transfer_control = "BTLbhoZDCguRqmwhXvQej7pmAqV2TXY3iGdwMPsMBBMw"
+cmtat_transfer_hook = "482AUGU4SbYePPHaV7yvXrGEprHhiWSTRBds4Bdr6CPz"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "./test-wallet.json"
+
+[scripts]
+test = "NODE_OPTIONS='--import tsx' npx mocha -t 1000000 --require tests/setup.ts \"tests/**/*.ts\""

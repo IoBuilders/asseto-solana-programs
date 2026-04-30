@@ -1,0 +1,78 @@
+use anchor_lang::prelude::*;
+
+pub mod state;
+
+#[error_code]
+pub enum CmtatCommonError {
+    #[msg("The deployer signature is required but was not provided or does not match")]
+    UnauthorizedDeployer,
+    #[msg("The mint is paused")]
+    MintPaused,
+    #[msg("The mint has been deactivated")]
+    Deactivated,
+}
+
+/// Verifies that `deployer` matches the pubkey stored in a `mint_owner_pda`
+/// account created by `cmtat-deploy`.
+///
+/// Deserializes the account using Borsh (`MintOwner::deserialize`) after skipping
+/// the 8-byte Anchor discriminator. Full `AccountDeserialize` (which also checks the
+/// discriminator) is not available here because `MintOwner` cannot use the `#[account]`
+/// macro in a library crate (that macro requires `declare_id!`). The discriminator check
+/// is redundant anyway: the `seeds::program` constraint in every caller's account struct
+/// already guarantees this is the correct account at the correct address.
+///
+/// The account is passed as `&AccountInfo` rather than `Account<MintOwner>` because
+/// Anchor's `Account<T>` wrapper enforces ownership by the *current* program, but
+/// `mint_owner_pda` is owned by `cmtat-deploy`.
+pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Result<()> {
+    use state::MintOwner;
+
+    let data = mint_owner_pda.try_borrow_data()?;
+    require!(data.len() >= MintOwner::LEN, CmtatCommonError::UnauthorizedDeployer);
+
+    // Skip 8-byte discriminator, then Borsh-deserialize the remaining fields.
+    let mint_owner = MintOwner::deserialize(&mut &data[8..])
+        .map_err(|_| error!(CmtatCommonError::UnauthorizedDeployer))?;
+
+    require!(mint_owner.deployer == *deployer, CmtatCommonError::UnauthorizedDeployer);
+    Ok(())
+}
+
+/// Checks whether a `deactivate_pda` (seeds: `["deactivate", mint]`, owned by
+/// `cmtat-deactivate`) exists for a given mint, indicating the mint has been deactivated.
+///
+/// The account is passed as `&AccountInfo` rather than `Account<T>` so callers are not
+/// required to import `cmtat-deactivate` as a dependency. The `seeds::program` constraint
+/// in every caller's account struct already guarantees the address is correct.
+///
+/// Returns `Ok(())` if the account does not exists (empty data).
+/// Returns `Err(CmtatCommonError::Deactivated)` if the account has been created.
+pub fn verify_deactivate(deactivate_pda: &AccountInfo) -> Result<()> {
+    require!(deactivate_pda.data_is_empty(), CmtatCommonError::Deactivated);
+    Ok(())
+}
+
+
+/// Checks whether a Token-2022 mint is paused via the `PausableConfig` extension.
+///
+/// Parses the TLV extension data of the mint account using `StateWithExtensions`
+/// to locate `PausableConfig` and reads its `paused` flag.
+///
+/// Returns `Ok(())` if the mint is **not** paused (or has no `Pausable` extension).
+/// Returns `Err(CmtatCommonError::MintPaused)` if the mint is paused.
+pub fn verify_unpause(mint_account: &AccountInfo) -> Result<()> {
+    use spl_token_2022::extension::{BaseStateWithExtensions, StateWithExtensions};
+    use spl_token_2022::extension::pausable::PausableConfig;
+    use spl_token_2022::state::Mint;
+
+    let mint_data = mint_account.try_borrow_data()?;
+    let mint_state = StateWithExtensions::<Mint>::unpack(&mint_data)
+        .map_err(anchor_lang::error::Error::from)?;
+
+    if let Ok(pausable_config) = mint_state.get_extension::<PausableConfig>() {
+        require!(!bool::from(pausable_config.paused), CmtatCommonError::MintPaused);
+    }
+
+    Ok(())
+}

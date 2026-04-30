@@ -1,0 +1,32 @@
+[package]
+name = "cmtat-mint"
+version = "0.1.0"
+description = "Created with Anchor"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "cmtat_mint"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.32.1", features = ["interface-instructions"] }
+anchor-spl = "0.32.1"
+spl-token-2022 = { version = "=8.0.1", features = ["no-entrypoint"] }
+cmtat-common = { path = "../cmtat-common" }
+cmtat-freeze = { path = "../cmtat-freeze", features = ["cpi"] }
+cmtat-snapshot = { path = "../cmtat-snapshot", features = ["cpi"] }
+cmtat-transfer-control = { path = "../cmtat-transfer-control", features = ["cpi"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

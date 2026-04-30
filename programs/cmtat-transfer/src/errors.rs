@@ -1,0 +1,9 @@
+use anchor_lang::prelude::*;
+
+#[error_code]
+pub enum CmtatTransferError {
+    #[msg("Signer is not the owner of the source token account")]
+    UnauthorizedTransfer,
+    #[msg("Mint is in clearing mode: deployer signature is required")]
+    ClearingModeUnauthorized,
+}
