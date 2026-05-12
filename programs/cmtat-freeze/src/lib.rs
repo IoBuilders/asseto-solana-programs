@@ -86,8 +86,8 @@ pub(crate) fn assert_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Re
 ///
 /// Returns `Ok(())` if the PDA does not exist (empty data).
 /// Returns `Err(CmtatCommonError::AccountFrozen)` if the PDA has been created.
-pub fn verify_frozen_account(frozen_account_pda: &AccountInfo) -> Result<()> {
-    require!(frozen_account_pda.data_is_empty(), crate::errors::ErrorCode::AccountFrozen);
+pub fn require_unfrozen_account(frozen_account_pda: &AccountInfo) -> Result<()> {
+    require!(frozen_account_pda.data_is_empty(), errors::ErrorCode::AccountFrozen);
     Ok(())
 }
 
@@ -99,7 +99,7 @@ pub fn verify_frozen_account(frozen_account_pda: &AccountInfo) -> Result<()> {
 ///
 /// Returns `Ok(())` if `account_balance - frozen_balance >= amount`.
 /// Returns `Err(CmtatCommonError::InsufficientUnfrozenBalance)` otherwise.
-pub fn verify_frozen_account_balance(
+pub fn require_unfrozen_balance(
     amount: u64,
     token_account: &AccountInfo,
     frozen_balance_pda: &AccountInfo,

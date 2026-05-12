@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{verify_deactivate, verify_deployer, verify_unpause};
+use cmtat_common::{require_active, verify_deployer, require_not_paused};
 
 use crate::constants;
 use crate::state::{ValueSnapshot, SnapshotCounter};
@@ -17,9 +17,9 @@ pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
         &ctx.accounts.deployer.key(),
     )?;
 
-    verify_unpause(&ctx.accounts.mint.to_account_info())?;
+    require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
-    verify_deactivate(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     let counter = &mut ctx.accounts.snapshot_counter;
     counter.bump = ctx.bumps.snapshot_counter;

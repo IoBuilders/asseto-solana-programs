@@ -18,6 +18,6 @@ pub mod cmtat_deploy {
     /// Each extension authority and the mint authority are distinct PDAs
     /// derived from the mint's public key.
     pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result<()> {
-        instructions::deploy_mint::deploy_mint(ctx, params)
+        deploy_mint::deploy_mint(ctx, params)
     }
 }

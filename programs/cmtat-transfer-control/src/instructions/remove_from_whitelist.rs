@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{verify_deactivate, verify_deployer, verify_unpause};
+use cmtat_common::{require_active, verify_deployer, require_not_paused};
 
 use crate::constants;
 use crate::state::WhitelistStatus;
@@ -18,10 +18,10 @@ pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
     )?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
-    verify_unpause(&ctx.accounts.mint.to_account_info())?;
+    require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     // ── Verify mint has not been deactivated ──────────────────────────────────
-    verify_deactivate(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     Ok(())
 }

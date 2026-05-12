@@ -6,9 +6,9 @@ use spl_token_metadata_interface::{
 };
 
 use crate::constants;
-use cmtat_common::verify_deactivate;
+use cmtat_common::require_active;
 use cmtat_common::verify_deployer;
-use cmtat_common::verify_unpause;
+use cmtat_common::require_not_paused;
 
 
 /// Removes a custom key-value pair from `additional_metadata`.
@@ -29,12 +29,12 @@ pub fn remove_metadata_field(
     )?;
 
     // ── Verify mint is not paused ───────────────────────────
-    verify_unpause(
+    require_not_paused(
         &ctx.accounts.mint.to_account_info(),
     )?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    verify_deactivate(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();

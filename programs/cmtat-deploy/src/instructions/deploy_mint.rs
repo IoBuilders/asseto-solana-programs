@@ -126,7 +126,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             None,            // no authority — pointer is permanently locked
             Some(mint_key),
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
@@ -137,7 +137,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             &mint_key,
             &ctx.accounts.permanent_delegate_authority.key(),
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
@@ -153,7 +153,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             &mint_key,
             &AccountState::Frozen,
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
@@ -164,7 +164,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             &mint_key,
             &ctx.accounts.pausable_authority.key(),
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
@@ -180,7 +180,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             Some(ctx.accounts.transfer_hook_authority.key()),
             Some(constants::TRANSFER_HOOK_PROGRAM_ID),
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
@@ -202,7 +202,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             Some(&ctx.accounts.freeze_authority.key()),
             params.decimals,
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
@@ -295,7 +295,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             &ctx.accounts.temp_mint_authority.key(),
             &[],
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.temp_mint_authority.to_account_info(),
@@ -451,7 +451,7 @@ pub struct DeployMint<'info> {
     pub transfer_hook_authority: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList PDA for the transfer hook.
-    /// Created and initialised by the initialize_extra_account_meta_list CPI (step 14).
+    /// Created and initialized by the initialize_extra_account_meta_list CPI (step 14).
     ///
     /// CHECK: Created during the CPI; seeds/bump verified by constraint.
     #[account(

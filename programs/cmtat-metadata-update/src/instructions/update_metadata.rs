@@ -11,9 +11,9 @@ use spl_token_metadata_interface::{
 };
 
 use crate::constants;
-use cmtat_common::verify_deactivate;
+use cmtat_common::require_active;
 use cmtat_common::verify_deployer;
-use cmtat_common::verify_unpause;
+use cmtat_common::require_not_paused;
 
 
 /// Converts a plain string key into the typed `Field` enum.
@@ -78,10 +78,10 @@ pub fn update_metadata_field(
     )?;
 
     // ── Verify mint is not paused ────────────────────────────────────────────
-    verify_unpause(&ctx.accounts.mint.to_account_info())?;
+    require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    verify_deactivate(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
@@ -91,10 +91,10 @@ pub fn update_metadata_field(
     let additional_lamports = {
         let mint_data = ctx.accounts.mint.try_borrow_data()?;
         let mint_state = StateWithExtensions::<MintState>::unpack(&mint_data)
-            .map_err(anchor_lang::error::Error::from)?;
+            .map_err(Error::from)?;
         let meta = mint_state
             .get_variable_len_extension::<TokenMetadata>()
-            .map_err(anchor_lang::error::Error::from)?;
+            .map_err(Error::from)?;
 
         let old_size = packed_meta_size(&meta);
         let new_size = new_packed_meta_size(&meta, &field, &value);

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::instruction::mint_to;
-use cmtat_common::verify_deactivate;
+use cmtat_common::require_active;
 use cmtat_common::verify_deployer;
 use cmtat_freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use cmtat_snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
@@ -30,7 +30,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     )?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    verify_deactivate(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     // ── If whitelist mode is active, verify destination is whitelisted ────────
     if get_transfer_mode(&ctx.accounts.transfer_control_mode_pda.to_account_info())?
@@ -106,7 +106,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
             &[],
             amount,
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.destination.to_account_info(),
