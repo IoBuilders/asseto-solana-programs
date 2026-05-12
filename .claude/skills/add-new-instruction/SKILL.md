@@ -16,7 +16,7 @@ One file per handler under `programs/cmtat-<x>/src/instructions/<name>.rs`. The 
 ```rust
 use anchor_lang::prelude::*;
 use crate::constants;
-use cmtat_common::{verify_deployer, verify_deactivate /*, verify_unpause */};
+use cmtat_common::{verify_deployer, require_active /*, require_not_paused */};
 
 pub fn <name>(ctx: Context<MyAccounts>, /* args */) -> Result<()> {
     // preconditions (see §4)
@@ -53,7 +53,7 @@ See the **Instruction Categories** table in `CLAUDE.md`. The category drives you
 
 | Category | Authorisation |
 |---|---|
-| **Management** | Deployer-gated. Start the handler with `verify_deployer(&mint_owner_pda, &deployer.key())?`. Usually also `verify_unpause(&mint)?` and/or `verify_deactivate(&deactivate_pda)?`. |
+| **Management** | Deployer-gated. Start the handler with `verify_deployer(&mint_owner_pda, &deployer.key())?`. Usually also `require_not_paused(&mint)?` and/or `require_active(&deactivate_pda)?`. |
 | **Operational** | Caller is a token holder. Use program-specific gates (ownership, whitelist, etc.). |
 | **Auxiliary** | Only callable via CPI from another program. Take a `calling_authority: Signer<'info>` and at runtime `require!(calling_authority.key() == <expected PDA>, ...)`. The expected PDA is derived from seeds owned by the authorised program (see `cmtat-freeze` for the canonical 3-caller example). |
 
@@ -63,11 +63,11 @@ Order matters, and it's consistent across the workspace:
 
 ```rust
 verify_deployer(&ctx.accounts.mint_owner_pda.to_account_info(), &ctx.accounts.deployer.key())?;
-verify_unpause(&ctx.accounts.mint.to_account_info())?;   // if the mint must not be paused
-verify_deactivate(&ctx.accounts.deactivate_pda.to_account_info())?;
+require_not_paused(&ctx.accounts.mint.to_account_info())?;   // if the mint must not be paused
+require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 ```
 
-Skip `verify_unpause` if the instruction should remain callable while paused. Skip `verify_deactivate` only for instructions *about* deactivation itself.
+Skip `require_not_paused` if the instruction should remain callable while paused. Skip `require_active` only for instructions *about* deactivation itself.
 
 ## 5. Account-struct conventions
 

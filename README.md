@@ -42,8 +42,8 @@ programs/cmtat-<name>/src/
 **`cmtat-common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
 - `state::MintOwner` — struct for the `mint_owner_pda` created by `cmtat-deploy`; defined here so downstream programs avoid importing `cmtat-deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `cmtat-deploy` defines its own `#[account] MintOwner` wrapping the same fields for `Account<MintOwner>` usage.
 - `verify_deployer()` — Borsh-deserializes `MintOwner` (skipping discriminator) and checks the signer.
-- `verify_deactivate()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
-- `verify_unpause()` — parses the `PausableConfig` extension of the mint and errors if paused.
+- `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
+- `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
 
 ---
 
@@ -86,7 +86,7 @@ Every program exposes instructions in one of three categories:
 
 | Category | Caller | Auth check |
 |---|---|---|
-| **Management** | Deployer | `verify_deployer()` + optional `verify_unpause()` / `verify_deactivate()` |
+| **Management** | Deployer | `verify_deployer()` + optional `require_not_paused()` / `require_active()` |
 | **Operational** | Token holders / participants | Program-specific access controls |
 | **Auxiliary** | Other programs via CPI only | Requires a specific known PDA as `Signer` (only the authorized program can produce it via `invoke_signed`) |
 

@@ -88,8 +88,8 @@ Sets (or replaces) the Token-2022 mint used to settle coupon payments for this b
 | 0 | `payer` | Signer, mut. Funds rent on first call. |
 | 1 | `deployer` | Signer. Verified against `mint_owner_pda` via `verify_deployer`. |
 | 2 | `mint_owner_pda` | Owned by `cmtat-deploy`. Seeds `["mint_owner", mint]`. |
-| 3 | `deactivate_pda` | Owned by `cmtat-deactivate`. Seeds `["deactivate", mint]`. Must not exist (verified by `verify_deactivate`). |
-| 4 | `mint` | Bond's Token-2022 mint. Pause state checked by `verify_unpause`. |
+| 3 | `deactivate_pda` | Owned by `cmtat-deactivate`. Seeds `["deactivate", mint]`. Must not exist (verified by `require_active`). |
+| 4 | `mint` | Bond's Token-2022 mint. Pause state checked by `require_not_paused`. |
 | 5 | `treasury_config` | Owned by `cmtat-treasury`. `init_if_needed`. Seeds `["treasury_config", mint]`. |
 | 6 | `payment_mint` | `InterfaceAccount<Mint>` — classic SPL or Token-2022. Decimals read here. |
 | 7 | `system_program` | — |
@@ -146,7 +146,7 @@ The `coupon_paid` marker PDA is created via `init` (not `init_if_needed`). The s
 | 1 | `deployer` | Signer. Verified via `verify_deployer`. |
 | 2 | `mint_owner_pda` | Seeds `["mint_owner", mint]`. |
 | 3 | `deactivate_pda` | Seeds `["deactivate", mint]`. Must not exist. |
-| 4 | `mint` | Bond's Token-2022 mint, loaded as `InterfaceAccount<Mint>` so `decimals` is available for the payout math. Pause state checked by `verify_unpause` from the same account data. |
+| 4 | `mint` | Bond's Token-2022 mint, loaded as `InterfaceAccount<Mint>` so `decimals` is available for the payout math. Pause state checked by `require_not_paused` from the same account data. |
 | 5 | `treasury_config` | Read-only. Seeds `["treasury_config", mint]`. |
 | 6 | `treasury_authority` | PDA. Seeds `["treasury_authority", mint]`. Signs the transfer via `invoke_signed`. |
 | 7 | `payment_mint` | `InterfaceAccount<Mint>`. Anchor enforces `address = treasury_config.payment_mint` and `mint::token_program = token_program`. |

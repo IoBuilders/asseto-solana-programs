@@ -19,7 +19,7 @@ amount: u64  // raw token units to burn
 ### Preconditions
 
 - `verify_deployer` — only the deployer may burn.
-- `verify_deactivate` — mint must not be deactivated.
+- `require_active` — mint must not be deactivated.
 
 ### Accounts
 
@@ -43,7 +43,7 @@ amount: u64  // raw token units to burn
 ### Execution
 
 1. `verify_deployer(&mint_owner_pda, &deployer.key())`
-2. `verify_deactivate(&deactivate_pda)`
+2. `require_active(&deactivate_pda)`
 3. CPI → `cmtat_snapshot::update_totalsupply_snapshot` signed with `["permanent_delegate", mint, bump]` — records pre-burn supply into the active snapshot (no-op if none)
 4. CPI → `cmtat_snapshot::update_holderbalance_snapshot(0, true)` signed with `["permanent_delegate", mint, bump]` — records pre-burn holder balance (no adjustment)
 5. CPI → `cmtat_freeze::unblock_account(token_account)` signed with `["permanent_delegate", mint, bump]`

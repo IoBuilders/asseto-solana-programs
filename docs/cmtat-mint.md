@@ -40,7 +40,7 @@ amount: u64  // raw token units (accounting for decimals)
 ### Execution
 
 1. `verify_deployer(&mint_owner_pda, &deployer.key())`
-2. `verify_deactivate(&deactivate_pda)` — errors if the mint has been deactivated
+2. `require_active(&deactivate_pda)` — errors if the mint has been deactivated
 3. If whitelist mode is active (`get_transfer_mode(&transfer_control_mode_pda) == Some(TransferMode::Whitelist)`): `verify_whitelist(&destination_whitelist_pda)` — errors if destination is not whitelisted
 4. CPI → `cmtat_snapshot::update_totalsupply_snapshot` signed with `["mint_authority", mint, bump]` — records pre-mint supply into the active snapshot (no-op if none)
 5. CPI → `cmtat_snapshot::update_holderbalance_snapshot(0, true)` signed with `["mint_authority", mint, bump]` — records pre-mint destination balance (no adjustment)

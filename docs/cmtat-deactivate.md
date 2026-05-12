@@ -2,7 +2,7 @@
 
 Program ID: `8rds1q4evGug816bswEEmDmJSymq86sq7mgYRcPQP996`
 
-Permanently deactivates a Token-2022 mint by creating an on-chain marker PDA. Once deactivated, the mint cannot be minted, burned, or operated on — every other CMTAT program checks `verify_deactivate` before executing.
+Permanently deactivates a Token-2022 mint by creating an on-chain marker PDA. Once deactivated, the mint cannot be minted, burned, or operated on — every other CMTAT program checks `require_active` before executing.
 
 Deactivation is intentionally one-way: there is no `reactivate` instruction and the `deactivate_pda` is never closed.
 
@@ -19,7 +19,7 @@ pub struct DeactivateStatus {
 // Seeds: ["deactivate", mint]
 ```
 
-Marker PDA. Its existence on-chain is the deactivation signal. `cmtat-common::verify_deactivate` checks `data_is_empty()` on this account — if non-empty (i.e., initialized), it returns `Err(CmtatCommonError::Deactivated)`.
+Marker PDA. Its existence on-chain is the deactivation signal. `cmtat-common::require_active` checks `data_is_empty()` on this account — if non-empty (i.e., initialized), it returns `Err(CmtatCommonError::Deactivated)`.
 
 ---
 
@@ -32,7 +32,7 @@ Creates the `deactivate_pda` marker. After this call, all calls to `cmtat-mint::
 ### Preconditions
 
 - `verify_deployer` — only the deployer may deactivate.
-- `verify_unpause` — mint must not be paused (deactivation from paused state is disallowed).
+- `require_not_paused` — mint must not be paused (deactivation from paused state is disallowed).
 
 ### Accounts
 
@@ -40,14 +40,14 @@ Creates the `deactivate_pda` marker. After this call, all calls to `cmtat-mint::
 |---|---|---|---|---|
 | `deployer` | yes | yes | Signer | Funds the PDA creation |
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
-| `mint` | no | no | UncheckedAccount | Read by `verify_unpause` (checks the Pausable extension) |
+| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` (checks the Pausable extension) |
 | `deactivate_pda` | yes | no | `Account<DeactivateStatus>` | init; seeds `["deactivate", mint]` |
 | `system_program` | no | no | Program<System> | |
 
 ### Execution
 
 1. `verify_deployer(&mint_owner_pda, &deployer.key())`
-2. `verify_unpause(&mint)` — ensures the mint is not already paused
+2. `require_not_paused(&mint)` — ensures the mint is not already paused
 3. Anchor `init` constraint creates and initializes `deactivate_pda` with `bump`
 
 ---

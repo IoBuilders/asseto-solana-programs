@@ -4,7 +4,7 @@ Program ID: `9GjHsbG5MgerXdyWRmNVMP9uXzi9iZyRyCrKw1LnSw1w`
 
 Controls the Token-2022 `Pausable` extension. Owns the `["pausable_authority", mint]` PDA registered as the pausable authority during `deploy_mint`. When the mint is paused, Token-2022 rejects all `mint_to`, `burn`, and `transfer_checked` instructions at the protocol level.
 
-The pause state is also checked by `cmtat-common::verify_unpause`, which is called by `cmtat-freeze` (management instructions) and `cmtat-transfer-control` before any management operation.
+The pause state is also checked by `cmtat-common::require_not_paused`, which is called by `cmtat-freeze` (management instructions) and `cmtat-transfer-control` before any management operation.
 
 ---
 
@@ -17,7 +17,7 @@ Pauses the Token-2022 mint. All minting, burning, and transfers are blocked by T
 ### Preconditions
 
 - `verify_deployer` — only the deployer may pause.
-- `verify_deactivate` — mint must not be deactivated.
+- `require_active` — mint must not be deactivated.
 
 ### Accounts
 
@@ -33,7 +33,7 @@ Pauses the Token-2022 mint. All minting, burning, and transfers are blocked by T
 ### Execution
 
 1. `verify_deployer(&mint_owner_pda, &deployer.key())`
-2. `verify_deactivate(&deactivate_pda)`
+2. `require_active(&deactivate_pda)`
 3. `invoke_signed` → `spl_pause(mint, pausable_authority)` signed with `["pausable_authority", mint, bump]`
 
 ---
@@ -47,7 +47,7 @@ Unpauses the Token-2022 mint. Resumes normal minting, burning, and transfers.
 ### Preconditions
 
 - `verify_deployer` — only the deployer may unpause.
-- `verify_deactivate` — mint must not be deactivated.
+- `require_active` — mint must not be deactivated.
 
 ### Accounts
 

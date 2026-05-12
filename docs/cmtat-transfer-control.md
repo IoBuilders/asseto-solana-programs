@@ -78,7 +78,7 @@ Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when `Some`.
 
 ### Preconditions
 
-- `verify_deployer`, `verify_unpause`, `verify_deactivate`
+- `verify_deployer`, `require_not_paused`, `require_active`
 
 ### Accounts
 
@@ -86,7 +86,7 @@ Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when `Some`.
 |---|---|---|---|---|
 | `deployer` | yes | yes | Signer | Funds PDA creation if needed |
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
-| `mint` | no | no | UncheckedAccount | Read by `verify_unpause` |
+| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = CMTAT_DEACTIVATE_PROGRAM_ID` |
 | `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | `init_if_needed`; seeds `["transfer_control_mode", mint]` |
 | `system_program` | no | no | Program<System> | |
@@ -101,7 +101,7 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 
 ### Preconditions
 
-- `verify_deployer`, `verify_unpause`, `verify_deactivate`
+- `verify_deployer`, `require_not_paused`, `require_active`
 
 ### Accounts
 
@@ -109,7 +109,7 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 |---|---|---|---|---|
 | `deployer` | yes | yes | Signer | Funds PDA creation |
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
-| `mint` | no | no | UncheckedAccount | Read by `verify_unpause` |
+| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | Token account to whitelist; used as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = CMTAT_DEACTIVATE_PROGRAM_ID` |
 | `whitelist_pda` | yes | no | Account | `init_if_needed`; seeds `["whitelist", mint, account]` |
@@ -125,7 +125,7 @@ Closes the `whitelist_pda` and returns rent to `deployer`. If the PDA does not e
 
 ### Preconditions
 
-- `verify_deployer`, `verify_unpause`, `verify_deactivate`
+- `verify_deployer`, `require_not_paused`, `require_active`
 
 ### Accounts
 

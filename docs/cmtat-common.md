@@ -46,10 +46,10 @@ Borsh-deserializes the `MintOwner` stored in `mint_owner_pda` (skipping the 8-by
 
 ---
 
-## Function: `verify_deactivate`
+## Function: `require_active`
 
 ```rust
-pub fn verify_deactivate(deactivate_pda: &AccountInfo) -> Result<()>
+pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()>
 ```
 
 Checks that `deactivate_pda` (seeds `["deactivate", mint]`, owned by `cmtat-deactivate`) has empty data. An empty account means the mint has not been deactivated. Returns `Err(CmtatCommonError::Deactivated)` if the PDA exists.
@@ -58,10 +58,10 @@ Callers pass the account as `&AccountInfo` to avoid importing `cmtat-deactivate`
 
 ---
 
-## Function: `verify_unpause`
+## Function: `require_not_paused`
 
 ```rust
-pub fn verify_unpause(mint_account: &AccountInfo) -> Result<()>
+pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()>
 ```
 
 Parses the Token-2022 extension data of the mint using `StateWithExtensions::<Mint>::unpack` and locates the `PausableConfig` extension. Returns `Err(CmtatCommonError::MintPaused)` if `pausable_config.paused` is `true`. Returns `Ok(())` if the extension is absent or the mint is not paused.
@@ -78,5 +78,5 @@ cmtat-common = { path = "../cmtat-common" }
 
 Then call the helpers directly:
 ```rust
-use cmtat_common::{verify_deployer, verify_deactivate, verify_unpause};
+use cmtat_common::{verify_deployer, require_active, require_not_paused};
 ```

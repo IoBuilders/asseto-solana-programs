@@ -25,7 +25,7 @@ pub struct FrozenAccountStatus {
 // Seeds: ["frozen_account", mint, account]
 ```
 
-Marker PDA. Exists if and only if the account has been frozen at the CMTAT management level by `freeze_account`. Its mere existence blocks transfers out of the account (checked by `verify_frozen_account` in `cmtat-transfer`).
+Marker PDA. Exists if and only if the account has been frozen at the CMTAT management level by `freeze_account`. Its mere existence blocks transfers out of the account (checked by `require_unfrozen_account` in `cmtat-transfer`).
 
 ### `FrozenBalance`
 
@@ -39,7 +39,7 @@ pub struct FrozenBalance {
 // Seeds: ["frozen_balance", mint, account]
 ```
 
-Records the amount of tokens locked in a partial freeze. Created or updated by `partially_freeze_account`. `verify_frozen_account_balance` in `cmtat-transfer` reads this to enforce that the unfrozen balance covers the transfer amount.
+Records the amount of tokens locked in a partial freeze. Created or updated by `partially_freeze_account`. `require_unfrozen_balance` in `cmtat-transfer` reads this to enforce that the unfrozen balance covers the transfer amount.
 
 ---
 
@@ -59,18 +59,18 @@ pub enum ErrorCode {
 
 These functions are called by `cmtat-transfer` (and any future operational program) to gate transfers.
 
-### `verify_frozen_account`
+### `require_unfrozen_account`
 
 ```rust
-pub fn verify_frozen_account(frozen_account_pda: &AccountInfo) -> Result<()>
+pub fn require_unfrozen_account(frozen_account_pda: &AccountInfo) -> Result<()>
 ```
 
 Returns `Err(ErrorCode::AccountFrozen)` if the `frozen_account_pda` account exists (has non-empty data). Pass as `&AccountInfo` with seeds `["frozen_account", mint, account]`, `seeds::program = CMTAT_FREEZE_PROGRAM_ID`.
 
-### `verify_frozen_account_balance`
+### `require_unfrozen_balance`
 
 ```rust
-pub fn verify_frozen_account_balance(
+pub fn require_unfrozen_balance(
     amount: u64,
     token_account: &AccountInfo,
     frozen_balance_pda: &AccountInfo,
@@ -124,13 +124,13 @@ No parameters. Same accounts and authorization model as `block_account`.
 
 No parameters.
 
-Creates the `frozen_account_pda` marker. After this call `verify_frozen_account` will reject any transfer attempt on this account.
+Creates the `frozen_account_pda` marker. After this call `require_unfrozen_account` will reject any transfer attempt on this account.
 
 ### Preconditions
 
 - `verify_deployer` — only the deployer may freeze.
-- `verify_unpause` — mint must not be paused.
-- `verify_deactivate` — mint must not be deactivated.
+- `require_not_paused` — mint must not be paused.
+- `require_active` — mint must not be deactivated.
 
 ### Accounts
 
@@ -138,7 +138,7 @@ Creates the `frozen_account_pda` marker. After this call `verify_frozen_account`
 |---|---|---|---|---|
 | `deployer` | yes | yes | Signer | Funds the PDA creation |
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
-| `mint` | no | no | UncheckedAccount | Read by `verify_unpause` |
+| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | The token account to freeze; used only as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = CMTAT_DEACTIVATE_PROGRAM_ID` |
 | `frozen_account_pda` | yes | no | `Account<FrozenAccountStatus>` | init; seeds `["frozen_account", mint, account]` |
@@ -154,7 +154,7 @@ Closes the `frozen_account_pda` marker and returns rent to `deployer`.
 
 ### Preconditions
 
-- `verify_deployer`, `verify_unpause`, `verify_deactivate`
+- `verify_deployer`, `require_not_paused`, `require_active`
 
 ### Accounts
 
@@ -162,7 +162,7 @@ Closes the `frozen_account_pda` marker and returns rent to `deployer`.
 |---|---|---|---|---|
 | `deployer` | yes | yes | Signer | Receives the closed PDA's lamports |
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
-| `mint` | no | no | UncheckedAccount | Read by `verify_unpause` |
+| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | The token account to unfreeze; used only as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = CMTAT_DEACTIVATE_PROGRAM_ID` |
 | `frozen_account_pda` | yes | no | `Account<FrozenAccountStatus>` | `close = deployer`; seeds `["frozen_account", mint, account]` |
@@ -177,11 +177,11 @@ Closes the `frozen_account_pda` marker and returns rent to `deployer`.
 balance: u64  // amount to lock (must not exceed actual token balance)
 ```
 
-Creates the `frozen_balance_pda` on first call; overwrites `balance` on subsequent calls (`init_if_needed`). After this call `verify_frozen_account_balance` will prevent transfers that would reduce the unfrozen portion below zero.
+Creates the `frozen_balance_pda` on first call; overwrites `balance` on subsequent calls (`init_if_needed`). After this call `require_unfrozen_balance` will prevent transfers that would reduce the unfrozen portion below zero.
 
 ### Preconditions
 
-- `verify_deployer`, `verify_unpause`, `verify_deactivate`
+- `verify_deployer`, `require_not_paused`, `require_active`
 
 ### Accounts
 
@@ -189,7 +189,7 @@ Creates the `frozen_balance_pda` on first call; overwrites `balance` on subseque
 |---|---|---|---|---|
 | `deployer` | yes | yes | Signer | Funds PDA creation if needed |
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
-| `mint` | no | no | UncheckedAccount | Read by `verify_unpause` |
+| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | The token account to partially freeze; used only as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = CMTAT_DEACTIVATE_PROGRAM_ID` |
 | `frozen_balance_pda` | yes | no | `Account<FrozenBalance>` | `init_if_needed`; seeds `["frozen_balance", mint, account]` |

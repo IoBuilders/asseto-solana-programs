@@ -70,8 +70,8 @@ Creates the `bond_terms` PDA on the first call (`init_if_needed`) and overwrites
 ### Preconditions
 
 - `verify_deployer` — only the deployer recorded in `mint_owner_pda` may call.
-- `verify_unpause` — mint must not be paused.
-- `verify_deactivate` — mint must not have been deactivated.
+- `require_not_paused` — mint must not be paused.
+- `require_active` — mint must not have been deactivated.
 
 ### Accounts
 
@@ -81,7 +81,7 @@ Creates the `bond_terms` PDA on the first call (`init_if_needed`) and overwrites
 | `deployer` | no | yes | Signer | Authorisation target for `verify_deployer`. |
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = CMTAT_DEACTIVATE_PROGRAM_ID`; must be empty |
-| `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `verify_unpause` |
+| `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `require_not_paused` |
 | `bond_terms` | yes | no | `Account<BondTerms>` | `init_if_needed`; seeds `["bond_terms", mint]`, `payer = payer`, `space = BondTerms::LEN` |
 | `system_program` | no | no | Program<System> | |
 

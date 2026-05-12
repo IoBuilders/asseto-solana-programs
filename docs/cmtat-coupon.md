@@ -80,8 +80,8 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 ### Preconditions
 
 - `verify_deployer` — only the deployer recorded in `mint_owner_pda` may call.
-- `verify_unpause` — mint must not be paused.
-- `verify_deactivate` — mint must not have been deactivated.
+- `require_not_paused` — mint must not be paused.
+- `require_active` — mint must not have been deactivated.
 
 ### Execution
 
@@ -100,7 +100,7 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 | `deployer` | no | yes | Signer | Authorisation target for `verify_deployer` |
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = CMTAT_DEACTIVATE_PROGRAM_ID`; must be empty |
-| `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `verify_unpause` |
+| `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `require_not_paused` |
 | `coupon_authority` | no | no | UncheckedAccount | seeds `["coupon_authority", mint]`; signs the `take_snapshot` CPI via `invoke_signed` |
 | `coupon_counter` | yes | no | `Account<CouponCounter>` | `init_if_needed`; seeds `["coupon_counter", mint]`, `payer = payer` |
 | `coupon` | yes | no | `Account<Coupon>` | `init`; seeds `["coupon", mint, coupon_id.to_le_bytes()]`, `payer = payer` |

@@ -57,7 +57,7 @@ The workspace `Cargo.toml` picks programs up via the `programs/*` glob, so nothi
 
 Every instruction belongs to one of the three categories in `CLAUDE.md`'s **Instruction Categories** table. Use the matching authorization pattern:
 
-- **Management** — caller is the deployer. Gate with `cmtat_common::verify_deployer` + optionally `verify_unpause` / `verify_deactivate`.
+- **Management** — caller is the deployer. Gate with `cmtat_common::verify_deployer` + optionally `require_not_paused` / `require_active`.
 - **Operational** — caller is a token holder / participant. Gate with program-specific access rules (ownership checks, whitelist, etc.).
 - **Auxiliary** — callable only via CPI from another program. Declare `calling_authority: Signer` and check at runtime that its pubkey equals a known PDA (`mint_authority` / `permanent_delegate` / `transfer_hook_authority` / …). No external wallet can produce those signatures.
 

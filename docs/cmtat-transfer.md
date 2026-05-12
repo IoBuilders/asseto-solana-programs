@@ -65,7 +65,7 @@ positions.
 | Idx | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|---|
 | 0 | `source_owner` | no | yes | Signer | Token holder authorising the transfer |
-| 1 | `source` | no | no | UncheckedAccount | Source token account; balance read for `verify_frozen_account_balance` |
+| 1 | `source` | no | no | UncheckedAccount | Source token account; balance read for `require_unfrozen_balance` |
 | 2 | `destination` | no | no | UncheckedAccount | Used as a seed for `destination_whitelist_pda` |
 | 3 | `mint` | no | no | UncheckedAccount | Token-2022 mint |
 | 4 | `deployer` | no | *cond.* | UncheckedAccount | Must sign in clearing mode; otherwise present but unused |
@@ -79,15 +79,15 @@ positions.
 
 ### Execution
 
-1. `verify_deactivate(&deactivate_pda)` — mint must not be deactivated.
+1. `require_active(&deactivate_pda)` — mint must not be deactivated.
 2. Transfer-control mode dispatch via `get_transfer_mode(&transfer_control_mode_pda)`:
    - `None` — no controls; proceed.
    - `Some(TransferMode::Clearing)` — require `deployer.is_signer` and
      `verify_deployer(&mint_owner_pda, &deployer.key())`.
    - `Some(TransferMode::Whitelist)` — `verify_whitelist(&source_whitelist_pda)`
      and `verify_whitelist(&destination_whitelist_pda)`.
-3. `verify_frozen_account(&source_frozen_pda)` — source must not be fully frozen.
-4. `verify_frozen_account_balance(amount, &source, &source_frozen_balance_pda)`
+3. `require_unfrozen_account(&source_frozen_pda)` — source must not be fully frozen.
+4. `require_unfrozen_balance(amount, &source, &source_frozen_balance_pda)`
    — pre-debit available balance covers `amount`.
 
 No token movement, no CPIs, no state changes. Pure read-only check.

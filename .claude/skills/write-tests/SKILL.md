@@ -123,7 +123,7 @@ This is the part that most often breaks a test. Pick the right one based on **wh
 | Where the error comes from | Caught as | How to assert |
 |---|---|---|
 | Directly in the instruction you called (`cmtat-pause::pause`, `cmtat-mint::mint`, etc.) | `AnchorError` | `assert.instanceOf(err, AnchorError)` then `anchorErr.error.errorCode.code === "Deactivated"` |
-| Inside a sibling program reached via Anchor CPI (e.g. `verify_deactivate` in the instruction you called) | `AnchorError` — Anchor parses it from logs | same as above |
+| Inside a sibling program reached via Anchor CPI (e.g. `require_active` in the instruction you called) | `AnchorError` — Anchor parses it from logs | same as above |
 | Inside `cmtat-transfer-hook::execute` invoked by Token-2022 | `SendTransactionError` — Anchor can't parse the error from that depth | either `assert.instanceOf(err, SendTransactionError)` + `logs.some(l => l.includes("<substring>"))`, **or** `AnchorError.parse(sendErr.logs)` then assert on the returned code |
 | Token-2022 native error (e.g. owner mismatch, mint paused, insufficient funds) | `SendTransactionError` | inspect `(err as SendTransactionError).logs` for a Token-2022-specific substring like `"owner does not match"` or `"paused"` |
 

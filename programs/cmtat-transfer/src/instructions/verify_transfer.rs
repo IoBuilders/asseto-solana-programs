@@ -71,7 +71,7 @@ pub struct VerifyTransfer<'info> {
     pub source_owner: Signer<'info>,
 
     /// 1 — Source token account.
-    /// CHECK: Validated via spl-token-2022 unpack inside `verify_frozen_account_balance`.
+    /// CHECK: Validated via spl-token-2022 unpack inside `require_unfrozen_balance`.
     pub source: UncheckedAccount<'info>,
 
     /// 2 — Destination token account.
