@@ -1,25 +1,25 @@
 ---
 name: write-tests
-description: Use when writing tests in the cmtat-one-atelier-poc workspace — either adding a new test case to an existing `tests/cmtat-XXXX.ts` file or (rarer) scaffolding a new test file for a program. Triggers on "add a test for cmtat-X", "write a test for the Y instruction", "cover Z with a test", "create the test file for W". Covers: the `deployMint()` / `mintTokens()` helper shape, program workspace references, Anchor-0.32 `as Program<any>` workaround, the `AnchorError` vs `SendTransactionError` decision (the subtle part), shared helpers (`snapshotAccounts`, `transferSnapshotAccounts`, `fundTransferHookAuthority`), pre-instructions for transfer tests, and running a single suite.
+description: Use when writing tests in the asseto-solana-programs workspace — either adding a new test case to an existing `tests/<name>.ts` file or (rarer) scaffolding a new test file for a program. Triggers on "add a test for X", "write a test for the Y instruction", "cover Z with a test", "create the test file for W". Covers: the `deployMint()` / `mintTokens()` helper shape, program workspace references, Anchor-0.32 `as Program<any>` workaround, the `AnchorError` vs `SendTransactionError` decision (the subtle part), shared helpers (`snapshotAccounts`, `transferSnapshotAccounts`, `fundTransferHookAuthority`), pre-instructions for transfer tests, and running a single suite.
 ---
 
 # Writing Tests
 
 ## Start by reading a sibling
 
-Before writing anything, open one or two existing `tests/cmtat-<x>.ts` files and scan them. This skill captures *why* the patterns look the way they do; the sibling file shows the current exact shape. `cmtat-pause.ts` is the simplest happy-path+error pattern to copy from; `cmtat-transfer.ts` is the most comprehensive (hook, snapshots, pre-instructions).
+Before writing anything, open one or two existing `tests/<x>.ts` files and scan them. This skill captures *why* the patterns look the way they do; the sibling file shows the current exact shape. `pause.ts` is the simplest happy-path+error pattern to copy from; `transfer.ts` is the most comprehensive (hook, snapshots, pre-instructions).
 
 ## 1. Run a single suite
 
 ```bash
-TEST_FILE=cmtat-<name> anchor test --skip-build
+TEST_FILE=<name> anchor test --skip-build
 ```
 
 `TEST_FILE` is the filename under `tests/` without `.ts`. Leaving it unset runs every suite. Use `--skip-build` once you've done a fresh `anchor build`.
 
 ## 2. `describe` structure
 
-Every test file has exactly one top-level `describe("cmtat-<name>", ...)` block. Program workspace references, helper functions, and `it()` cases all live inside it. The provider is set up at the top:
+Every test file has exactly one top-level `describe("<name>", ...)` block. Program workspace references, helper functions, and `it()` cases all live inside it. The provider is set up at the top:
 
 ```ts
 const provider = anchor.AnchorProvider.env();
@@ -31,10 +31,10 @@ anchor.setProvider(provider);
 Anchor 0.32's strict `ResolvedAccounts` typing rejects calls that pass `mintOwnerPda` (and other PDAs) by hand, so every workspace program except the one whose IDL we fully trust is cast to `any`:
 
 ```ts
-const pauseProgram = anchor.workspace.CmtatPause as Program<any>;
+const pauseProgram = anchor.workspace.Pause as Program<any>;
 ```
 
-The cast is deliberate — don't fight the types. The only program you'd keep as `Program<CmtatX>` is the one whose accounts map is small enough to satisfy the strict types (often `cmtat-deploy` in the helper that calls `deploy_mint`).
+The cast is deliberate — don't fight the types. The only program you'd keep as `Program<Deploy>` is the one whose accounts map is small enough to satisfy the strict types (often `deploy` in the helper that calls `deploy_mint`).
 
 ## 4. `deployMint()` helper (if the file doesn't exist yet)
 
@@ -46,7 +46,7 @@ Every test file has a local `deployMint()` helper that:
 
 Don't try to share it across files via `import` — tests need a fresh mint per case and each file's returned tuple is tailored to what it exercises. Copy-paste from the closest sibling and trim the return shape.
 
-If the program needs tokens in some tests, add a `mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, amount)` helper that creates a token account with `createAccount(...)` from `@solana/spl-token`, then calls `mintProgram.methods.mint(amount)...`. `cmtat-transfer.ts` and `cmtat-operations.ts` have the reference implementation; the correct set of snapshot accounts comes from the `snapshotAccounts()` helper below.
+If the program needs tokens in some tests, add a `mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, amount)` helper that creates a token account with `createAccount(...)` from `@solana/spl-token`, then calls `mintProgram.methods.mint(amount)...`. `transfer.ts` and `operations.ts` have the reference implementation; the correct set of snapshot accounts comes from the `snapshotAccounts()` helper below.
 
 ## 5. Snapshot helpers
 
@@ -122,9 +122,9 @@ This is the part that most often breaks a test. Pick the right one based on **wh
 
 | Where the error comes from | Caught as | How to assert |
 |---|---|---|
-| Directly in the instruction you called (`cmtat-pause::pause`, `cmtat-mint::mint`, etc.) | `AnchorError` | `assert.instanceOf(err, AnchorError)` then `anchorErr.error.errorCode.code === "Deactivated"` |
+| Directly in the instruction you called (`pause::pause`, `mint::mint`, etc.) | `AnchorError` | `assert.instanceOf(err, AnchorError)` then `anchorErr.error.errorCode.code === "Deactivated"` |
 | Inside a sibling program reached via Anchor CPI (e.g. `require_active` in the instruction you called) | `AnchorError` — Anchor parses it from logs | same as above |
-| Inside `cmtat-transfer-hook::execute` invoked by Token-2022 | `SendTransactionError` — Anchor can't parse the error from that depth | either `assert.instanceOf(err, SendTransactionError)` + `logs.some(l => l.includes("<substring>"))`, **or** `AnchorError.parse(sendErr.logs)` then assert on the returned code |
+| Inside `transfer-hook::execute` invoked by Token-2022 | `SendTransactionError` — Anchor can't parse the error from that depth | either `assert.instanceOf(err, SendTransactionError)` + `logs.some(l => l.includes("<substring>"))`, **or** `AnchorError.parse(sendErr.logs)` then assert on the returned code |
 | Token-2022 native error (e.g. owner mismatch, mint paused, insufficient funds) | `SendTransactionError` | inspect `(err as SendTransactionError).logs` for a Token-2022-specific substring like `"owner does not match"` or `"paused"` |
 
 Canonical templates:

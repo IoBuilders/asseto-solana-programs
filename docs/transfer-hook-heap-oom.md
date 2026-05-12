@@ -13,7 +13,7 @@
 
 ## TL;DR
 
-Every test in `cmtat-transfer` that actually invokes Token-2022's `transfer_checked`
+Every test in `transfer` that actually invokes Token-2022's `transfer_checked`
 now fails with:
 
 ```
@@ -35,7 +35,7 @@ allocator.
 
 ## What the failure looks like
 
-From `anchor test --skip-build` (suite `cmtat-transfer`), 6 of 8 transfer tests
+From `anchor test --skip-build` (suite `transfer`), 6 of 8 transfer tests
 now fail with the same root error. Representative log:
 
 ```
@@ -67,16 +67,16 @@ not in our hook logic.
 
 ## Sequence of events inside one failing transfer
 
-Top-level transaction (depth 1) is `cmtat-transfer::transfer`. Inside it:
+Top-level transaction (depth 1) is `transfer::transfer`. Inside it:
 
 | Depth | Program                | Step                                        |
 |-------|------------------------|---------------------------------------------|
-| 2     | `cmtat-freeze`         | `unblock_account(source)`                   |
-| 3     | Token-2022             | `thaw_account` (CPI from `cmtat-freeze`)    |
-| 2     | `cmtat-freeze`         | `unblock_account(destination)`              |
+| 2     | `freeze`         | `unblock_account(source)`                   |
+| 3     | Token-2022             | `thaw_account` (CPI from `freeze`)    |
+| 2     | `freeze`         | `unblock_account(destination)`              |
 | 3     | Token-2022             | `thaw_account`                              |
 | 2     | **Token-2022**         | **`transfer_checked` ← OOMs here**          |
-| (3)   | *(`cmtat-transfer-hook::execute` would be invoked here, but never is)* |
+| (3)   | *(`transfer-hook::execute` would be invoked here, but never is)* |
 
 Inside `Token-2022::transfer_checked`, before the hook is invoked, the program
 must:
@@ -191,9 +191,9 @@ it. Removing the `requestHeapFrame` line would not change the failure.
 
 In rough order from "least invasive" to "most invasive":
 
-1. **Move the compliance checks to `cmtat-transfer`**, so the hook only needs the
+1. **Move the compliance checks to `transfer`**, so the hook only needs the
    accounts required for the snapshot CPI:
-   - cmtat-snapshot program
+   - snapshot program
    - `snapshot_counter` PDA
    - `sender_snapshot`, `receiver_snapshot` PDAs
    - `transfer_hook_authority` PDA
@@ -201,15 +201,15 @@ In rough order from "least invasive" to "most invasive":
 
    That reduces the metalist to 6-entry size, which fits in
    32 KiB. The cost is that any caller invoking Token-2022's `transfer_checked`
-   directly (without going through `cmtat-transfer`) bypasses the compliance
+   directly (without going through `transfer`) bypasses the compliance
    checks. Mitigation: keep the source account permanently frozen at the
-   Token-2022 level (which `cmtat-freeze`'s `DefaultAccountState::Frozen`
-   already does), so any non-`cmtat-transfer` path is rejected by Token-2022
+   Token-2022 level (which `freeze`'s `DefaultAccountState::Frozen`
+   already does), so any non-`transfer` path is rejected by Token-2022
    before reaching the hook at all. This is the cheapest path back to a
    working test suite.
 
 2. **Use instruction introspection.** Expose a new `verify_transfer`
-   instruction on `cmtat-transfer` that runs
+   instruction on `transfer` that runs
    the full compliance suite — deactivation, transfer-mode / whitelist /
    clearing, frozen account, frozen balance — without performing any token
    movement. Callers must place this instruction **immediately before** the
@@ -219,7 +219,7 @@ In rough order from "least invasive" to "most invasive":
 
    - **`current_index - 1` is `verify_transfer`** with matching mint /
      source / destination / amount / authority arguments.
-   - **`current_index` is `cmtat-transfer.transfer`** (the only legitimate
+   - **`current_index` is `transfer.transfer`** (the only legitimate
      top-level entrypoint, since a direct top-level `Token-2022.transfer_checked`
      would always fail at the `DefaultAccountState::Frozen` check anyway)
      with arguments matching the transfer the hook is processing.
@@ -263,7 +263,7 @@ In rough order from "least invasive" to "most invasive":
      instruction earlier in the transaction could mutate state (e.g., update
      the `frozen_balance` PDA) between the verification and the actual
      transfer. The check would then be stale. Today this is unlikely
-     because only `cmtat-freeze` writes those PDAs, but it is a class of
+     because only `freeze` writes those PDAs, but it is a class of
      bug to keep in mind as the codebase grows.
    - **Audit surface.** Introspection-based authorisation is a known
      foot-gun pattern. It needs careful documentation and tests
@@ -280,21 +280,21 @@ the **double-introspection** variant: the hook checks both `current_index - 1`
 
 What landed:
 
-- A new top-level instruction `cmtat-transfer::verify_transfer` runs the full
+- A new top-level instruction `transfer::verify_transfer` runs the full
   CMTAT compliance suite (deactivation, transfer-mode dispatch / clearing /
   whitelist, frozen-account marker, frozen-balance) against the **pre-debit**
   state. No token movement. See
-  [`cmtat-transfer/src/instructions/verify_transfer.rs`](../programs/cmtat-transfer/src/instructions/verify_transfer.rs).
-- `cmtat-transfer-hook::execute` now performs the double introspection check
+  [`transfer/src/instructions/verify_transfer.rs`](../programs/transfer/src/instructions/verify_transfer.rs).
+- `transfer-hook::execute` now performs the double introspection check
   via the `Instructions` sysvar:
-  - `current_index - 1` must be `cmtat-transfer::verify_transfer` with
+  - `current_index - 1` must be `transfer::verify_transfer` with
     matching `source` / `destination` / `mint` / `amount`.
-  - `current_index` must be `cmtat-transfer::transfer` *or*
+  - `current_index` must be `transfer::transfer` *or*
     `Token-2022::TransferChecked`, also with matching args. (The bare
     `Token-2022::TransferChecked` entrypoint is allowed for composability but
     is effectively dead-letter today: `DefaultAccountState::Frozen` plus
-    `cmtat-freeze::unblock_account` access control mean only
-    `cmtat-transfer::transfer` can produce a successful transfer in practice.)
+    `freeze::unblock_account` access control mean only
+    `transfer::transfer` can produce a successful transfer in practice.)
   - Failure raises one of nine granular error variants
     (`PrevInstructionWrongProgram`, `PrevInstructionNotVerifyTransfer`,
     `PrevInstructionArgumentMismatch`, `CurrentInstructionUnknownProgram`,
@@ -305,8 +305,8 @@ What landed:
 - The `ExtraAccountMetaList` shrank from 16 entries to 7. The 10 compliance
   PDAs/programs that used to be forwarded to the hook (`mint_owner_pda`,
   `deactivate_pda`, `deployer`, `transfer_control_mode_pda`,
-  `cmtat-transfer-control` program, source/destination whitelist PDAs,
-  `cmtat-freeze` program, `source_frozen_pda`, `source_frozen_balance_pda`)
+  `transfer-control` program, source/destination whitelist PDAs,
+  `freeze` program, `source_frozen_pda`, `source_frozen_balance_pda`)
   are gone — `verify_transfer` consumes them directly at the top level
   instead. The metalist now lists only what the hook still needs (snapshot
   program + counter + sender/receiver snapshot PDAs + transfer hook authority
@@ -319,12 +319,12 @@ What clients have to do:
 - Submit every transfer as **two adjacent top-level instructions in this
   order**:
   ```
-  N-1:  cmtat-transfer::verify_transfer(amount)
-  N:    cmtat-transfer::transfer(amount)
+  N-1:  transfer::verify_transfer(amount)
+  N:    transfer::transfer(amount)
   ```
   Other instructions (e.g. ComputeBudget) are fine *before* `verify_transfer`,
   but nothing may sit between `verify_transfer` and `transfer`.
-- The test suite [`tests/cmtat-transfer.ts`](../tests/cmtat-transfer.ts)
+- The test suite [`tests/transfer.ts`](../tests/transfer.ts)
   encapsulates this in two helpers — `verifyTransferPdas(...)` and
   `buildVerifyTransferIx(source, destination, mint, amount, sourceOwnerOverride?, deployerOverride?)`
   — so each transfer test drops the result into `.preInstructions([...])`
@@ -332,8 +332,8 @@ What clients have to do:
 
 Residual risk worth flagging in code review: the introspection layer can only
 guarantee adjacency at top level. If a future change ever sneaks a
-state-mutating CPI into `cmtat-transfer::transfer` between its entry and the
-inner `transfer_checked` (today the only CPIs there are `cmtat-freeze`
+state-mutating CPI into `transfer::transfer` between its entry and the
+inner `transfer_checked` (today the only CPIs there are `freeze`
 unblock/block, which don't touch any of the PDAs `verify_transfer` reads),
 the verification could silently go stale. Keep `transfer`'s body tight, and
 document the invariant.

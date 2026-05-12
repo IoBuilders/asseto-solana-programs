@@ -378,6 +378,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bond"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "spl-token-2022",
+]
+
+[[package]]
 name = "borsh"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -552,177 +562,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f88a43d011fc4a6876cb7344703e297c71dda42494fee094d5f7c76bf13f746"
 
 [[package]]
-name = "cmtat-bond"
+name = "common"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-common"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-coupon"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "cmtat-snapshot",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-deactivate"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-deploy"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "cmtat-freeze",
- "cmtat-metadata-update",
- "cmtat-mint",
- "cmtat-operations",
- "cmtat-pause",
- "cmtat-transfer",
- "cmtat-transfer-hook",
- "spl-pod",
- "spl-token-2022",
- "spl-token-metadata-interface",
-]
-
-[[package]]
-name = "cmtat-freeze"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-metadata-update"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "spl-token-2022",
- "spl-token-metadata-interface",
-]
-
-[[package]]
-name = "cmtat-mint"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "cmtat-freeze",
- "cmtat-snapshot",
- "cmtat-transfer-control",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-operations"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "cmtat-freeze",
- "cmtat-snapshot",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-pause"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-snapshot"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-transfer"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "cmtat-freeze",
- "cmtat-transfer-control",
- "cmtat-transfer-hook",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-transfer-control"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "spl-token-2022",
-]
-
-[[package]]
-name = "cmtat-transfer-hook"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-common",
- "cmtat-freeze",
- "cmtat-snapshot",
- "cmtat-transfer-control",
- "spl-tlv-account-resolution",
- "spl-token-2022",
- "spl-transfer-hook-interface",
-]
-
-[[package]]
-name = "cmtat-treasury"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "anchor-spl",
- "cmtat-bond",
- "cmtat-common",
- "cmtat-coupon",
- "cmtat-snapshot",
  "spl-token-2022",
 ]
 
@@ -751,6 +594,17 @@ name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
+
+[[package]]
+name = "coupon"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "snapshot",
+ "spl-token-2022",
+]
 
 [[package]]
 name = "cpufeatures"
@@ -841,6 +695,35 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "deactivate"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "spl-token-2022",
+]
+
+[[package]]
+name = "deploy"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "freeze",
+ "metadata-update",
+ "mint",
+ "operations",
+ "pause",
+ "spl-pod",
+ "spl-token-2022",
+ "spl-token-metadata-interface",
+ "transfer",
+ "transfer-hook",
 ]
 
 [[package]]
@@ -945,6 +828,16 @@ name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+
+[[package]]
+name = "freeze"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "spl-token-2022",
+]
 
 [[package]]
 name = "generic-array"
@@ -1187,6 +1080,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "metadata-update"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "spl-token-2022",
+ "spl-token-metadata-interface",
+]
+
+[[package]]
+name = "mint"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "freeze",
+ "snapshot",
+ "spl-token-2022",
+ "transfer-control",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1260,6 +1177,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
+name = "operations"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "freeze",
+ "snapshot",
+ "spl-token-2022",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1280,6 +1209,16 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "pause"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "spl-token-2022",
 ]
 
 [[package]]
@@ -1606,6 +1545,16 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+
+[[package]]
+name = "snapshot"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "spl-token-2022",
+]
 
 [[package]]
 name = "solana-account"
@@ -3068,6 +3017,57 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
+name = "transfer"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "freeze",
+ "spl-token-2022",
+ "transfer-control",
+ "transfer-hook",
+]
+
+[[package]]
+name = "transfer-control"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "spl-token-2022",
+]
+
+[[package]]
+name = "transfer-hook"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "freeze",
+ "snapshot",
+ "spl-tlv-account-resolution",
+ "spl-token-2022",
+ "spl-transfer-hook-interface",
+ "transfer-control",
+]
+
+[[package]]
+name = "treasury"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "bond",
+ "common",
+ "coupon",
+ "snapshot",
+ "spl-token-2022",
+]
 
 [[package]]
 name = "typenum"
