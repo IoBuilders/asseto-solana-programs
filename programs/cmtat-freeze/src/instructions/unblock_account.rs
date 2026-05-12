@@ -35,7 +35,7 @@ pub fn unblock_account(ctx: Context<UnblockAccount>) -> Result<()> {
             &ctx.accounts.freeze_authority.key(),
             &[],
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[
             ctx.accounts.token_account.to_account_info(),
             ctx.accounts.mint.to_account_info(),

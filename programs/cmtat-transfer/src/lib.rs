@@ -15,6 +15,6 @@ pub mod cmtat_transfer {
     /// Transfers tokens from source to destination.
     /// Operational instruction — called by the token holder who owns the source account.
     pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
-        instructions::transfer_tokens::transfer(ctx, amount)
+        transfer_tokens::transfer(ctx, amount)
     }
 }

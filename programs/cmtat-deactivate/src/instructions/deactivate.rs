@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{verify_deployer, verify_unpause};
+use cmtat_common::{verify_deployer, require_not_paused};
 
 use crate::constants;
 use crate::state::DeactivateStatus;
@@ -18,7 +18,7 @@ pub fn deactivate(ctx: Context<Deactivate>) -> Result<()> {
     )?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
-    verify_unpause(&ctx.accounts.mint.to_account_info())?;
+    require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     // ── Record canonical bump in the deactivation marker PDA ─────────────────
     ctx.accounts.deactivate_pda.bump = ctx.bumps.deactivate_pda;

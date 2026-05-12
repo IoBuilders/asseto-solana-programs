@@ -8,9 +8,9 @@ use spl_token_2022::{
     state::{Account as TokenAccountState, Mint as MintState},
 };
 use cmtat_freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use cmtat_common::{verify_deactivate, verify_deployer};
-use cmtat_freeze::verify_frozen_account;
-use cmtat_freeze::verify_frozen_account_balance;
+use cmtat_common::{require_active, verify_deployer};
+use cmtat_freeze::require_unfrozen_account;
+use cmtat_freeze::require_unfrozen_balance;
 use cmtat_transfer_control::{get_transfer_mode, verify_whitelist, TransferMode};
 use crate::constants;
 
@@ -35,7 +35,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     }
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    verify_deactivate(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     // ── Transfer control mode check (single deserialization) ─────────────────
     match get_transfer_mode(&ctx.accounts.transfer_control_mode_pda.to_account_info())? {
@@ -57,10 +57,10 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     }
 
     // ── Verify source account has not been frozen ────────────────────────────
-    verify_frozen_account(&ctx.accounts.source_frozen_pda.to_account_info())?;
+    require_unfrozen_account(&ctx.accounts.source_frozen_pda.to_account_info())?;
 
     // ── Verify available (unfrozen) balance covers the transfer amount ────────
-    verify_frozen_account_balance(
+    require_unfrozen_balance(
         amount,
         &ctx.accounts.source.to_account_info(),
         &ctx.accounts.source_frozen_balance_pda.to_account_info(),
@@ -70,7 +70,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     let decimals = {
         let mint_data = ctx.accounts.mint.try_borrow_data()?;
         let mint_state = StateWithExtensions::<MintState>::unpack(&mint_data)
-            .map_err(anchor_lang::error::Error::from)?;
+            .map_err(Error::from)?;
         mint_state.base.decimals
     };
 

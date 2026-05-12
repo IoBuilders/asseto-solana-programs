@@ -46,9 +46,9 @@ pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Resul
 /// required to import `cmtat-deactivate` as a dependency. The `seeds::program` constraint
 /// in every caller's account struct already guarantees the address is correct.
 ///
-/// Returns `Ok(())` if the account does not exists (empty data).
+/// Returns `Ok(())` if the account does not exist (empty data).
 /// Returns `Err(CmtatCommonError::Deactivated)` if the account has been created.
-pub fn verify_deactivate(deactivate_pda: &AccountInfo) -> Result<()> {
+pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()> {
     require!(deactivate_pda.data_is_empty(), CmtatCommonError::Deactivated);
     Ok(())
 }
@@ -61,14 +61,14 @@ pub fn verify_deactivate(deactivate_pda: &AccountInfo) -> Result<()> {
 ///
 /// Returns `Ok(())` if the mint is **not** paused (or has no `Pausable` extension).
 /// Returns `Err(CmtatCommonError::MintPaused)` if the mint is paused.
-pub fn verify_unpause(mint_account: &AccountInfo) -> Result<()> {
+pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()> {
     use spl_token_2022::extension::{BaseStateWithExtensions, StateWithExtensions};
     use spl_token_2022::extension::pausable::PausableConfig;
     use spl_token_2022::state::Mint;
 
     let mint_data = mint_account.try_borrow_data()?;
     let mint_state = StateWithExtensions::<Mint>::unpack(&mint_data)
-        .map_err(anchor_lang::error::Error::from)?;
+        .map_err(Error::from)?;
 
     if let Ok(pausable_config) = mint_state.get_extension::<PausableConfig>() {
         require!(!bool::from(pausable_config.paused), CmtatCommonError::MintPaused);

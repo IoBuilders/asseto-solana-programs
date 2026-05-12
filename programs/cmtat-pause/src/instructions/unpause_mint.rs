@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::extension::pausable::instruction::resume as spl_resume;
-use cmtat_common::verify_deactivate;
+use cmtat_common::require_active;
 use cmtat_common::verify_deployer;
 
 use crate::constants;
@@ -22,7 +22,7 @@ pub fn unpause(ctx: Context<UnpauseMint>) -> Result<()> {
     )?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    verify_deactivate(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
@@ -41,7 +41,7 @@ pub fn unpause(ctx: Context<UnpauseMint>) -> Result<()> {
             &ctx.accounts.pausable_authority.key(),
             &[],
         )
-        .map_err(anchor_lang::error::Error::from)?,
+        .map_err(Error::from)?,
         &[
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.pausable_authority.to_account_info(),
