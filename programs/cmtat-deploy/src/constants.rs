@@ -22,4 +22,3 @@ pub use cmtat_freeze::ID as FREEZE_AUTHORITY_PROGRAM_ID;
 /// Sourced directly from the cmtat-transfer-hook crate — single source of truth.
 /// To update: change declare_id! in cmtat-transfer-hook/src/lib.rs and Anchor.toml.
 pub use cmtat_transfer_hook::ID as TRANSFER_HOOK_PROGRAM_ID;
-

@@ -5,67 +5,22 @@ use anchor_spl::token_2022::Token2022;
 use spl_token_2022::{
     extension::StateWithExtensions,
     instruction::transfer_checked,
-    state::{Account as TokenAccountState, Mint as MintState},
+    state::Mint as MintState,
 };
 use cmtat_freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use cmtat_common::{require_active, verify_deployer};
-use cmtat_freeze::require_unfrozen_account;
-use cmtat_freeze::require_unfrozen_balance;
-use cmtat_transfer_control::{get_transfer_mode, verify_whitelist, TransferMode};
 use crate::constants;
-
-use crate::errors::CmtatTransferError;
 
 /// Transfers `amount` tokens from `source` to `destination`.
 ///
 /// Operational instruction — called by the token holder who owns `source`.
-/// Authorization: `source_owner` must sign and must be the recorded owner of the
-/// source token account. The transfer authority PDA then authorizes the freeze/thaw
-/// CPIs to cmtat-freeze for the block/unblock steps.
+/// Authorization: `source_owner` must sign; Token-2022's `transfer_checked`
+/// enforces that `source.owner == source_owner`. All CMTAT compliance checks
+/// (deactivation, transfer-mode, whitelist, frozen account, frozen balance)
+/// now live in `cmtat-transfer::verify_transfer`, which clients must invoke as
+/// the immediately-prior top-level instruction. This instruction is responsible
+/// only for the unblock / transfer / re-block sequence and for forwarding the
+/// snapshot accounts to the transfer hook.
 pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
-    // ── Verify source is owned by the signer ────────────────────────────────
-    {
-        let source_data = ctx.accounts.source.try_borrow_data()?;
-        let source_state = StateWithExtensions::<TokenAccountState>::unpack(&source_data)
-            .map_err(|_| error!(CmtatTransferError::UnauthorizedTransfer))?;
-        require!(
-            source_state.base.owner == *ctx.accounts.source_owner.key,
-            CmtatTransferError::UnauthorizedTransfer
-        );
-    }
-
-    // ── Verify mint has not been deactivated ─────────────────────────────────
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
-
-    // ── Transfer control mode check (single deserialization) ─────────────────
-    match get_transfer_mode(&ctx.accounts.transfer_control_mode_pda.to_account_info())? {
-        None => {}
-        Some(TransferMode::Clearing) => {
-            require!(
-                ctx.accounts.deployer.is_signer,
-                CmtatTransferError::ClearingModeUnauthorized
-            );
-            verify_deployer(
-                &ctx.accounts.mint_owner_pda.to_account_info(),
-                &ctx.accounts.deployer.key(),
-            )?;
-        }
-        Some(TransferMode::Whitelist) => {
-            verify_whitelist(&ctx.accounts.source_whitelist_pda.to_account_info())?;
-            verify_whitelist(&ctx.accounts.destination_whitelist_pda.to_account_info())?;
-        }
-    }
-
-    // ── Verify source account has not been frozen ────────────────────────────
-    require_unfrozen_account(&ctx.accounts.source_frozen_pda.to_account_info())?;
-
-    // ── Verify available (unfrozen) balance covers the transfer amount ────────
-    require_unfrozen_balance(
-        amount,
-        &ctx.accounts.source.to_account_info(),
-        &ctx.accounts.source_frozen_balance_pda.to_account_info(),
-    )?;
-
     // ── Read mint decimals ───────────────────────────────────────────────────
     let decimals = {
         let mint_data = ctx.accounts.mint.try_borrow_data()?;
@@ -116,8 +71,10 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     //
     // token_2022::transfer_checked produces only 4 AccountMeta entries.
     // Token-2022 uses instruction.accounts to discover accessible accounts, so
-    // the hook program and ExtraAccountMetaList must be appended explicitly —
-    // passing them only in the AccountInfo slice is insufficient.
+    // the hook program, ExtraAccountMetaList, and every account referenced in
+    // the ExtraAccountMetaList must be appended explicitly. The metalist now
+    // contains only the 6 snapshot-related extras, matching what
+    // `cmtat-transfer-hook::initialize_extra_account_meta_list` builds.
     let mut transfer_ix = transfer_checked(
         &token_program_id,
         &ctx.accounts.source.key(),
@@ -128,6 +85,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         amount,
         decimals,
     )?;
+
     transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.extra_account_meta_list.key(),
         false,
@@ -136,6 +94,14 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         ctx.accounts.transfer_hook_program.key(),
         false,
     ));
+    // Extras from the ExtraAccountMetaList (hook indices 5..=11).
+    transfer_ix.accounts.push(AccountMeta::new_readonly(ctx.accounts.snapshot_program.key(), false));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(ctx.accounts.snapshot_counter_pda.key(), false));
+    transfer_ix.accounts.push(AccountMeta::new(ctx.accounts.sender_snapshot.key(), false));
+    transfer_ix.accounts.push(AccountMeta::new(ctx.accounts.receiver_snapshot.key(), false));
+    transfer_ix.accounts.push(AccountMeta::new(ctx.accounts.transfer_hook_authority.key(), false));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(ctx.accounts.system_program.key(), false));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(ctx.accounts.instructions_sysvar.key(), false));
 
     invoke(
         &transfer_ix,
@@ -146,6 +112,13 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
             ctx.accounts.source_owner.to_account_info(),
             ctx.accounts.extra_account_meta_list.to_account_info(),
             ctx.accounts.transfer_hook_program.to_account_info(),
+            ctx.accounts.snapshot_program.to_account_info(),
+            ctx.accounts.snapshot_counter_pda.to_account_info(),
+            ctx.accounts.sender_snapshot.to_account_info(),
+            ctx.accounts.receiver_snapshot.to_account_info(),
+            ctx.accounts.transfer_hook_authority.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.instructions_sysvar.to_account_info(),
         ],
     )?;
 
@@ -181,93 +154,36 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     Ok(())
 }
 
+/// Accounts for `transfer`.
+///
+/// Order matches `VerifyTransfer` for the first four entries
+/// (`source_owner`, `source`, `destination`, `mint`) so the transfer hook can
+/// later cross-check both instructions describe the same transfer via
+/// `Instructions`-sysvar introspection. The remaining accounts are this
+/// instruction's own dependencies (freeze CPI signing) plus the accounts that
+/// must be forwarded to the hook (snapshot PDAs, etc.).
 #[derive(Accounts)]
 pub struct TransferTokens<'info> {
-    /// The token holder initiating the transfer.
-    /// Must own the source token account (verified in instruction body).
+    /// 0 — Token holder authorising the transfer.
+    /// Token-2022's `transfer_checked` validates that this matches `source.owner`.
     pub source_owner: Signer<'info>,
 
-    /// The deployer — required to sign only when the mint is in clearing mode.
-    /// In other modes the account must be present but the signature is not checked.
+    /// 1 — Source token account.
     ///
-    /// CHECK: Signer status is enforced in the instruction body (`deployer.is_signer`)
-    /// only when clearing mode is active. Unused as a signer in all other modes.
-    pub deployer: UncheckedAccount<'info>,
-
-    /// PDA created by cmtat-deploy that records the deployer for this mint.
-    /// Used by verify_deployer when clearing mode is active.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents Borsh-deserialized by verify_deployer.
-    #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
-        seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
-        bump,
-    )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
-
-    /// Transfer Control Mode PDA for this mint.
-    /// Seeds: `["transfer_control_mode", mint]`, owned by `cmtat-transfer-control`.
-    /// Read to determine whether clearing or whitelist mode is active.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents read by get_transfer_mode.
-    #[account(
-        seeds = [b"transfer_control_mode", mint.key().as_ref()],
-        seeds::program = constants::CMTAT_TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub transfer_control_mode_pda: UncheckedAccount<'info>,
-
-    /// Whitelist marker PDA for the source token account.
-    /// Seeds: `["whitelist", mint, source]`, owned by `cmtat-transfer-control`.
-    /// Must exist when whitelist mode is active; ignored otherwise.
-    ///
-    /// CHECK: Address verified by seeds/bump; existence checked by verify_whitelist if needed.
-    #[account(
-        seeds = [b"whitelist", mint.key().as_ref(), source.key().as_ref()],
-        seeds::program = constants::CMTAT_TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub source_whitelist_pda: UncheckedAccount<'info>,
-
-    /// Whitelist marker PDA for the destination token account.
-    /// Seeds: `["whitelist", mint, destination]`, owned by `cmtat-transfer-control`.
-    /// Must exist when whitelist mode is active; ignored otherwise.
-    ///
-    /// CHECK: Address verified by seeds/bump; existence checked by verify_whitelist if needed.
-    #[account(
-        seeds = [b"whitelist", mint.key().as_ref(), destination.key().as_ref()],
-        seeds::program = constants::CMTAT_TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub destination_whitelist_pda: UncheckedAccount<'info>,
-
-    /// The source token account (owned by source_owner).
-    ///
-    /// CHECK: Writable; owner verified in instruction body; validated by Token-2022 during CPI.
+    /// CHECK: Writable; owner verified by Token-2022 during `transfer_checked`.
     #[account(mut)]
     pub source: UncheckedAccount<'info>,
 
-    /// The destination token account.
+    /// 2 — Destination token account.
     ///
-    /// CHECK: Writable; validated by Token-2022 during CPI.
+    /// CHECK: Writable; validated by Token-2022 during `transfer_checked`.
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
 
-    /// The Token-2022 mint.
+    /// 3 — The Token-2022 mint.
     ///
     /// CHECK: Validated by Token-2022 during CPI; decimals read in instruction body.
     pub mint: UncheckedAccount<'info>,
-
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `cmtat-deactivate`.
-    ///
-    /// CHECK: Address verified by seeds/bump; emptiness checked by verify_deactivate.
-    #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
-        seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
-        bump,
-    )]
-    pub deactivate_pda: UncheckedAccount<'info>,
 
     /// Transfer authority PDA — authorizes freeze/thaw CPIs to cmtat-freeze.
     /// Seeds: `["transfer", mint]`.
@@ -279,6 +195,19 @@ pub struct TransferTokens<'info> {
     )]
     pub transfer_authority: UncheckedAccount<'info>,
 
+    /// Transfer hook authority PDA — owned by `cmtat-transfer-hook`. Forwarded
+    /// to the hook so it can sign the snapshot CPI and pay rent for newly-created
+    /// snapshot PDAs.
+    ///
+    /// CHECK: PDA address verified by seeds/bump constraint.
+    #[account(
+        mut,
+        seeds = [b"transfer_hook_authority", mint.key().as_ref()],
+        seeds::program = constants::CMTAT_TRANSFER_HOOK_PROGRAM_ID,
+        bump,
+    )]
+    pub transfer_hook_authority: UncheckedAccount<'info>,
+
     /// cmtat-freeze's freeze authority PDA for this mint.
     /// Passed through to cmtat-freeze for the freeze/thaw CPIs.
     ///
@@ -289,31 +218,6 @@ pub struct TransferTokens<'info> {
         bump,
     )]
     pub freeze_authority: UncheckedAccount<'info>,
-
-    /// Frozen account marker PDA for the source token account.
-    /// Seeds: `["frozen_account", mint, source]`, owned by `cmtat-freeze`.
-    /// Must not exist for the transfer to proceed.
-    ///
-    /// CHECK: Address verified by seeds/bump; emptiness checked by verify_frozen_account.
-    #[account(
-        seeds = [b"frozen_account", mint.key().as_ref(), source.key().as_ref()],
-        seeds::program = constants::CMTAT_FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub source_frozen_pda: UncheckedAccount<'info>,
-
-    /// Frozen balance PDA for the source token account.
-    /// Seeds: `["frozen_balance", mint, source]`, owned by `cmtat-freeze`.
-    /// If present, the transfer amount must not exceed `source.balance - frozen_balance`.
-    /// May be empty (no partial freeze recorded) — handled by verify_frozen_account_balance.
-    ///
-    /// CHECK: Address verified by seeds/bump; balance checked by verify_frozen_account_balance.
-    #[account(
-        seeds = [b"frozen_balance", mint.key().as_ref(), source.key().as_ref()],
-        seeds::program = constants::CMTAT_FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub source_frozen_balance_pda: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList PDA for the transfer hook.
     /// Must be present so Token-2022 can invoke the hook during transfer_checked.
@@ -337,5 +241,38 @@ pub struct TransferTokens<'info> {
     #[account(address = constants::CMTAT_FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
+    /// cmtat-snapshot program — forwarded to the hook so it can CPI into
+    /// `update_holderbalance_snapshot`.
+    ///
+    /// CHECK: No address constraint here; the hook's metalist pins the canonical
+    /// snapshot program ID, and Token-2022 verifies our forwarded extras against it.
+    pub snapshot_program: UncheckedAccount<'info>,
+
+    /// Snapshot counter PDA for this mint — forwarded to the hook.
+    ///
+    /// CHECK: Address verified by Token-2022 against the metalist's seed-derived entry.
+    pub snapshot_counter_pda: UncheckedAccount<'info>,
+
+    /// Sender (source) holder balance snapshot PDA for this mint and source — forwarded to the hook.
+    ///
+    /// CHECK: Writable; address verified by Token-2022 against the metalist's seed-derived entry.
+    #[account(mut)]
+    pub sender_snapshot: UncheckedAccount<'info>,
+
+    /// Receiver (destination) holder balance snapshot PDA for this mint and destination — forwarded to the hook.
+    ///
+    /// CHECK: Writable; address verified by Token-2022 against the metalist's seed-derived entry.
+    #[account(mut)]
+    pub receiver_snapshot: UncheckedAccount<'info>,
+
+    /// Instructions sysvar — forwarded to the hook so it can introspect the
+    /// preceding `verify_transfer` instruction and the current top-level
+    /// instruction.
+    ///
+    /// CHECK: Address pinned by constraint and re-verified by the hook's metalist.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
+
     pub token_2022_program: Program<'info, Token2022>,
+    pub system_program: Program<'info, System>,
 }

@@ -103,13 +103,13 @@ pub struct SetMode<'info> {
 
     /// The Token-2022 mint.
     ///
-    /// CHECK: Read-only; validated by verify_unpause (checks the Pausable extension).
+    /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `cmtat-deactivate`.
     ///
-    /// CHECK: Address verified by seeds/bump; emptiness checked by verify_deactivate.
+    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [b"deactivate", mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,

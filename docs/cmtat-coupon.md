@@ -1,0 +1,152 @@
+# cmtat-coupon — Program Reference
+
+Program ID: `4pvS3t8wey2MhcgTgBSZZbHRUe6EFUv2pD9jJLFKWZ6u`
+
+Issues coupons for a CMTAT-compliant bond mint. Every coupon is anchored to a snapshot taken at issuance time, so holder balances at the coupon's record date are recoverable from `cmtat-snapshot`.
+
+`create_coupon` is the **sole entry point** that triggers a snapshot in this workspace — `cmtat-snapshot::take_snapshot` is now an auxiliary instruction, callable only by the `coupon_authority` PDA owned by this program.
+
+---
+
+## State
+
+### `CouponCounter`
+
+```rust
+#[account]
+pub struct CouponCounter {
+    pub bump: u8,
+    pub count: u64,
+}
+// LEN = 8 + 1 + 8 = 17 bytes
+// Seeds: ["coupon_counter", mint]
+```
+
+Per-mint counter that produces strictly-increasing coupon ids. Created on the first `create_coupon` call (`init_if_needed`) with `count = 1`; incremented by 1 on every subsequent call. The current id is therefore always `>= 1` whenever the PDA exists.
+
+### `Coupon`
+
+```rust
+#[account]
+pub struct Coupon {
+    pub bump: u8,
+    pub snapshot_id: u64,
+    pub period_start_date: i64,
+    pub period_end_date: i64,
+    pub payment_date: i64,
+}
+// LEN = 8 + 1 + 8 + 8 + 8 + 8 = 41 bytes
+// Seeds: ["coupon", mint, coupon_id.to_le_bytes()]
+```
+
+One per `(mint, coupon_id)`. Stores:
+- `snapshot_id` — the snapshot index returned by the `take_snapshot` CPI run during this `create_coupon`. Use it with `cmtat-snapshot`'s `get_holderbalance_snapshot_at` / `get_totalsupply_snapshot_at` to reconstruct who held what at the coupon's record date.
+- `period_start_date` / `period_end_date` — the accrual window for *this* coupon. `cmtat-treasury::pay_coupon` computes the payout from `period_end_date − period_start_date` so successive coupons accrue independently rather than cumulatively from issuance. The handler validates `period_end_date > period_start_date`; the program does **not** enforce that consecutive coupons chain (i.e. that coupon N's `period_start_date == coupon (N−1)'s period_end_date`) — the deployer is trusted to set consistent windows.
+- `payment_date` — Unix timestamp (seconds) when the treasury is allowed to pay this coupon (typically `period_end_date` plus a settlement lag). Strictly greater than `period_end_date`; that's the only invariant enforced here. `cmtat-treasury`'s maturity check then gates `pay_coupon` on `now ≥ payment_date`.
+
+In steady state `snapshot_id == coupon_id` because coupon and snapshot counters increment in lockstep (coupons are the only producer of snapshots). They're stored as two separate counters anyway to keep the semantics decoupled — should the workspace ever expose a non-coupon snapshot path, existing coupon records remain interpretable.
+
+---
+
+## Error Codes
+
+```rust
+pub enum ErrorCode {
+    InvalidCouponId,      // supplied coupon_id != coupon_counter.count + 1
+    InvalidCouponPeriod,  // period_end_date <= period_start_date
+    InvalidPaymentDate,   // payment_date <= period_end_date
+}
+```
+
+Pause / deactivate / unauthorised-deployer errors come from `cmtat-common` (`MintPaused`, `Deactivated`, `UnauthorizedDeployer`).
+
+---
+
+## Instruction: `create_coupon` (Management)
+
+### Parameters
+
+```rust
+period_start_date: i64
+period_end_date:   i64
+payment_date:      i64
+coupon_id:         u64
+```
+
+`coupon_id` is supplied by the client because Anchor's `init` constraint needs it at macro-evaluation time to derive the `coupon` PDA seeds. The handler re-checks it: `coupon_id` must equal `coupon_counter.count + 1` (or `1` on the first call). The client computes this by reading `coupon_counter.count` (or assuming the counter doesn't exist yet).
+
+The three dates must satisfy `period_start_date < period_end_date < payment_date` (strict). No cross-coupon validation — the deployer chooses arbitrary windows.
+
+### Preconditions
+
+- `verify_deployer` — only the deployer recorded in `mint_owner_pda` may call.
+- `verify_unpause` — mint must not be paused.
+- `verify_deactivate` — mint must not have been deactivated.
+
+### Execution
+
+1. Run the three precondition checks.
+2. Validate `period_end_date > period_start_date` (else `InvalidCouponPeriod`) and `payment_date > period_end_date` (else `InvalidPaymentDate`).
+3. Increment `coupon_counter` (initialise to 1 on the first call, `+1` thereafter). Verify `coupon_id` matches.
+4. CPI `cmtat-snapshot::take_snapshot`, signed by the `coupon_authority` PDA via `invoke_signed`. Passes through `payer`, `mint`, and `snapshot_counter`.
+5. Re-borrow `snapshot_counter` data and Borsh-deserialise `SnapshotCounter` to read the freshly-written snapshot id.
+6. Write the new `Coupon` PDA with `bump`, `snapshot_id`, `period_start_date`, `period_end_date`, `payment_date`.
+
+### Accounts
+
+| Account | Mut | Signer | Type | Notes |
+|---|---|---|---|---|
+| `payer` | yes | yes | Signer | Funds `coupon_counter` (first call), `coupon` (always), and `snapshot_counter` (on the first snapshot) |
+| `deployer` | no | yes | Signer | Authorisation target for `verify_deployer` |
+| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = CMTAT_DEPLOY_PROGRAM_ID` |
+| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = CMTAT_DEACTIVATE_PROGRAM_ID`; must be empty |
+| `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `verify_unpause` |
+| `coupon_authority` | no | no | UncheckedAccount | seeds `["coupon_authority", mint]`; signs the `take_snapshot` CPI via `invoke_signed` |
+| `coupon_counter` | yes | no | `Account<CouponCounter>` | `init_if_needed`; seeds `["coupon_counter", mint]`, `payer = payer` |
+| `coupon` | yes | no | `Account<Coupon>` | `init`; seeds `["coupon", mint, coupon_id.to_le_bytes()]`, `payer = payer` |
+| `snapshot_counter` | yes | no | UncheckedAccount | seeds `["snapshot_counter", mint]`, `seeds::program = CMTAT_SNAPSHOT_PROGRAM_ID`; passed through to the CPI |
+| `snapshot_program` | no | no | UncheckedAccount | Address-pinned to `CMTAT_SNAPSHOT_PROGRAM_ID` |
+| `system_program` | no | no | Program<System> | |
+
+---
+
+## constants.rs
+
+```rust
+pub const CMTAT_DEPLOY_PROGRAM_ID:     Pubkey = Pubkey::new_from_array([...]); // hardcoded
+pub const CMTAT_DEACTIVATE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]); // hardcoded
+pub use cmtat_snapshot::ID as CMTAT_SNAPSHOT_PROGRAM_ID;
+```
+
+`cmtat-snapshot` is imported as a Cargo dep (`features = ["cpi"]`) for the CPI, so its ID is sourced from the crate. The reverse — `cmtat-snapshot` referencing `cmtat-coupon` to verify the `coupon_authority` PDA — is a hardcoded constant in `cmtat-snapshot/src/constants.rs`, since the import direction would otherwise cycle.
+
+---
+
+## Reading coupons
+
+External readers (other on-chain programs or off-chain clients) load coupons directly:
+
+```rust
+// On-chain
+use cmtat_coupon::state::Coupon;
+
+#[account(
+    seeds = [b"coupon", mint.key().as_ref(), &coupon_id.to_le_bytes()],
+    seeds::program = cmtat_coupon::ID,
+    bump = coupon.bump,
+)]
+pub coupon: Account<'info, Coupon>,
+```
+
+```ts
+// Off-chain
+const coupon = await couponProgram.account.coupon.fetch(couponPda);
+console.log(
+  coupon.snapshotId.toString(),
+  coupon.periodStartDate.toString(),
+  coupon.periodEndDate.toString(),
+  coupon.paymentDate.toString(),
+);
+```
+
+To enumerate coupons for a mint, read `coupon_counter.count` and iterate `1..=count` deriving each `coupon` PDA from the seeds.

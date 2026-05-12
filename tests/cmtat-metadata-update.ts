@@ -22,11 +22,13 @@ const deactivateProgram     = anchor.workspace.CmtatDeactivate     as Program<an
 const operationsProgram  = anchor.workspace.CmtatOperations as Program<any>;
 const pauseProgram       = anchor.workspace.CmtatPause      as Program<any>;
 const transferHookProgram = anchor.workspace.CmtatTransferHook as Program<any>;
+const snapshotProgram           = anchor.workspace.CmtatSnapshot           as Program<any>;
 
 const MINT_AUTHORITY_PROGRAM_ID     = mintProgram.programId;
 const FREEZE_AUTHORITY_PROGRAM_ID   = freezeProgram.programId;
 const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
 const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
+const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
 
 describe("cmtat-metadata-update", () => {
@@ -86,6 +88,7 @@ describe("cmtat-metadata-update", () => {
       [Buffer.from("extra-account-metas"), mint.toBuffer()],
       transferHookProgram.programId
     );
+    
     const tx = await (deployProgram as any).methods
       .deployMint({ decimals: MINT_DECIMALS, name: MINT_NAME, symbol: MINT_SYMBOL, uri: MINT_URI, additionalMetadata })
       .accounts({

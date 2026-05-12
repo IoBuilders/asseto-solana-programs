@@ -70,7 +70,7 @@ pub struct PauseMint<'info> {
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `cmtat-deactivate`.
     ///
-    /// CHECK: Address verified by seeds/bump; emptiness checked by verify_deactivate.
+    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [b"deactivate", mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,

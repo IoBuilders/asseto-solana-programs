@@ -24,6 +24,7 @@ describe("cmtat-transfer-control", () => {
   const deactivateProgram      = anchor.workspace.CmtatDeactivate      as Program<any>;
   const transferControlProgram = anchor.workspace.CmtatTransferControl as Program<any>;
   const transferHookProgram    = anchor.workspace.CmtatTransferHook    as Program<any>;
+  const snapshotProgram     = anchor.workspace.CmtatSnapshot     as Program<CmtatSnapshot>;
 
   const connection = provider.connection;
   const deployer   = provider.wallet.publicKey;
@@ -33,6 +34,7 @@ describe("cmtat-transfer-control", () => {
   const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
   const METADATA_UPDATE_PROGRAM_ID    = metadataProgram.programId;
   const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
+  const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{

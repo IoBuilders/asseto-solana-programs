@@ -4,14 +4,14 @@ Program ID: `BTLbhoZDCguRqmwhXvQej7pmAqV2TXY3iGdwMPsMBBMw`
 
 Governs who may transfer tokens for a given mint. Two modes are supported:
 
-| Mode | `is_clearing` | Effect |
-|---|---|---|
-| **Whitelist** | `false` | Both source and destination must be individually whitelisted before a transfer is allowed |
-| **Clearing** | `true` | Only the deployer may initiate transfers (acts as a central clearing entity) |
+| Mode | Effect |
+|---|---|
+| **Whitelist** | Both source and destination must be individually whitelisted before a transfer is allowed |
+| **Clearing** | The deployer must co-sign every transfer (acts as a central clearing entity) |
 
 If neither mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
 
-Also exports three helper functions used by `cmtat-mint` and `cmtat-transfer` to enforce mode-specific rules.
+Also exports two helper functions (`verify_whitelist`, `get_transfer_mode`) used by `cmtat-mint` and `cmtat-transfer-hook` to enforce mode-specific rules.
 
 ---
 
@@ -20,9 +20,12 @@ Also exports three helper functions used by `cmtat-mint` and `cmtat-transfer` to
 ```rust
 #[account]
 pub struct TransferControlMode {
-    pub is_clearing: bool,
+    pub mode: TransferMode,  // Clearing | Whitelist
     pub bump: u8,
 }
+
+pub enum TransferMode { Clearing, Whitelist }
+
 // Seeds: ["transfer_control_mode", mint]
 ```
 
@@ -46,23 +49,20 @@ pub enum CmtatTransferControlError {
 pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()>
 ```
 
-Returns `Ok(())` if the `whitelist_pda` (seeds `["whitelist", mint, account]`) exists (non-empty data). Returns `Err(CmtatTransferControlError::NotWhitelisted)` if absent. Called by `cmtat-mint` and `cmtat-transfer` when whitelist mode is active.
+Returns `Ok(())` if the `whitelist_pda` (seeds `["whitelist", mint, account]`) exists (non-empty data). Returns `Err(CmtatTransferControlError::NotWhitelisted)` if absent. Called by `cmtat-mint` and `cmtat-transfer-hook` when whitelist mode is active.
 
-### `is_clearing_activated`
-
-```rust
-pub fn is_clearing_activated(transfer_control_mode_pda: &AccountInfo) -> Result<bool>
-```
-
-Reads the `TransferControlMode` PDA and returns `is_clearing`. Returns `false` if the PDA does not exist (mode not set).
-
-### `is_whitelist_activated`
+### `get_transfer_mode`
 
 ```rust
-pub fn is_whitelist_activated(transfer_control_mode_pda: &AccountInfo) -> Result<bool>
+pub fn get_transfer_mode(transfer_control_mode_pda: &AccountInfo) -> Result<Option<TransferMode>>
 ```
 
-Returns `!is_clearing`. Returns `false` if the PDA does not exist.
+Single-deserialization mode read. Returns:
+- `None` when the PDA does not exist (no controls active).
+- `Some(TransferMode::Clearing)` — deployer must co-sign every transfer.
+- `Some(TransferMode::Whitelist)` — source and destination must each be whitelisted.
+
+Callers match on the returned `Option<TransferMode>` instead of calling two boolean helpers back-to-back.
 
 ---
 
@@ -71,10 +71,10 @@ Returns `!is_clearing`. Returns `false` if the PDA does not exist.
 ### Parameters
 
 ```rust
-is_clearing: bool
+mode: Option<TransferMode>
 ```
 
-Creates the `transfer_control_mode_pda` on first call; updates `is_clearing` on subsequent calls (`init_if_needed`).
+Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when `Some`. When `None`, closes the PDA and returns its rent to the deployer — no transfer controls.
 
 ### Preconditions
 

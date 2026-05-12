@@ -114,9 +114,10 @@ pub struct MetadataField {
 - Writes `deployer` pubkey and PDA bump into `mint_owner_pda`.
 
 **14 — CPI → `initialize_extra_account_meta_list`** (signed by `mint_owner_pda`)
-- Calls `cmtat_transfer_hook::initialize_extra_account_meta_list`.
+- Calls `cmtat_transfer_hook::initialize_extra_account_meta_list(deployer.key())`.
 - Passes `mint_owner_pda` as signer via `invoke_signed` to prove the call originates from `deploy_mint`.
-- Creates an empty `ExtraAccountMetaList` PDA (`["extra-account-metas", mint]`) inside `cmtat-transfer-hook`.
+- The deployer pubkey is forwarded so the hook can bake it into the `ExtraAccountMetaList` (Token-2022 then passes the deployer account to `execute` on every transfer, enabling the clearing-mode signature check).
+- Creates the populated `ExtraAccountMetaList` PDA (`["extra-account-metas", mint]`) inside `cmtat-transfer-hook`.
 
 ### Why `temp_mint_authority`
 

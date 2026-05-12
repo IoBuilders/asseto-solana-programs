@@ -14,6 +14,9 @@ members = [
     "programs/cmtat-transfer",
     "programs/cmtat-transfer-control",
     "programs/cmtat-transfer-hook",
+    "programs/cmtat-bond",
+    "programs/cmtat-coupon",
+    "programs/cmtat-treasury",
 ]
 
 [features]
@@ -32,6 +35,9 @@ cmtat_snapshot = "BcuEispMLyXAa44oRbxjgacAJWdEhFXqrBNXQfgHnfWW"
 cmtat_transfer = "EY3ndaFy8e647firyg1MiyNH9LJkBKfV9VK8CNc4N1MD"
 cmtat_transfer_control = "BTLbhoZDCguRqmwhXvQej7pmAqV2TXY3iGdwMPsMBBMw"
 cmtat_transfer_hook = "482AUGU4SbYePPHaV7yvXrGEprHhiWSTRBds4Bdr6CPz"
+cmtat_bond = "BLA6wUczWivPKBw7wnZbvHfYPxcRWEE2Z5aGRnTdfUcU"
+cmtat_coupon = "4pvS3t8wey2MhcgTgBSZZbHRUe6EFUv2pD9jJLFKWZ6u"
+cmtat_treasury = "CBxS9txE8qZqZkNXhTaWE42Ur3J3GtYv1ufLfNDNUEct"
 
 [registry]
 url = "https://api.apr.dev"
@@ -41,4 +47,6 @@ cluster = "localnet"
 wallet = "./test-wallet.json"
 
 [scripts]
-test = "NODE_OPTIONS='--import tsx' npx mocha -t 1000000 --require tests/setup.ts \"tests/**/*.ts\""
+# `TEST_FILE` narrows the run to one suite: `TEST_FILE=cmtat-pause anchor test --skip-build`.
+# Leaving it unset keeps the default glob (`**/*`) and runs every suite.
+test = "NODE_OPTIONS='--import tsx' npx mocha -t 1000000 --require tests/setup.ts \"tests/${TEST_FILE:-**/*}.ts\""

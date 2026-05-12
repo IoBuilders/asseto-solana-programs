@@ -44,7 +44,7 @@ pub struct Deactivate<'info> {
 
     /// The Token-2022 mint to deactivate.
     ///
-    /// CHECK: Read-only; validated by verify_unpause (checks the Pausable extension).
+    /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
     /// Deactivation marker PDA — created here to record that this mint has been deactivated.

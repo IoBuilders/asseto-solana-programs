@@ -552,10 +552,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f88a43d011fc4a6876cb7344703e297c71dda42494fee094d5f7c76bf13f746"
 
 [[package]]
+name = "cmtat-bond"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "cmtat-common",
+ "spl-token-2022",
+]
+
+[[package]]
 name = "cmtat-common"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "spl-token-2022",
+]
+
+[[package]]
+name = "cmtat-coupon"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "cmtat-common",
+ "cmtat-snapshot",
  "spl-token-2022",
 ]
 
@@ -684,9 +705,25 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "cmtat-common",
+ "cmtat-freeze",
+ "cmtat-snapshot",
+ "cmtat-transfer-control",
  "spl-tlv-account-resolution",
  "spl-token-2022",
  "spl-transfer-hook-interface",
+]
+
+[[package]]
+name = "cmtat-treasury"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "cmtat-bond",
+ "cmtat-common",
+ "cmtat-coupon",
+ "cmtat-snapshot",
+ "spl-token-2022",
 ]
 
 [[package]]

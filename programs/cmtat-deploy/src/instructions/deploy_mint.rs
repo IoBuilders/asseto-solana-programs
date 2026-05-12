@@ -328,6 +328,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
                 &[ctx.bumps.mint_owner_pda],
             ]],
         ),
+        ctx.accounts.deployer.key(),
     )?;
 
     Ok(())

@@ -1,70 +1,59 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{require_active, verify_deployer, require_not_paused};
 
-use crate::constants;
-use crate::state::{ValueSnapshot, SnapshotCounter};
-
+use crate::state::{SnapshotCounter, SnapshotHistory};
 
 /// Records a snapshot checkpoint for the mint.
 ///
-/// Increments an on-chain counter in `snapshot_counter_pda`. On the first call the
-/// PDA is created and the counter is initialised to 1; subsequent calls increment it.
+/// On the first call, creates the `snapshot_counter_pda` and initialises its
+/// count to 1. On subsequent calls, increments the counter. The snapshot id is
+/// therefore always `>= 1` whenever the counter PDA exists.
 ///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+/// Auxiliary instruction — only callable via CPI by the `coupon_authority` PDA
+/// owned by `cmtat-coupon` (seeds: `["coupon_authority", mint]`). All
+/// pause / deactivate / deployer checks live in `cmtat-coupon::create_coupon`,
+/// the sole entry point that triggers a snapshot.
 pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
+    let mint_key = ctx.accounts.mint.key();
+
+    crate::assert_take_snapshot_authorized_caller(
+        &mint_key,
+        ctx.accounts.calling_authority.key,
     )?;
 
-    require_not_paused(&ctx.accounts.mint.to_account_info())?;
-
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
-
     let counter = &mut ctx.accounts.snapshot_counter;
-    counter.bump = ctx.bumps.snapshot_counter;
-    counter.count = counter.count.checked_add(1).unwrap();
+    if counter.count == 0 {
+        counter.bump = ctx.bumps.snapshot_counter;
+        counter.count = 1;
+    } else {
+        counter.count = counter.count.checked_add(1).unwrap();
+    }
 
     Ok(())
 }
 
 #[derive(Accounts)]
 pub struct TakeSnapshot<'info> {
-    /// The deployer recorded as mint owner — must sign to authorise the snapshot.
+    /// The PDA authorised to call this instruction via CPI — must be
+    /// `["coupon_authority", mint]` owned by `cmtat-coupon`.
+    pub calling_authority: Signer<'info>,
+
+    /// Funds the `snapshot_counter` PDA on the first call. Distinct from
+    /// `calling_authority` because the latter is a PDA (signs via
+    /// `invoke_signed`) and PDAs cannot pay rent directly.
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub payer: Signer<'info>,
 
-    /// PDA created by cmtat-deploy that records the deployer for this mint.
+    /// The Token-2022 mint the snapshot is taken on.
     ///
-    /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
-    #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
-        seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
-        bump,
-    )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
-
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `cmtat-deactivate`.
-    ///
-    /// CHECK: Address verified by seeds/bump; emptiness checked by verify_deactivate.
-    #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
-        seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
-        bump,
-    )]
-    pub deactivate_pda: UncheckedAccount<'info>,
-
-    /// The Token-2022 mint — must not be paused.
-    ///
-    /// CHECK: Read-only; pause state validated by verify_unpause.
+    /// CHECK: Used only as a seed for `calling_authority`'s PDA derivation.
     pub mint: UncheckedAccount<'info>,
 
-    /// Snapshot counter PDA. Created on the first call; incremented on subsequent calls.
+    /// Snapshot counter PDA. Created on the first call with count = 1;
+    /// incremented on subsequent calls.
     /// Seeds: `["snapshot_counter", mint]`.
     #[account(
         init_if_needed,
-        payer = deployer,
+        payer = payer,
         space = SnapshotCounter::LEN,
         seeds = [b"snapshot_counter", mint.key().as_ref()],
         bump,
@@ -74,8 +63,8 @@ pub struct TakeSnapshot<'info> {
     pub system_program: Program<'info, System>,
 }
 
-// Just to make ValueSnapshot part of the IDL
+// Just to make SnapshotHistory part of the IDL
 #[derive(Accounts)]
-pub struct __ValueSnapshotIDL<'info> {
-    pub value_snapshot: Account<'info, ValueSnapshot>,
+pub struct __SnapshotHistoryIDL<'info> {
+    pub snapshot_history: Account<'info, SnapshotHistory>,
 }

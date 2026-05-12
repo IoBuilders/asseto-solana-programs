@@ -37,12 +37,14 @@ describe("cmtat-mint", () => {
   const transferControlProgram = anchor.workspace.CmtatTransferControl as Program<any>;
   const transferHookProgram    = anchor.workspace.CmtatTransferHook    as Program<any>;
   const snapshotProgram        = anchor.workspace.CmtatSnapshot        as Program<any>;
+  const couponProgram          = anchor.workspace.CmtatCoupon          as Program<any>;
   const connection  = provider.connection;
   const deployer    = provider.wallet.publicKey;
 
   const MINT_AUTHORITY_PROGRAM_ID            = mintProgram.programId;
   const METADATA_UPDATE_AUTHORITY_PROGRAM_ID = metadataUpdateProgram.programId;
   const FREEZE_AUTHORITY_PROGRAM_ID          = freezeProgram.programId;
+  const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
   // ── Helper: deploy a fresh mint ────────────────────────────────────────────
   async function deployMint(): Promise<{
@@ -125,9 +127,9 @@ describe("cmtat-mint", () => {
     return { mint, mintOwnerPda, mintAuthority, freezeAuthority, pausableAuthority };
   }
 
-  // ── Helper: all snapshot-related PDAs for a given mint at snapshot count=1 ─
+  // ── Helper: all snapshot-related PDAs for a given mint ─────────────────────
   // Returns bumps too so assertions can verify them.
-  function snapshotAccounts(mint: PublicKey): {
+  function snapshotAccounts(mint: PublicKey, holderTokenAccount: PublicKey): {
     snapshotCounterPda:        PublicKey;
     totalSupplySnapshot:       PublicKey;
     totalSupplySnapshotBump:   number;
@@ -136,16 +138,14 @@ describe("cmtat-mint", () => {
   } {
     const [snapshotCounterPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("snapshot_counter"), mint.toBuffer()],
-      snapshotProgram.programId
+      SNAPSHOT_PROGRAM_ID
     );
-    const snapshotCount = Buffer.alloc(8);
-    snapshotCount.writeBigUInt64LE(BigInt(1));
     const [totalSupplySnapshot, totalSupplySnapshotBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_totalsupply"), mint.toBuffer(), snapshotCount],
+      [Buffer.from("snapshot_totalsupply"), mint.toBuffer()],
       snapshotProgram.programId
     );
     const [holderBalanceSnapshot, holderBalanceSnapshotBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_holderbalance"), mint.toBuffer(), snapshotCount],
+      [Buffer.from("snapshot_holderbalance"), mint.toBuffer(), holderTokenAccount.toBuffer()],
       snapshotProgram.programId
     );
     return { snapshotCounterPda, totalSupplySnapshot, totalSupplySnapshotBump, holderBalanceSnapshot, holderBalanceSnapshotBump };
@@ -194,7 +194,7 @@ describe("cmtat-mint", () => {
     console.log("──────────────────────────────────────────────────────────\n");
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
 
     const tx = await (mintProgram as any).methods
       .mint(MINT_AMOUNT)
@@ -262,7 +262,7 @@ describe("cmtat-mint", () => {
     console.log("══════════════════════════════════════════════════════════\n");
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
 
     try {
       await (mintProgram as any).methods
@@ -307,7 +307,7 @@ describe("cmtat-mint", () => {
     const destination = destinationKeypair.publicKey;
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
 
     const deactivateTx = await (deactivateProgram as any).methods
       .deactivate()
@@ -368,7 +368,7 @@ describe("cmtat-mint", () => {
     const destination = destinationKeypair.publicKey;
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
 
     const rogueKeypair = Keypair.generate();
 
@@ -421,7 +421,7 @@ describe("cmtat-mint", () => {
     const destination = destinationKeypair.publicKey;
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
 
     const setModeTx = await (transferControlProgram as any).methods
       .setMode({ whitelist: {} })
@@ -490,27 +490,45 @@ describe("cmtat-mint", () => {
       snapshotCounterPda,
       totalSupplySnapshot,
       holderBalanceSnapshot,
-      holderBalanceSnapshotBump,
-    } = snapshotAccounts(mint);
+    } = snapshotAccounts(mint, destination);
 
-    // ── Take snapshot (counter 0 → 1) ────────────────────────────────────────
-    const snapshotTx = await (snapshotProgram as any).methods
-      .takeSnapshot()
+    // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
+    const couponId = new anchor.BN(1);
+    const [couponAuthority] = PublicKey.findProgramAddressSync(
+      [Buffer.from("coupon_authority"), mint.toBuffer()],
+      couponProgram.programId
+    );
+    const [couponCounter] = PublicKey.findProgramAddressSync(
+      [Buffer.from("coupon_counter"), mint.toBuffer()],
+      couponProgram.programId
+    );
+    const [coupon] = PublicKey.findProgramAddressSync(
+      [Buffer.from("coupon"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8)],
+      couponProgram.programId
+    );
+    const snapshotTx = await (couponProgram as any).methods
+      .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), couponId)
       .accounts({
+        payer: deployer,
         deployer,
         mintOwnerPda,
         deactivatePda,
         mint,
-        snapshotCounter: snapshotCounterPda,
-        systemProgram:   anchor.web3.SystemProgram.programId,
+        couponAuthority,
+        couponCounter,
+        coupon,
+        snapshotCounter:  snapshotCounterPda,
+        snapshotProgram:  snapshotProgram.programId,
+        systemProgram:    anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("\n──────────────────────────────────────────────────────────");
     console.log("  Mint:                  ", mint.toBase58());
     console.log("  Destination:           ", destination.toBase58());
+    console.log("  totalSupplySnapshot: ", totalSupplySnapshot.toBase58());
     console.log("  holderBalanceSnapshot: ", holderBalanceSnapshot.toBase58());
-    console.log("  take_snapshot tx:      ", snapshotTx);
+    console.log("  create_coupon tx:      ", snapshotTx);
     console.log("──────────────────────────────────────────────────────────\n");
 
     // ── Mint tokens — snapshot CPIs fire and record pre-mint balance (= 0) ───
@@ -538,25 +556,38 @@ describe("cmtat-mint", () => {
 
     console.log("  mint tx:", mintTx);
 
-    // ── Fetch and assert the holder balance snapshot ──────────────────────────
-    const snap = await (snapshotProgram as any).account.valueSnapshot.fetch(holderBalanceSnapshot);
+    // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
+    const totalSupplyValue: anchor.BN = await (snapshotProgram as any).methods
+      .getTotalsupplySnapshotAt(new anchor.BN(1))
+      .accounts({
+        mint,
+        totalSupplySnapshot,
+      })
+      .view();
+    const holderValue: anchor.BN = await (snapshotProgram as any).methods
+      .getHolderbalanceSnapshotAt(new anchor.BN(1))
+      .accounts({
+        mint,
+        holderBalanceSnapshot,
+        holderTokenAccount: destination,
+      })
+      .view();
 
     console.log("\n──────────────────────────────────────────────────────────");
-    console.log("  holderBalanceSnapshot.value: ", snap.value.toString());
-    console.log("  holderBalanceSnapshot.bump:  ", snap.bump);
-    console.log("  expected value:              ", "0");
-    console.log("  expected bump:               ", holderBalanceSnapshotBump);
+    console.log("  holderBalanceSnapshot[1].value: ", holderValue.toString());
+    console.log("  totalSupplySnapshot[1].value:   ", totalSupplyValue.toString());
+    console.log("  expected value:                 ", "0");
     console.log("──────────────────────────────────────────────────────────\n");
 
     assert.equal(
-      snap.value.toString(),
+      holderValue.toString(),
       "0",
-      "snapshot should record the balance before minting, which is 0"
+      "holder snapshot should record the balance before minting, which is 0"
     );
     assert.equal(
-      snap.bump,
-      holderBalanceSnapshotBump,
-      "stored bump should match the canonical PDA bump"
+      totalSupplyValue.toString(),
+      "0",
+      "total supply snapshot should record the balance before minting, which is 0"
     );
   });
 });

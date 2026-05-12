@@ -79,12 +79,14 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
             },
             &[mint_authority_seeds],
         ),
+        0,
+        true,
     )?;
 
     // ── 3. Unblock destination (CPI to cmtat-freeze) ─────────────────────────
     cmtat_freeze::cpi::unblock_account(
         CpiContext::new_with_signer(
-            ctx.accounts.block_program.to_account_info(),
+            ctx.accounts.freeze_program.to_account_info(),
             UnblockAccount {
                 calling_authority: ctx.accounts.mint_authority.to_account_info(),
                 freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
@@ -118,7 +120,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     // ── 5. Re-block destination (CPI to cmtat-freeze) ────────────────────────
     cmtat_freeze::cpi::block_account(
         CpiContext::new_with_signer(
-            ctx.accounts.block_program.to_account_info(),
+            ctx.accounts.freeze_program.to_account_info(),
             BlockAccount {
                 calling_authority: ctx.accounts.mint_authority.to_account_info(),
                 freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
@@ -158,7 +160,7 @@ pub struct MintTokens<'info> {
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `cmtat-deactivate`.
     ///
-    /// CHECK: Address verified by seeds/bump; emptiness checked by verify_deactivate.
+    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [b"deactivate", mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
@@ -256,7 +258,7 @@ pub struct MintTokens<'info> {
 
     /// CHECK: Address verified by constraint.
     #[account(address = constants::CMTAT_FREEZE_PROGRAM_ID)]
-    pub block_program: UncheckedAccount<'info>,
+    pub freeze_program: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint.
     #[account(address = constants::CMTAT_SNAPSHOT_PROGRAM_ID)]

@@ -30,12 +30,14 @@ const freezeProgram          = anchor.workspace.cmtatFreeze          as Program<
 const operationsProgram     = anchor.workspace.CmtatOperations     as Program<any>;
 const pauseProgram          = anchor.workspace.CmtatPause          as Program<any>;
 const transferHookProgram   = anchor.workspace.CmtatTransferHook   as Program<any>;
+const snapshotProgram           = anchor.workspace.CmtatSnapshot           as Program<any>;
 
 const MINT_AUTHORITY_PROGRAM_ID            = mintProgram.programId;
 const METADATA_UPDATE_AUTHORITY_PROGRAM_ID = metadataUpdateProgram.programId;
 const FREEZE_AUTHORITY_PROGRAM_ID          = freezeProgram.programId;
 const PERMANENT_DELEGATE_PROGRAM_ID        = operationsProgram.programId;
 const PAUSABLE_AUTHORITY_PROGRAM_ID        = pauseProgram.programId;
+const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
 
 describe("cmtat-deploy", () => {
