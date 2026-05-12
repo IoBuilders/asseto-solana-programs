@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use cmtat_common::{pda_seeds, pda_utils};
 
 pub mod constants;
 pub mod errors;
@@ -59,7 +60,7 @@ pub(crate) fn assert_take_snapshot_authorized_caller(mint_key: &Pubkey, caller: 
     use crate::errors::ErrorCode;
 
     let (expected, _) = Pubkey::find_program_address(
-        &[b"coupon_authority", mint_key.as_ref()],
+        &[pda_seeds::COUPON_AUTHORITY, mint_key.as_ref()],
         &CMTAT_COUPON_PROGRAM_ID,
     );
     require!(expected == *caller, ErrorCode::Unauthorized);
@@ -74,14 +75,9 @@ pub(crate) fn assert_total_supply_authorized_caller(mint_key: &Pubkey, caller: &
     use crate::constants::{CMTAT_MINT_PROGRAM_ID, CMTAT_OPERATIONS_PROGRAM_ID};
     use crate::errors::ErrorCode;
 
-    let is_pda = |seeds: &[&[u8]], program_id: &Pubkey| -> bool {
-        let (pda, _) = Pubkey::find_program_address(seeds, program_id);
-        pda == *caller
-    };
-
     require!(
-        is_pda(&[b"mint_authority",     mint_key.as_ref()], &CMTAT_MINT_PROGRAM_ID)
-        || is_pda(&[b"permanent_delegate", mint_key.as_ref()], &CMTAT_OPERATIONS_PROGRAM_ID),
+        pda_utils::is_caller_pda(caller, &pda_seeds::mint_authority_seeds(mint_key), &CMTAT_MINT_PROGRAM_ID)
+        || pda_utils::is_caller_pda(caller, &pda_seeds::permanent_delegate_seeds(mint_key), &CMTAT_OPERATIONS_PROGRAM_ID),
         ErrorCode::Unauthorized
     );
     Ok(())
@@ -91,20 +87,15 @@ pub(crate) fn assert_total_supply_authorized_caller(mint_key: &Pubkey, caller: &
 /// `update_holderbalance_snapshot`:
 ///   - `mint_authority`     (cmtat-mint,       seeds: `["mint_authority",     mint]`)
 ///   - `permanent_delegate` (cmtat-operations,  seeds: `["permanent_delegate", mint]`)
-///   - `transfer`           (cmtat-transfer,   seeds: `["transfer",           mint]`)
+///   - `transfer_hook_authority` (cmtat-transfer,   seeds: `["transfer_hook_authority",           mint]`)
 pub(crate) fn assert_holder_balance_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
     use crate::constants::{CMTAT_MINT_PROGRAM_ID, CMTAT_OPERATIONS_PROGRAM_ID, CMTAT_TRANSFER_HOOK_PROGRAM_ID};
     use crate::errors::ErrorCode;
 
-    let is_pda = |seeds: &[&[u8]], program_id: &Pubkey| -> bool {
-        let (pda, _) = Pubkey::find_program_address(seeds, program_id);
-        pda == *caller
-    };
-
     require!(
-        is_pda(&[b"mint_authority",     mint_key.as_ref()], &CMTAT_MINT_PROGRAM_ID)
-        || is_pda(&[b"permanent_delegate", mint_key.as_ref()], &CMTAT_OPERATIONS_PROGRAM_ID)
-        || is_pda(&[b"transfer_hook_authority",           mint_key.as_ref()], &CMTAT_TRANSFER_HOOK_PROGRAM_ID),
+        pda_utils::is_caller_pda(caller, &pda_seeds::mint_authority_seeds(mint_key), &CMTAT_MINT_PROGRAM_ID)
+        || pda_utils::is_caller_pda(caller, &pda_seeds::permanent_delegate_seeds(mint_key), &CMTAT_OPERATIONS_PROGRAM_ID)
+        || pda_utils::is_caller_pda(caller, &pda_seeds::transfer_hook_authority_seeds(mint_key), &CMTAT_TRANSFER_HOOK_PROGRAM_ID),
         ErrorCode::Unauthorized
     );
     Ok(())

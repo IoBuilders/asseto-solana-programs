@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{require_active, verify_deployer};
+use cmtat_common::{pda_seeds, require_active, verify_deployer};
 use cmtat_freeze::{require_unfrozen_account, require_unfrozen_balance};
 use cmtat_transfer_control::{get_transfer_mode, verify_whitelist, TransferMode};
 
@@ -89,7 +89,7 @@ pub struct VerifyTransfer<'info> {
     /// 5 — Mint owner PDA created by cmtat-deploy; consulted by `verify_deployer`.
     /// CHECK: Address verified by seeds/bump; contents Borsh-deserialized in helper.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -98,7 +98,7 @@ pub struct VerifyTransfer<'info> {
     /// 6 — Deactivation marker PDA (must be empty).
     /// CHECK: Address verified by seeds/bump; emptiness checked in helper.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -107,7 +107,7 @@ pub struct VerifyTransfer<'info> {
     /// 7 — Transfer Control Mode PDA. May be empty (no mode active).
     /// CHECK: Address verified by seeds/bump; contents read in helper.
     #[account(
-        seeds = [b"transfer_control_mode", mint.key().as_ref()],
+        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
@@ -116,7 +116,7 @@ pub struct VerifyTransfer<'info> {
     /// 8 — Source whitelist PDA (must exist in whitelist mode).
     /// CHECK: Address verified by seeds/bump; existence checked in helper.
     #[account(
-        seeds = [b"whitelist", mint.key().as_ref(), source.key().as_ref()],
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), source.key().as_ref()],
         seeds::program = constants::CMTAT_TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
@@ -125,7 +125,7 @@ pub struct VerifyTransfer<'info> {
     /// 9 — Destination whitelist PDA (must exist in whitelist mode).
     /// CHECK: Address verified by seeds/bump; existence checked in helper.
     #[account(
-        seeds = [b"whitelist", mint.key().as_ref(), destination.key().as_ref()],
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), destination.key().as_ref()],
         seeds::program = constants::CMTAT_TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
@@ -134,7 +134,7 @@ pub struct VerifyTransfer<'info> {
     /// 10 — Source frozen-account marker PDA (must be empty for transfer to proceed).
     /// CHECK: Address verified by seeds/bump; emptiness checked in helper.
     #[account(
-        seeds = [b"frozen_account", mint.key().as_ref(), source.key().as_ref()],
+        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), source.key().as_ref()],
         seeds::program = constants::CMTAT_FREEZE_PROGRAM_ID,
         bump,
     )]
@@ -143,7 +143,7 @@ pub struct VerifyTransfer<'info> {
     /// 11 — Source partial-freeze balance PDA. May be empty (no partial freeze).
     /// CHECK: Address verified by seeds/bump; balance read in helper.
     #[account(
-        seeds = [b"frozen_balance", mint.key().as_ref(), source.key().as_ref()],
+        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), source.key().as_ref()],
         seeds::program = constants::CMTAT_FREEZE_PROGRAM_ID,
         bump,
     )]

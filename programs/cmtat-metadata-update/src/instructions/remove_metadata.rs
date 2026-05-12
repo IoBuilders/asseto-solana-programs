@@ -6,9 +6,7 @@ use spl_token_metadata_interface::{
 };
 
 use crate::constants;
-use cmtat_common::require_active;
-use cmtat_common::verify_deployer;
-use cmtat_common::require_not_paused;
+use cmtat_common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 
 
 /// Removes a custom key-value pair from `additional_metadata`.
@@ -39,11 +37,10 @@ pub fn remove_metadata_field(
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
 
-    let seeds: &[&[u8]] = &[
-        b"metadata_update_authority",
-        mint_key.as_ref(),
-        &[ctx.bumps.metadata_update_authority],
-    ];
+    let metadata_update_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::metadata_update_authority_seeds(&mint_key),
+        &ctx.bumps.metadata_update_authority
+    );
 
     invoke_signed(
         &remove_key(
@@ -57,7 +54,7 @@ pub fn remove_metadata_field(
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.metadata_update_authority.to_account_info(),
         ],
-         &[seeds],
+         &[metadata_update_signer_seeds.as_slice()],
     )?;
 
     Ok(())
@@ -88,7 +85,7 @@ pub struct RemoveMetadata<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -99,7 +96,7 @@ pub struct RemoveMetadata<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"metadata_update_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::METADATA_UPDATE_AUTHORITY, mint.key().as_ref()],
         bump,
     )]
     pub metadata_update_authority: UncheckedAccount<'info>,
@@ -109,7 +106,7 @@ pub struct RemoveMetadata<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]

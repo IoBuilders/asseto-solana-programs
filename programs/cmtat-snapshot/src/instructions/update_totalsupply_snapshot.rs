@@ -3,6 +3,7 @@ use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_lang::solana_program::system_instruction;
 use spl_token_2022::extension::StateWithExtensions;
 use spl_token_2022::state::Mint;
+use cmtat_common::{pda_seeds, pda_utils};
 
 use crate::state::{SnapshotCounter, SnapshotEntry, SnapshotHistory};
 
@@ -47,6 +48,10 @@ pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> R
 
     // ── Create the PDA on the first call ─────────────────────────────────────
     if ctx.accounts.total_supply_snapshot.data_is_empty() {
+        let snapshot_totalsupply_signer_seeds = pda_utils::build_pda_signer_seeds(
+            pda_seeds::snapshot_totalsupply_seeds(&mint_key),
+            &bump
+        );
         let space = SnapshotHistory::len_for(1);
         let lamports = Rent::get()?.minimum_balance(space);
         invoke_signed(
@@ -62,7 +67,7 @@ pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> R
                 ctx.accounts.total_supply_snapshot.to_account_info(),
                 ctx.accounts.system_program.to_account_info(),
             ],
-            &[&[b"snapshot_totalsupply", mint_key.as_ref(), &[bump]]],
+            &[snapshot_totalsupply_signer_seeds.as_slice()],
         )?;
 
         let history = SnapshotHistory {
@@ -125,7 +130,7 @@ pub struct UpdateTotalSupplySnapshot<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; existence and contents checked in the handler.
     #[account(
-        seeds = [b"snapshot_counter", mint.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
         bump,
     )]
     pub snapshot_counter: UncheckedAccount<'info>,
@@ -137,7 +142,7 @@ pub struct UpdateTotalSupplySnapshot<'info> {
     /// CHECK: Address verified by seeds/bump; created or grown as needed in the handler.
     #[account(
         mut,
-        seeds = [b"snapshot_totalsupply", mint.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_TOTALSUPPLY, mint.key().as_ref()],
         bump,
     )]
     pub total_supply_snapshot: UncheckedAccount<'info>,

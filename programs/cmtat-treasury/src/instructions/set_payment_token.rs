@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
-use cmtat_common::{require_active, verify_deployer, require_not_paused};
+use cmtat_common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
 use crate::constants;
 use crate::state::TreasuryConfig;
@@ -42,7 +42,7 @@ pub struct SetPaymentToken<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -52,7 +52,7 @@ pub struct SetPaymentToken<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -69,7 +69,7 @@ pub struct SetPaymentToken<'info> {
         init_if_needed,
         payer = payer,
         space = TreasuryConfig::LEN,
-        seeds = [b"treasury_config", mint.key().as_ref()],
+        seeds = [pda_seeds::TREASURY_CONFIG, mint.key().as_ref()],
         bump,
     )]
     pub treasury_config: Account<'info, TreasuryConfig>,

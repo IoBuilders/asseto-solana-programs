@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{verify_deployer, require_not_paused};
+use cmtat_common::{pda_seeds, verify_deployer, require_not_paused};
 
 use crate::constants;
 use crate::state::DeactivateStatus;
@@ -36,7 +36,7 @@ pub struct Deactivate<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Borsh-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -53,7 +53,7 @@ pub struct Deactivate<'info> {
         init,
         payer = deployer,
         space = DeactivateStatus::LEN,
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         bump,
     )]
     pub deactivate_pda: Account<'info, DeactivateStatus>,

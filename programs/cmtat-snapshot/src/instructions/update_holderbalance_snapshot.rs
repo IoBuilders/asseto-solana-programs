@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_lang::solana_program::system_instruction;
+use cmtat_common::{pda_seeds, pda_utils};
 use spl_token_2022::extension::StateWithExtensions;
 use spl_token_2022::state::Account as TokenAccount;
 
@@ -73,6 +74,10 @@ pub fn update_holderbalance_snapshot(
     if ctx.accounts.holder_balance_snapshot.data_is_empty() {
         let space = SnapshotHistory::len_for(1);
         let lamports = Rent::get()?.minimum_balance(space);
+        let holder_balance_signer_seeds = pda_utils::build_pda_signer_seeds(
+            pda_seeds::snapshot_holderbalance_seeds(&mint_key, &token_account_key),
+            &bump
+        );
         invoke_signed(
             &system_instruction::create_account(
                 &ctx.accounts.payer.key(),
@@ -86,7 +91,7 @@ pub fn update_holderbalance_snapshot(
                 ctx.accounts.holder_balance_snapshot.to_account_info(),
                 ctx.accounts.system_program.to_account_info(),
             ],
-            &[&[b"snapshot_holderbalance", mint_key.as_ref(), token_account_key.as_ref(), &[bump]]],
+            &[holder_balance_signer_seeds.as_slice()],
         )?;
 
         let history = SnapshotHistory {
@@ -150,7 +155,7 @@ pub struct UpdateHolderBalanceSnapshot<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; existence and contents checked in the handler.
     #[account(
-        seeds = [b"snapshot_counter", mint.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
         bump,
     )]
     pub snapshot_counter: UncheckedAccount<'info>,
@@ -162,7 +167,7 @@ pub struct UpdateHolderBalanceSnapshot<'info> {
     /// CHECK: Address verified by seeds/bump; created or grown as needed in the handler.
     #[account(
         mut,
-        seeds = [b"snapshot_holderbalance", mint.key().as_ref(), holder_token_account.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_HOLDERBALANCE, mint.key().as_ref(), holder_token_account.key().as_ref()],
         bump,
     )]
     pub holder_balance_snapshot: UncheckedAccount<'info>,

@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::instruction::freeze_account;
+use cmtat_common::{pda_seeds, pda_utils};
 
 /// Freezes `token_account` for the given mint.
 ///
@@ -21,11 +22,10 @@ pub fn block_account(ctx: Context<BlockAccount>) -> Result<()> {
     crate::assert_authorized_caller(&mint_key, ctx.accounts.calling_authority.key)?;
 
     // ── Freeze via this program's PDA ──────────────────────────────────────
-    let seeds: &[&[u8]] = &[
-        b"freeze_authority",
-        mint_key.as_ref(),
-        &[ctx.bumps.freeze_authority],
-    ];
+    let freeze_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::freeze_authority_seeds(&mint_key),
+        &ctx.bumps.freeze_authority
+    );
 
     invoke_signed(
         &freeze_account(
@@ -41,7 +41,7 @@ pub fn block_account(ctx: Context<BlockAccount>) -> Result<()> {
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.freeze_authority.to_account_info(),
         ],
-        &[seeds],
+        &[freeze_authority_signer_seeds.as_slice()],
     )?;
 
     Ok(())
@@ -59,7 +59,7 @@ pub struct BlockAccount<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"freeze_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
         bump,
     )]
     pub freeze_authority: UncheckedAccount<'info>,

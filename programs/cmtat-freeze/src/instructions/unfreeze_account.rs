@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{require_active, verify_deployer, require_not_paused};
+use cmtat_common::{pda_seeds, require_active, verify_deployer, require_not_paused};
 
 use crate::constants;
 use crate::state::FrozenAccountStatus;
@@ -37,7 +37,7 @@ pub struct UnfreezeAccount<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Borsh-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -58,7 +58,7 @@ pub struct UnfreezeAccount<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -69,7 +69,7 @@ pub struct UnfreezeAccount<'info> {
     #[account(
         mut,
         close = deployer,
-        seeds = [b"frozen_account", mint.key().as_ref(), account.key().as_ref()],
+        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]
     pub frozen_account_pda: Account<'info, FrozenAccountStatus>,

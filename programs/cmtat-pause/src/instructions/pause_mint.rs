@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
+use cmtat_common::pda_utils;
 use spl_token_2022::extension::pausable::instruction::pause as spl_pause;
-use cmtat_common::require_active;
-use cmtat_common::verify_deployer;
+use cmtat_common::{pda_seeds, require_active, verify_deployer};
 
 use crate::constants;
 
@@ -27,11 +27,10 @@ pub fn pause(ctx: Context<PauseMint>) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
 
-    let pausable_authority_seeds: &[&[u8]] = &[
-        b"pausable_authority",
-        mint_key.as_ref(),
-        &[ctx.bumps.pausable_authority],
-    ];
+    let pausable_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::pausable_authority_seeds(&mint_key),
+        &ctx.bumps.pausable_authority
+    );
 
     // ── Pause via this program's PDA ─────────────────────────────────────────
     invoke_signed(
@@ -46,7 +45,7 @@ pub fn pause(ctx: Context<PauseMint>) -> Result<()> {
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.pausable_authority.to_account_info(),
         ],
-        &[pausable_authority_seeds],
+        &[pausable_authority_signer_seeds.as_slice()],
     )?;
 
     Ok(())
@@ -61,7 +60,7 @@ pub struct PauseMint<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -72,7 +71,7 @@ pub struct PauseMint<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -89,7 +88,7 @@ pub struct PauseMint<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"pausable_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::PAUSABLE_AUTHORITY, mint.key().as_ref()],
         bump,
     )]
     pub pausable_authority: UncheckedAccount<'info>,

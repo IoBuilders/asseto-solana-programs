@@ -7,6 +7,7 @@ use spl_tlv_account_resolution::{
 };
 use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
+use cmtat_common::pda_seeds;
 use crate::constants;
 use crate::errors::TransferHookError;
 
@@ -42,7 +43,7 @@ pub fn initialize_extra_account_meta_list(
         ExtraAccountMeta::new_external_pda_with_seeds(
             5,
             &[
-                Seed::Literal { bytes: b"snapshot_counter".to_vec() },
+                Seed::Literal { bytes: pda_seeds::SNAPSHOT_COUNTER.to_vec() },
                 Seed::AccountKey { index: 1 },
             ],
             false,
@@ -53,7 +54,7 @@ pub fn initialize_extra_account_meta_list(
         ExtraAccountMeta::new_external_pda_with_seeds(
             5,
             &[
-                Seed::Literal { bytes: b"snapshot_holderbalance".to_vec() },
+                Seed::Literal { bytes: pda_seeds::SNAPSHOT_HOLDERBALANCE.to_vec() },
                 Seed::AccountKey { index: 1 },
                 Seed::AccountKey { index: 0 },
             ],
@@ -65,7 +66,7 @@ pub fn initialize_extra_account_meta_list(
         ExtraAccountMeta::new_external_pda_with_seeds(
             5,
             &[
-                Seed::Literal { bytes: b"snapshot_holderbalance".to_vec() },
+                Seed::Literal { bytes: pda_seeds::SNAPSHOT_HOLDERBALANCE.to_vec() },
                 Seed::AccountKey { index: 1 },
                 Seed::AccountKey { index: 2 },
             ],
@@ -76,7 +77,7 @@ pub fn initialize_extra_account_meta_list(
         // 9: transfer hook authority (this program's PDA, writable, pays snapshot PDA creation)
         ExtraAccountMeta::new_with_seeds(
             &[
-                Seed::Literal { bytes: b"transfer_hook_authority".to_vec() },
+                Seed::Literal { bytes: pda_seeds::TRANSFER_HOOK_AUTHORITY.to_vec() },
                 Seed::AccountKey { index: 1 },
             ],
             false,
@@ -115,7 +116,7 @@ pub struct InitializeExtraAccountMetaList<'info> {
     /// CHECK: Signer flag proves origin; seeds verify this is the canonical PDA for this mint.
     #[account(
         signer,
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -128,7 +129,7 @@ pub struct InitializeExtraAccountMetaList<'info> {
     /// CHECK: Created by this instruction; seeds/bump verified by the constraint.
     #[account(
         init,
-        seeds = [b"extra-account-metas", mint.key().as_ref()],
+        seeds = [pda_seeds::EXTRA_ACCOUNT_METAS, mint.key().as_ref()],
         bump,
         space = ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT).unwrap(),
         payer = payer

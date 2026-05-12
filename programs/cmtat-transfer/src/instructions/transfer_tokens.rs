@@ -8,6 +8,7 @@ use spl_token_2022::{
     state::Mint as MintState,
 };
 use cmtat_freeze::cpi::accounts::{BlockAccount, UnblockAccount};
+use cmtat_common::{pda_utils, pda_seeds};
 use crate::constants;
 
 /// Transfers `amount` tokens from `source` to `destination`.
@@ -32,11 +33,10 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
 
-    let transfer_authority_seeds: &[&[u8]] = &[
-        b"transfer",
-        mint_key.as_ref(),
-        &[ctx.bumps.transfer_authority],
-    ];
+    let transfer_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::transfer_seeds(&mint_key),
+        &ctx.bumps.transfer_authority
+    );
 
     // ── 1. Unblock source and destination (CPI to cmtat-freeze) ─────────────
     cmtat_freeze::cpi::unblock_account(
@@ -49,7 +49,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
                 token_account: ctx.accounts.source.to_account_info(),
                 token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
             },
-            &[transfer_authority_seeds],
+            &[transfer_authority_signer_seeds.as_slice()],
         ),
     )?;
 
@@ -63,7 +63,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
                 token_account: ctx.accounts.destination.to_account_info(),
                 token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
             },
-            &[transfer_authority_seeds],
+            &[transfer_authority_signer_seeds.as_slice()],
         ),
     )?;
 
@@ -133,7 +133,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
                 token_account: ctx.accounts.source.to_account_info(),
                 token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
             },
-            &[transfer_authority_seeds],
+            &[transfer_authority_signer_seeds.as_slice()],
         ),
     )?;
 
@@ -147,7 +147,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
                 token_account: ctx.accounts.destination.to_account_info(),
                 token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
             },
-            &[transfer_authority_seeds],
+            &[transfer_authority_signer_seeds.as_slice()],
         ),
     )?;
 
@@ -190,7 +190,7 @@ pub struct TransferTokens<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"transfer", mint.key().as_ref()],
+        seeds = [pda_seeds::TRANSFER, mint.key().as_ref()],
         bump,
     )]
     pub transfer_authority: UncheckedAccount<'info>,
@@ -202,7 +202,7 @@ pub struct TransferTokens<'info> {
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         mut,
-        seeds = [b"transfer_hook_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::TRANSFER_HOOK_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::CMTAT_TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]
@@ -213,7 +213,7 @@ pub struct TransferTokens<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"freeze_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::CMTAT_FREEZE_PROGRAM_ID,
         bump,
     )]
@@ -224,7 +224,7 @@ pub struct TransferTokens<'info> {
     ///
     /// CHECK: Address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"extra-account-metas", mint.key().as_ref()],
+        seeds = [pda_seeds::EXTRA_ACCOUNT_METAS, mint.key().as_ref()],
         seeds::program = constants::CMTAT_TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]

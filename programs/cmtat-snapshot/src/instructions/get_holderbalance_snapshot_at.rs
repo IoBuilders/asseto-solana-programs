@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use cmtat_common::pda_seeds;
 use spl_token_2022::extension::StateWithExtensions;
 use spl_token_2022::state::Account as TokenAccount;
 
@@ -48,7 +49,7 @@ pub struct GetHolderBalanceSnapshotAt<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked in the handler.
     #[account(
-        seeds = [b"snapshot_holderbalance", mint.key().as_ref(), holder_token_account.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_HOLDERBALANCE, mint.key().as_ref(), holder_token_account.key().as_ref()],
         bump,
     )]
     pub holder_balance_snapshot: UncheckedAccount<'info>,

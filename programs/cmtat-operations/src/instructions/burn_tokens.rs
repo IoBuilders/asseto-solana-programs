@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
+use cmtat_common::pda_utils;
 use spl_token_2022::instruction::burn as spl_burn;
-use cmtat_common::require_active;
-use cmtat_common::verify_deployer;
+use cmtat_common::{pda_seeds, require_active, verify_deployer};
 use cmtat_freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use cmtat_snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
 
@@ -31,11 +31,10 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
 
-    let operations_authority_seeds: &[&[u8]] = &[
-        b"permanent_delegate",
-        mint_key.as_ref(),
-        &[ctx.bumps.operations_authority],
-    ];
+    let permanent_delegate_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::permanent_delegate_seeds(&mint_key),
+        &ctx.bumps.operations_authority
+    );
 
     // ── 1. Update total supply snapshot (CPI to cmtat-snapshot) ──────────────
     cmtat_snapshot::cpi::update_totalsupply_snapshot(
@@ -49,7 +48,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
                 total_supply_snapshot: ctx.accounts.total_supply_snapshot.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
             },
-            &[operations_authority_seeds],
+            &[permanent_delegate_signer_seeds.as_slice()],
         ),
     )?;
 
@@ -66,7 +65,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
                 holder_token_account: ctx.accounts.token_account.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
             },
-            &[operations_authority_seeds],
+            &[permanent_delegate_signer_seeds.as_slice()],
         ),
         0,
         true,
@@ -83,7 +82,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
                 token_account: ctx.accounts.token_account.to_account_info(),
                 token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
             },
-            &[operations_authority_seeds],
+            &[permanent_delegate_signer_seeds.as_slice()],
         ),
     )?;
 
@@ -103,7 +102,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.operations_authority.to_account_info(),
         ],
-        &[operations_authority_seeds],
+        &[permanent_delegate_signer_seeds.as_slice()],
     )?;
 
     // ── 5. Re-block token_account (CPI to cmtat-freeze) ──────────────────────
@@ -117,7 +116,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
                 token_account: ctx.accounts.token_account.to_account_info(),
                 token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
             },
-            &[operations_authority_seeds],
+            &[permanent_delegate_signer_seeds.as_slice()],
         ),
     )?;
 
@@ -135,7 +134,7 @@ pub struct BurnTokens<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -146,7 +145,7 @@ pub struct BurnTokens<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -169,7 +168,7 @@ pub struct BurnTokens<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"permanent_delegate", mint.key().as_ref()],
+        seeds = [pda_seeds::PERMANENT_DELEGATE, mint.key().as_ref()],
         bump,
     )]
     pub operations_authority: UncheckedAccount<'info>,
@@ -179,7 +178,7 @@ pub struct BurnTokens<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"freeze_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::CMTAT_FREEZE_PROGRAM_ID,
         bump,
     )]
@@ -191,7 +190,7 @@ pub struct BurnTokens<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; existence and contents checked by cmtat-snapshot.
     #[account(
-        seeds = [b"snapshot_counter", mint.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_SNAPSHOT_PROGRAM_ID,
         bump,
     )]

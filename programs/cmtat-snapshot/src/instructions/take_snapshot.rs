@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use cmtat_common::pda_seeds;
 
 use crate::state::{SnapshotCounter, SnapshotHistory};
 
@@ -55,7 +56,7 @@ pub struct TakeSnapshot<'info> {
         init_if_needed,
         payer = payer,
         space = SnapshotCounter::LEN,
-        seeds = [b"snapshot_counter", mint.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
         bump,
     )]
     pub snapshot_counter: Account<'info, SnapshotCounter>,

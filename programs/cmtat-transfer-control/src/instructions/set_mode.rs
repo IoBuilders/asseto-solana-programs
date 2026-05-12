@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
-use cmtat_common::{require_active, verify_deployer, require_not_paused};
+use cmtat_common::{pda_seeds, pda_utils, require_active, verify_deployer, require_not_paused};
 
 use crate::constants;
 use crate::state::{TransferControlMode, TransferMode};
@@ -57,7 +57,10 @@ pub fn set_mode(ctx: Context<SetMode>, mode: Option<TransferMode>) -> Result<()>
             if pda.data_is_empty() {
                 let space = TransferControlMode::LEN;
                 let lamports = Rent::get()?.minimum_balance(space);
-                let seeds: &[&[u8]] = &[b"transfer_control_mode", mint_key.as_ref(), &[bump]];
+                let transfer_control_mode_signer_seeds = pda_utils::build_pda_signer_seeds(
+                    pda_seeds::transfer_control_mode_seeds(&mint_key),
+                    &bump
+                );
                 invoke_signed(
                     &system_instruction::create_account(
                         ctx.accounts.deployer.key,
@@ -71,7 +74,7 @@ pub fn set_mode(ctx: Context<SetMode>, mode: Option<TransferMode>) -> Result<()>
                         pda.to_account_info(),
                         ctx.accounts.system_program.to_account_info(),
                     ],
-                    &[seeds],
+                    &[transfer_control_mode_signer_seeds.as_slice()],
                 )?;
             }
             // Write discriminator + data (works for both create and update).
@@ -95,7 +98,7 @@ pub struct SetMode<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Borsh-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -111,7 +114,7 @@ pub struct SetMode<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -125,7 +128,7 @@ pub struct SetMode<'info> {
     /// in the instruction body; seeds/bump constraint verifies the address.
     #[account(
         mut,
-        seeds = [b"transfer_control_mode", mint.key().as_ref()],
+        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
         bump,
     )]
     pub transfer_control_mode_pda: UncheckedAccount<'info>,

@@ -19,9 +19,12 @@ use spl_token_metadata_interface::{
     instruction::{initialize as initialize_token_metadata, update_authority, update_field},
     state::{Field, TokenMetadata},
 };
+use cmtat_common::{pda_seeds, pda_utils};
 
 use crate::errors::ErrorCode;
 use crate::state::MintOwner;
+
+const TEMP_MINT_AUTHORITY_SEED: &[u8] = b"temp_mint_authority";
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct MetadataField {
@@ -206,11 +209,10 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
-    let temp_mint_authority_seeds: &[&[u8]] = &[
-        b"temp_mint_authority",
-        mint_key.as_ref(),
-        &[ctx.bumps.temp_mint_authority],
-    ];
+    let temp_mint_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
+        vec![TEMP_MINT_AUTHORITY_SEED, mint_key.as_ref()],
+        &ctx.bumps.temp_mint_authority
+    );
 
     // ── 9. Initialize token metadata — must follow initialize_mint2 ─────────
     //
@@ -235,7 +237,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             ctx.accounts.mint.to_account_info(),                        // mint
             ctx.accounts.temp_mint_authority.to_account_info(),         // mint authority (signer)
         ],
-        &[temp_mint_authority_seeds],
+        &[temp_mint_authority_signer_seeds.as_slice()],
     )?;
 
     // ── 10. Write additional_metadata fields ──────────────────────────────────
@@ -255,7 +257,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
                 ctx.accounts.mint.to_account_info(),
                 ctx.accounts.temp_mint_authority.to_account_info(),
             ],
-            &[temp_mint_authority_seeds],
+            &[temp_mint_authority_signer_seeds.as_slice()],
         )?;
     }
 
@@ -278,7 +280,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.temp_mint_authority.to_account_info(),
         ],
-        &[temp_mint_authority_seeds],
+        &[temp_mint_authority_signer_seeds.as_slice()],
     )?;
 
     // ── 12. Transfer mint authority to the external PDA ──────────────────────
@@ -300,7 +302,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.temp_mint_authority.to_account_info(),
         ],
-        &[temp_mint_authority_seeds],
+        &[temp_mint_authority_signer_seeds.as_slice()],
     )?;
 
     // ── 13. Record the deployer as mint owner ────────────────────────────────
@@ -311,6 +313,10 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     //
     // CPI signed with mint_owner_pda so that the transfer hook program can verify
     // this call originates from deploy_mint for this specific mint.
+    let mint_owner_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::mint_owner_seeds(&mint_key),
+        &ctx.bumps.mint_owner_pda
+    );
     cmtat_transfer_hook::cpi::initialize_extra_account_meta_list(
         CpiContext::new_with_signer(
             ctx.accounts.cmtat_transfer_hook_program.to_account_info(),
@@ -322,11 +328,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
                 system_program: ctx.accounts.system_program.to_account_info(),
                 rent: ctx.accounts.rent.to_account_info(),
             },
-            &[&[
-                b"mint_owner",
-                mint_key.as_ref(),
-                &[ctx.bumps.mint_owner_pda],
-            ]],
+            &[mint_owner_signer_seeds.as_slice()],
         ),
         ctx.accounts.deployer.key(),
     )?;
@@ -352,7 +354,7 @@ pub struct DeployMint<'info> {
         init,
         payer = payer,
         space = MintOwner::LEN,
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         bump,
     )]
     pub mint_owner_pda: Account<'info, MintOwner>,
@@ -374,7 +376,7 @@ pub struct DeployMint<'info> {
     ///
     /// CHECK: PDA ownership proven by the seeds/bump constraint.
     #[account(
-        seeds = [b"temp_mint_authority", mint.key().as_ref()],
+        seeds = [TEMP_MINT_AUTHORITY_SEED, mint.key().as_ref()],
         bump,
     )]
     pub temp_mint_authority: UncheckedAccount<'info>,
@@ -385,7 +387,7 @@ pub struct DeployMint<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"mint_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::MINT_AUTHORITY_PROGRAM_ID,
         bump,
     )]
@@ -397,7 +399,7 @@ pub struct DeployMint<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"permanent_delegate", mint.key().as_ref()],
+        seeds = [pda_seeds::PERMANENT_DELEGATE, mint.key().as_ref()],
         seeds::program = constants::PERMANENT_DELEGATE_PROGRAM_ID,
         bump,
     )]
@@ -409,7 +411,7 @@ pub struct DeployMint<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"metadata_update_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::METADATA_UPDATE_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::METADATA_UPDATE_AUTHORITY_PROGRAM_ID,
         bump,
     )]
@@ -420,7 +422,7 @@ pub struct DeployMint<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"pausable_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::PAUSABLE_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::PAUSABLE_AUTHORITY_PROGRAM_ID,
         bump,
     )]
@@ -433,7 +435,7 @@ pub struct DeployMint<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"freeze_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::FREEZE_AUTHORITY_PROGRAM_ID,
         bump,
     )]
@@ -445,7 +447,7 @@ pub struct DeployMint<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"transfer_hook_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::TRANSFER_HOOK_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]
@@ -457,7 +459,7 @@ pub struct DeployMint<'info> {
     /// CHECK: Created during the CPI; seeds/bump verified by constraint.
     #[account(
         mut,
-        seeds = [b"extra-account-metas", mint.key().as_ref()],
+        seeds = [pda_seeds::EXTRA_ACCOUNT_METAS, mint.key().as_ref()],
         seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]

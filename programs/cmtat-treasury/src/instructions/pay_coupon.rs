@@ -3,7 +3,7 @@ use anchor_spl::token_interface::{
     self, Mint, TokenAccount, TokenInterface, TransferChecked,
 };
 use cmtat_bond::state::{BondTerms, DayCountConvention};
-use cmtat_common::{require_active, verify_deployer, require_not_paused};
+use cmtat_common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 use cmtat_coupon::state::Coupon;
 use cmtat_snapshot::cpi::accounts::GetHolderBalanceSnapshotAt;
 
@@ -140,11 +140,10 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
     // ── transfer_checked via the token interface, signed by treasury_authority ─
     let cfg = &ctx.accounts.treasury_config;
     let mint_key = ctx.accounts.mint.key();
-    let treasury_authority_seeds: &[&[u8]] = &[
-        b"treasury_authority",
-        mint_key.as_ref(),
-        &[ctx.bumps.treasury_authority],
-    ];
+    let treasury_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::treasury_authority_seeds(&mint_key),
+        &ctx.bumps.treasury_authority
+    );
 
     token_interface::transfer_checked(
         CpiContext::new_with_signer(
@@ -155,7 +154,7 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
                 to: ctx.accounts.holder_payment_account.to_account_info(),
                 authority: ctx.accounts.treasury_authority.to_account_info(),
             },
-            &[treasury_authority_seeds],
+            &[treasury_authority_signer_seeds.as_slice()],
         ),
         amount,
         cfg.payment_mint_decimals,
@@ -181,7 +180,7 @@ pub struct PayCoupon<'info> {
 
     /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -189,7 +188,7 @@ pub struct PayCoupon<'info> {
 
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -209,7 +208,7 @@ pub struct PayCoupon<'info> {
     /// Treasury config storing the payment mint pubkey + decimals.
     /// Seeds: `["treasury_config", mint]`.
     #[account(
-        seeds = [b"treasury_config", mint.key().as_ref()],
+        seeds = [pda_seeds::TREASURY_CONFIG, mint.key().as_ref()],
         bump = treasury_config.bump,
     )]
     pub treasury_config: Box<Account<'info, TreasuryConfig>>,
@@ -220,7 +219,7 @@ pub struct PayCoupon<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump; signs via invoke_signed.
     #[account(
-        seeds = [b"treasury_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::TREASURY_AUTHORITY, mint.key().as_ref()],
         bump,
     )]
     pub treasury_authority: UncheckedAccount<'info>,
@@ -264,7 +263,7 @@ pub struct PayCoupon<'info> {
     /// Per-mint bond terms — read for interest_rate / par_value / issuance_date / day_count.
     /// Seeds: `["bond_terms", mint]`, owned by cmtat-bond.
     #[account(
-        seeds = [b"bond_terms", mint.key().as_ref()],
+        seeds = [pda_seeds::BOND_TERMS, mint.key().as_ref()],
         seeds::program = constants::CMTAT_BOND_PROGRAM_ID,
         bump = bond_terms.bump,
     )]
@@ -273,7 +272,7 @@ pub struct PayCoupon<'info> {
     /// The coupon record — read for snapshot_id + payment_date.
     /// Seeds: `["coupon", mint, coupon_id.to_le_bytes()]`, owned by cmtat-coupon.
     #[account(
-        seeds = [b"coupon", mint.key().as_ref(), &coupon_id.to_le_bytes()],
+        seeds = [pda_seeds::COUPON, mint.key().as_ref(), &coupon_id.to_le_bytes()],
         seeds::program = constants::CMTAT_COUPON_PROGRAM_ID,
         bump = coupon.bump,
     )]
@@ -287,7 +286,7 @@ pub struct PayCoupon<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents validated by snapshot CPI.
     #[account(
-        seeds = [b"snapshot_holderbalance", mint.key().as_ref(), holder_token_account.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_HOLDERBALANCE, mint.key().as_ref(), holder_token_account.key().as_ref()],
         seeds::program = constants::CMTAT_SNAPSHOT_PROGRAM_ID,
         bump,
     )]
@@ -301,7 +300,7 @@ pub struct PayCoupon<'info> {
         payer = payer,
         space = CouponPaidMarker::LEN,
         seeds = [
-            b"coupon_paid",
+            pda_seeds::COUPON_PAID,
             mint.key().as_ref(),
             &coupon_id.to_le_bytes(),
             holder_token_account.key().as_ref(),

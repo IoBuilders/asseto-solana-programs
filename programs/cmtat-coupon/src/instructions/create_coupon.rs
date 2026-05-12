@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{require_active, require_not_paused, verify_deployer};
+use cmtat_common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 use cmtat_snapshot::cpi::accounts::TakeSnapshot;
 use cmtat_snapshot::state::SnapshotCounter;
 
@@ -52,11 +52,10 @@ pub fn create_coupon(
 
     // ── CPI: take_snapshot, signed by coupon_authority PDA ───────────────────
     let mint_key = ctx.accounts.mint.key();
-    let coupon_auth_seeds: &[&[u8]] = &[
-        b"coupon_authority",
-        mint_key.as_ref(),
-        &[ctx.bumps.coupon_authority],
-    ];
+    let coupon_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::coupon_authority_seeds(&mint_key),
+        &ctx.bumps.coupon_authority
+    );
 
     cmtat_snapshot::cpi::take_snapshot(
         CpiContext::new_with_signer(
@@ -68,7 +67,7 @@ pub fn create_coupon(
                 snapshot_counter: ctx.accounts.snapshot_counter.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
             },
-            &[coupon_auth_seeds],
+            &[coupon_authority_signer_seeds.as_slice()],
         ),
     )?;
 
@@ -107,7 +106,7 @@ pub struct CreateCoupon<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -118,7 +117,7 @@ pub struct CreateCoupon<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -134,7 +133,7 @@ pub struct CreateCoupon<'info> {
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [b"coupon_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::COUPON_AUTHORITY, mint.key().as_ref()],
         bump,
     )]
     pub coupon_authority: UncheckedAccount<'info>,
@@ -145,7 +144,7 @@ pub struct CreateCoupon<'info> {
         init_if_needed,
         payer = payer,
         space = CouponCounter::LEN,
-        seeds = [b"coupon_counter", mint.key().as_ref()],
+        seeds = [pda_seeds::COUPON_COUNTER, mint.key().as_ref()],
         bump,
     )]
     pub coupon_counter: Account<'info, CouponCounter>,
@@ -156,7 +155,7 @@ pub struct CreateCoupon<'info> {
         init,
         payer = payer,
         space = Coupon::LEN,
-        seeds = [b"coupon", mint.key().as_ref(), &coupon_id.to_le_bytes()],
+        seeds = [pda_seeds::COUPON, mint.key().as_ref(), &coupon_id.to_le_bytes()],
         bump,
     )]
     pub coupon: Account<'info, Coupon>,
@@ -168,7 +167,7 @@ pub struct CreateCoupon<'info> {
     /// validated inside `take_snapshot`.
     #[account(
         mut,
-        seeds = [b"snapshot_counter", mint.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_SNAPSHOT_PROGRAM_ID,
         bump,
     )]

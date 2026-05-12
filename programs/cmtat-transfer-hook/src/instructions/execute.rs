@@ -3,6 +3,7 @@ use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::solana_program::sysvar::instructions::{
     load_current_index_checked, load_instruction_at_checked,
 };
+use cmtat_common::{pda_seeds, pda_utils};
 use cmtat_snapshot::cpi::accounts::UpdateHolderBalanceSnapshot;
 
 use crate::constants;
@@ -85,11 +86,10 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
 
     // ── Snapshot updates (CPI to cmtat-snapshot) ─────────────────────────────
     let mint_key = ctx.accounts.mint.key();
-    let transfer_hook_authority_seeds: &[&[u8]] = &[
-        b"transfer_hook_authority",
-        mint_key.as_ref(),
-        &[ctx.bumps.transfer_hook_authority],
-    ];
+    let transfer_hook_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::transfer_hook_authority_seeds(&mint_key),
+        &ctx.bumps.transfer_hook_authority
+    );
 
     cmtat_snapshot::cpi::update_holderbalance_snapshot(
         CpiContext::new_with_signer(
@@ -103,7 +103,7 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
                 holder_token_account: ctx.accounts.source_token.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
             },
-            &[transfer_hook_authority_seeds],
+            &[transfer_hook_authority_signer_seeds.as_slice()],
         ),
         amount,
         true,
@@ -121,7 +121,7 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
                 holder_token_account: ctx.accounts.destination_token.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
             },
-            &[transfer_hook_authority_seeds],
+            &[transfer_hook_authority_signer_seeds.as_slice()],
         ),
         amount,
         false,
@@ -268,7 +268,7 @@ pub struct Execute<'info> {
     /// CHECK: transfer hook authority (index 9). Mutable: pays for snapshot PDA creation.
     #[account(
         mut,
-        seeds = [b"transfer_hook_authority", mint.key().as_ref()],
+        seeds = [pda_seeds::TRANSFER_HOOK_AUTHORITY, mint.key().as_ref()],
         bump,
     )]
     pub transfer_hook_authority: UncheckedAccount<'info>,

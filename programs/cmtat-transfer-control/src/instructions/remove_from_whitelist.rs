@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use cmtat_common::{require_active, verify_deployer, require_not_paused};
+use cmtat_common::{pda_seeds, require_active, verify_deployer, require_not_paused};
 
 use crate::constants;
 use crate::state::WhitelistStatus;
@@ -36,7 +36,7 @@ pub struct RemoveFromWhitelist<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; contents Borsh-deserialized by verify_deployer.
     #[account(
-        seeds = [b"mint_owner", mint.key().as_ref()],
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEPLOY_PROGRAM_ID,
         bump,
     )]
@@ -57,7 +57,7 @@ pub struct RemoveFromWhitelist<'info> {
     ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [b"deactivate", mint.key().as_ref()],
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = constants::CMTAT_DEACTIVATE_PROGRAM_ID,
         bump,
     )]
@@ -68,7 +68,7 @@ pub struct RemoveFromWhitelist<'info> {
     #[account(
         mut,
         close = deployer,
-        seeds = [b"whitelist", mint.key().as_ref(), account.key().as_ref()],
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]
     pub whitelist_pda: Account<'info, WhitelistStatus>,
