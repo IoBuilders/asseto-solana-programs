@@ -2,36 +2,32 @@ use anchor_lang::prelude::*;
 use anchor_lang::Discriminator;
 
 #[account]
+#[derive(InitSpace)]
 pub struct SnapshotCounter {
     pub bump: u8,
     pub count: u64,
 }
 
-impl SnapshotCounter {
-    pub const LEN: usize = 8 + 1 + 8; // discriminator + bump + count
-}
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct SnapshotEntry {
     pub key: u64,
     pub value: u64,
 }
 
-impl SnapshotEntry {
-    pub const LEN: usize = 8 + 8;
-}
-
 #[account]
+#[derive(InitSpace)]
 pub struct SnapshotHistory {
     pub bump: u8,
+    #[max_len(0)]
     pub entries: Vec<SnapshotEntry>,
 }
 
 impl SnapshotHistory {
-    pub const BASE_LEN: usize = 8 + 1 + 4; // discriminator + bump + vec length prefix
+    pub const BASE_LEN: usize = SnapshotHistory::DISCRIMINATOR.len() + Self::INIT_SPACE;
 
     pub fn len_for(n_entries: usize) -> usize {
-        Self::BASE_LEN + n_entries * SnapshotEntry::LEN
+        Self::BASE_LEN + n_entries * SnapshotEntry::INIT_SPACE
     }
 
     /// Borsh-deserializes the history from a populated account.

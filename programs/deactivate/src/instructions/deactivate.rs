@@ -52,7 +52,7 @@ pub struct Deactivate<'info> {
     #[account(
         init,
         payer = deployer,
-        space = DeactivateStatus::LEN,
+        space = DeactivateStatus::DISCRIMINATOR.len() + DeactivateStatus::INIT_SPACE,
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         bump,
     )]

@@ -12,14 +12,12 @@ use common::state::MintOwner as MintOwnerData;
 /// Both definitions must stay in sync — the compile-time assertion below guards against
 /// divergence by failing the build if the two structs ever differ in size.
 #[account]
+#[derive(InitSpace)]
 pub struct MintOwner {
     pub deployer: Pubkey,
     pub bump: u8,
 }
 
-impl MintOwner {
-    pub const LEN: usize = MintOwnerData::LEN;
-}
 
 const _: () = assert!(
     core::mem::size_of::<MintOwner>() == core::mem::size_of::<MintOwnerData>(),

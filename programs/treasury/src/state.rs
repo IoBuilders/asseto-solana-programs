@@ -9,16 +9,13 @@ use anchor_lang::prelude::*;
 ///
 /// Seeds: `["treasury_config", mint]`.
 #[account]
+#[derive(InitSpace)]
 pub struct TreasuryConfig {
     pub bump: u8,
     pub payment_mint: Pubkey,
     pub payment_mint_decimals: u8,
 }
 
-impl TreasuryConfig {
-    // 8 (discriminator) + 1 (bump) + 32 (payment_mint) + 1 (decimals)
-    pub const LEN: usize = 8 + 1 + 32 + 1;
-}
 
 /// Marker created by `pay_coupon` once a `(coupon_id, holder_token_account)`
 /// pair has been paid. Re-creating it on a second call fails because of `init`
@@ -26,12 +23,9 @@ impl TreasuryConfig {
 ///
 /// Seeds: `["coupon_paid", mint, coupon_id.to_le_bytes(), holder_token_account]`.
 #[account]
+#[derive(InitSpace)]
 pub struct CouponPaidMarker {
     pub bump: u8,
     pub amount: u64,
 }
 
-impl CouponPaidMarker {
-    // 8 (discriminator) + 1 (bump) + 8 (amount)
-    pub const LEN: usize = 8 + 1 + 8;
-}

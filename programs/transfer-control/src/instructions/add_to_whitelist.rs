@@ -71,7 +71,7 @@ pub struct AddToWhitelist<'info> {
     #[account(
         init_if_needed,
         payer = deployer,
-        space = WhitelistStatus::LEN,
+        space = WhitelistStatus::DISCRIMINATOR.len() + WhitelistStatus::INIT_SPACE,
         seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]

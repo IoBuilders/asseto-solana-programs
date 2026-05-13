@@ -4,15 +4,12 @@ use anchor_lang::prelude::*;
 /// the first `create_coupon` call (`init_if_needed`), incremented thereafter.
 /// Seeds: `["coupon_counter", mint]`.
 #[account]
+#[derive(InitSpace)]
 pub struct CouponCounter {
     pub bump: u8,
     pub count: u64,
 }
 
-impl CouponCounter {
-    // 8 (discriminator) + 1 (bump) + 8 (count)
-    pub const LEN: usize = 8 + 1 + 8;
-}
 
 /// One coupon record per `(mint, coupon_id)`.
 ///
@@ -32,6 +29,7 @@ impl CouponCounter {
 ///
 /// Seeds: `["coupon", mint, coupon_id.to_le_bytes()]`.
 #[account]
+#[derive(InitSpace)]
 pub struct Coupon {
     pub bump: u8,
     pub snapshot_id: u64,
@@ -40,8 +38,3 @@ pub struct Coupon {
     pub payment_date: i64,
 }
 
-impl Coupon {
-    // 8 (discriminator) + 1 (bump) + 8 (snapshot_id)
-    // + 8 (period_start_date) + 8 (period_end_date) + 8 (payment_date)
-    pub const LEN: usize = 8 + 1 + 8 + 8 + 8 + 8;
-}

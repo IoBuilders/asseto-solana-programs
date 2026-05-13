@@ -73,7 +73,7 @@ pub struct FreezeAccount<'info> {
     #[account(
         init,
         payer = deployer,
-        space = FrozenAccountStatus::LEN,
+        space = FrozenAccountStatus::DISCRIMINATOR.len() + FrozenAccountStatus::INIT_SPACE,
         seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]

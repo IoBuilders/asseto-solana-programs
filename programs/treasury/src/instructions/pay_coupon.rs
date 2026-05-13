@@ -298,7 +298,7 @@ pub struct PayCoupon<'info> {
     #[account(
         init,
         payer = payer,
-        space = CouponPaidMarker::LEN,
+        space = CouponPaidMarker::DISCRIMINATOR.len() + CouponPaidMarker::INIT_SPACE,
         seeds = [
             pda_seeds::COUPON_PAID,
             mint.key().as_ref(),

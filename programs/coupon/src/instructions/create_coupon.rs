@@ -143,7 +143,7 @@ pub struct CreateCoupon<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space = CouponCounter::LEN,
+        space = CouponCounter::DISCRIMINATOR.len() + CouponCounter::INIT_SPACE,
         seeds = [pda_seeds::COUPON_COUNTER, mint.key().as_ref()],
         bump,
     )]
@@ -154,7 +154,7 @@ pub struct CreateCoupon<'info> {
     #[account(
         init,
         payer = payer,
-        space = Coupon::LEN,
+        space = Coupon::DISCRIMINATOR.len() + Coupon::INIT_SPACE,
         seeds = [pda_seeds::COUPON, mint.key().as_ref(), &coupon_id.to_le_bytes()],
         bump,
     )]

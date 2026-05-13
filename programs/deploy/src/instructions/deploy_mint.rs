@@ -353,7 +353,7 @@ pub struct DeployMint<'info> {
     #[account(
         init,
         payer = payer,
-        space = MintOwner::LEN,
+        space = MintOwner::DISCRIMINATOR.len() + MintOwner::INIT_SPACE,
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         bump,
     )]

@@ -31,7 +31,7 @@ pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Resul
     use state::MintOwner;
 
     let data = mint_owner_pda.try_borrow_data()?;
-    require!(data.len() >= MintOwner::LEN, CommonError::UnauthorizedDeployer);
+    require!(data.len() >= 8 + MintOwner::INIT_SPACE, CommonError::UnauthorizedDeployer);
 
     // Skip 8-byte discriminator, then Borsh-deserialize the remaining fields.
     let mint_owner = MintOwner::deserialize(&mut &data[8..])

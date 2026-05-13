@@ -68,7 +68,7 @@ pub struct SetPaymentToken<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space = TreasuryConfig::LEN,
+        space = TreasuryConfig::DISCRIMINATOR.len() + TreasuryConfig::INIT_SPACE,
         seeds = [pda_seeds::TREASURY_CONFIG, mint.key().as_ref()],
         bump,
     )]

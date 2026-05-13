@@ -76,7 +76,7 @@ pub struct UpdateBondTerms<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space = BondTerms::LEN,
+        space = BondTerms::DISCRIMINATOR.len() + BondTerms::INIT_SPACE,
         seeds = [pda_seeds::BOND_TERMS, mint.key().as_ref()],
         bump,
     )]

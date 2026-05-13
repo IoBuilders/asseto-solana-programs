@@ -15,7 +15,7 @@ use anchor_lang::prelude::*;
 /// MIRROR: `deploy::state::MintOwner` wraps the same fields with `#[account]` so
 /// that `deploy` can use `Account<MintOwner>`. Both definitions must stay in sync.
 /// A compile-time size assertion in `deploy/state/mod.rs` guards against divergence.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct MintOwner {
     /// The wallet that deployed this mint and is recorded as its owner.
     pub deployer: Pubkey,
@@ -23,8 +23,3 @@ pub struct MintOwner {
     pub bump: u8,
 }
 
-impl MintOwner {
-    pub const LEN: usize = 8  // discriminator
-        + 32                  // deployer
-        + 1;                  // bump
-}

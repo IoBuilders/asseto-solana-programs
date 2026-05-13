@@ -55,7 +55,7 @@ pub struct TakeSnapshot<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space = SnapshotCounter::LEN,
+        space = SnapshotCounter::DISCRIMINATOR.len() + SnapshotCounter::INIT_SPACE,
         seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
         bump,
     )]

@@ -55,7 +55,7 @@ pub fn set_mode(ctx: Context<SetMode>, mode: Option<TransferMode>) -> Result<()>
         // ── Some(m): create if absent, then write ─────────────────────────────
         Some(m) => {
             if pda.data_is_empty() {
-                let space = TransferControlMode::LEN;
+                let space = TransferControlMode::DISCRIMINATOR.len() + TransferControlMode::INIT_SPACE;
                 let lamports = Rent::get()?.minimum_balance(space);
                 let transfer_control_mode_signer_seeds = pda_utils::build_pda_signer_seeds(
                     pda_seeds::transfer_control_mode_seeds(&mint_key),

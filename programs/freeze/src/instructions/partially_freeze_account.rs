@@ -72,7 +72,7 @@ pub struct PartiallyFreezeAccount<'info> {
     #[account(
         init_if_needed,
         payer = deployer,
-        space = FrozenBalance::LEN,
+        space = FrozenBalance::DISCRIMINATOR.len() + FrozenBalance::INIT_SPACE,
         seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 /// Day-count convention used to compute accrued interest between two dates.
 /// Encoded as a single byte on-chain via Borsh's enum tag.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum DayCountConvention {
     /// Actual days / 360 (money-market convention).
     Actual360,
@@ -15,7 +15,7 @@ pub enum DayCountConvention {
 ///
 /// Stored once per mint at the PDA `["bond_terms", mint]`.
 #[account]
-#[derive(Debug)]
+#[derive(Debug, InitSpace)]
 pub struct BondTerms {
     /// Bump for the `["bond_terms", mint]` PDA.
     pub bump: u8,
@@ -41,12 +41,6 @@ pub struct BondTerms {
     pub day_count_convention: DayCountConvention,
 }
 
-impl BondTerms {
-    // 8 (discriminator) + 1 (bump) + 8 (interest_rate) + 1 (interest_rate_decimals)
-    // + 8 (par_value) + 1 (par_value_decimals) + 8 (minimum_denomination)
-    // + 8 (issuance_date) + 1 (day_count_convention tag)
-    pub const LEN: usize = 8 + 1 + 8 + 1 + 8 + 1 + 8 + 8 + 1;
-}
 
 /// Args struct passed to `update_bond_terms` — mirrors `BondTerms` minus the
 /// `bump` field, which the program manages itself.
