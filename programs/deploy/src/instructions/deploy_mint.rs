@@ -190,7 +190,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     //
     // temp_mint_authority (our program's PDA) is set as the initial mint
     // authority so that our program can sign the metadata initialization in
-    // step 8 and the authority transfer in step 9.
+    // step 9 and the authority transfers in steps 11 and 12.
     // Token-2022 requires a non-null freeze authority when DefaultAccountState
     // is Frozen (step 5). The freeze_authority PDA is owned by freeze
     // (FREEZE_PROGRAM_ID = freeze::ID). freeze uses this
@@ -216,9 +216,9 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     // ── 9. Initialize token metadata — must follow initialize_mint2 ─────────
     //
     // temp_mint_authority is used as the initial update authority so that this
-    // program can sign the additional_metadata writes in step 9.  The update
+    // program can sign the additional_metadata writes in step 10.  The update
     // authority is transferred to the external metadata_update_authority PDA
-    // in step 10.
+    // in step 11.
     invoke_signed(
         &initialize_token_metadata(
             &token_program_id,
@@ -382,7 +382,7 @@ pub struct DeployMint<'info> {
 
     /// Final mint authority: controls future token minting.
     /// Owned by MINT_PROGRAM_ID — stored as the destination address
-    /// for the authority transfer in step 9; does not sign during deployment.
+    /// for the authority transfer in step 12; does not sign during deployment.
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
@@ -429,8 +429,8 @@ pub struct DeployMint<'info> {
 
     /// Freeze authority: satisfies the Token-2022 requirement that a mint with
     /// DefaultAccountState::Frozen must have a non-null freeze authority.
-    /// Owned by FREEZE_PROGRAM_ID — a program that is never deployed,
-    /// so no one can ever sign a thaw instruction; token accounts are permanently frozen.
+    /// Owned by FREEZE_PROGRAM_ID. The freeze program uses this PDA to transiently
+    /// thaw and re-freeze token accounts during mint, burn, and transfer operations.
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(

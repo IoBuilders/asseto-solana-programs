@@ -52,20 +52,6 @@ Steps 4–8 all sign with the same `mint_authority` PDA seeds. The thaw/re-freez
 
 ---
 
-## constants.rs
+## Program IDs
 
-```rust
-// Hardcoded — cannot use pub use deploy::ID due to circular dependency
-// (deploy depends on mint for its MINT_AUTHORITY_PROGRAM_ID).
-pub const DEPLOY_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-
-// Hardcoded — cannot use pub use deactivate::ID because that would create
-// an indirect circular dependency through deploy.
-pub const DEACTIVATE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-
-// Sourced from crates — single source of truth.
-pub use freeze::ID             as FREEZE_PROGRAM_ID;
-pub use transfer_control::ID   as TRANSFER_CONTROL_PROGRAM_ID;
-pub use transfer_hook::ID      as TRANSFER_HOOK_PROGRAM_ID;
-pub use snapshot::ID           as SNAPSHOT_PROGRAM_ID;
-```
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.

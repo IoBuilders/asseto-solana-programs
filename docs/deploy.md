@@ -134,15 +134,6 @@ InvalidMintAccountSize,
 
 ---
 
-## constants.rs
+## Program IDs
 
-All program IDs are imported directly from their crates — `declare_id!` is the single source of truth for each.
-
-```rust
-pub use mint::ID             as MINT_AUTHORITY_PROGRAM_ID;
-pub use operations::ID       as PERMANENT_DELEGATE_PROGRAM_ID;
-pub use metadata_update::ID  as METADATA_UPDATE_AUTHORITY_PROGRAM_ID;
-pub use pause::ID            as PAUSABLE_AUTHORITY_PROGRAM_ID;
-pub use freeze::ID           as FREEZE_AUTHORITY_PROGRAM_ID;
-pub use transfer_hook::ID    as TRANSFER_HOOK_PROGRAM_ID;
-```
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.

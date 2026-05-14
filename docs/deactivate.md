@@ -2,7 +2,7 @@
 
 Program ID: `H2iRjVVKsKQMAnJKqiTfW2LGvT1G9tDqQ81DzRjxfX7V`
 
-Permanently deactivates a Token-2022 mint by creating an on-chain marker PDA. Once deactivated, the mint cannot be minted, burned, or operated on — every other CMTAT program checks `require_active` before executing.
+Permanently deactivates a Token-2022 mint by creating an on-chain marker PDA. Once deactivated, the mint cannot be minted, burned, or operated on — every other program checks `require_active` before executing.
 
 Deactivation is intentionally one-way: there is no `reactivate` instruction and the `deactivate_pda` is never closed.
 
@@ -52,9 +52,6 @@ Creates the `deactivate_pda` marker. After this call, all calls to `mint::mint`,
 
 ---
 
-## constants.rs
+## Program IDs
 
-```rust
-// Sourced from crate — single source of truth.
-pub use deploy::ID as DEPLOY_PROGRAM_ID;
-```
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.

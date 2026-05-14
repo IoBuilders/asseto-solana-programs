@@ -2,14 +2,14 @@
 
 Program ID: `Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q`
 
-The custom CMTAT transfer endpoint. Token holders interact with this program
+The custom transfer endpoint. Token holders interact with this program
 in a two-instruction sequence: `verify_transfer` (compliance pre-check) followed
 immediately by `transfer` (the actual unblock → `transfer_checked` → re-block
 sequence). Token-2022 invokes `transfer-hook::execute` from inside the
 inner `transfer_checked` CPI; the hook reads the `Instructions` sysvar and
 **rejects the transfer unless `verify_transfer` was the immediately-prior
 top-level instruction** with matching `source` / `destination` / `mint` /
-`amount`. That double-introspection check is what lets us keep all CMTAT
+`amount`. That double-introspection check is what lets us keep all
 compliance logic in `verify_transfer` (cheap, runs against pre-debit state) and
 keep the hook tiny so its `ExtraAccountMetaList` resolution fits in
 Token-2022's hard-coded 32 KiB heap. See
@@ -43,7 +43,7 @@ remains at index N-1**; in particular, place ComputeBudget *before*
 
 ## Instruction: `verify_transfer` (Operational)
 
-Pre-transfer compliance gate. Runs the full CMTAT rule set against the
+Pre-transfer compliance gate. Runs the full rule set against the
 *pre-debit* state of the source account, without moving any tokens. Designed
 to be the immediately-prior top-level instruction before `transfer` in a
 transaction; the hook introspects this call and demands the
@@ -183,16 +183,6 @@ introspection failure (see [`transfer-hook.md`](transfer-hook.md)).
 
 ---
 
-## constants.rs
+## Program IDs
 
-```rust
-// Hardcoded — deploy depends on transfer indirectly,
-// preventing a crate import.
-pub const DEPLOY_PROGRAM_ID:     Pubkey = Pubkey::new_from_array([...]);
-pub const DEACTIVATE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-
-// Sourced from crates — single source of truth.
-pub use freeze::ID             as FREEZE_PROGRAM_ID;
-pub use transfer_control::ID   as TRANSFER_CONTROL_PROGRAM_ID;
-pub use transfer_hook::ID      as TRANSFER_HOOK_PROGRAM_ID;
-```
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.

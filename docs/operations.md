@@ -54,16 +54,6 @@ The unblock/re-block wrapper is required because all token accounts are frozen b
 
 ---
 
-## constants.rs
+## Program IDs
 
-```rust
-// Hardcoded — deploy depends on operations for PERMANENT_DELEGATE_PROGRAM_ID.
-pub const DEPLOY_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-
-// Hardcoded — kept in sync manually.
-pub const DEACTIVATE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-
-// Sourced from crates.
-pub use freeze::ID   as FREEZE_PROGRAM_ID;
-pub use snapshot::ID as SNAPSHOT_PROGRAM_ID;
-```
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.

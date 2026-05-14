@@ -215,21 +215,20 @@ pub enum TransferHookError {
 
 ---
 
-## constants.rs
+## Program IDs
+
+All program IDs are imported from `common::program_ids`:
 
 ```rust
-// Hardcoded — deploy depends on transfer-hook (for TRANSFER_HOOK_PROGRAM_ID),
-// and transfer depends on transfer-hook for the same reason, so we cannot
-// import either back without a circular dep.
-pub const DEPLOY_PROGRAM_ID:     Pubkey = Pubkey::new_from_array([...]);
-pub const DEACTIVATE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-pub const TRANSFER_PROGRAM_ID:   Pubkey = Pubkey::new_from_array([...]);
+use common::program_ids as constants;
+// constants::DEPLOY_PROGRAM_ID, constants::TRANSFER_PROGRAM_ID, etc.
+```
 
-// Sourced from crates — single source of truth.
-pub use snapshot::ID         as SNAPSHOT_PROGRAM_ID;
-pub use freeze::ID           as FREEZE_PROGRAM_ID;
-pub use transfer_control::ID as TRANSFER_CONTROL_PROGRAM_ID;
+## constants.rs
 
+`transfer-hook` is the only program that still has a `constants.rs`. It contains only instruction discriminators — not program IDs:
+
+```rust
 // Anchor / SPL discriminators — used by the introspection check against
 // the data of the introspected instructions. Must be kept in sync with
 // transfer's #[program] (Anchor derives them from the Rust function

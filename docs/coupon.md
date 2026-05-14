@@ -2,7 +2,7 @@
 
 Program ID: `CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK`
 
-Issues coupons for a CMTAT-compliant bond mint. Every coupon is anchored to a snapshot taken at issuance time, so holder balances at the coupon's record date are recoverable from `snapshot`.
+Issues coupons for a bond mint. Every coupon is anchored to a snapshot taken at issuance time, so holder balances at the coupon's record date are recoverable from `snapshot`.
 
 `create_coupon` is the **sole entry point** that triggers a snapshot in this workspace — `snapshot::take_snapshot` is now an auxiliary instruction, callable only by the `coupon_authority` PDA owned by this program.
 
@@ -110,15 +110,9 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 
 ---
 
-## constants.rs
+## Program IDs
 
-```rust
-pub const DEPLOY_PROGRAM_ID:     Pubkey = Pubkey::new_from_array([...]); // hardcoded
-pub const DEACTIVATE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]); // hardcoded
-pub use snapshot::ID as SNAPSHOT_PROGRAM_ID;
-```
-
-`snapshot` is imported as a Cargo dep (`features = ["cpi"]`) for the CPI, so its ID is sourced from the crate. The reverse — `snapshot` referencing `coupon` to verify the `coupon_authority` PDA — is a hardcoded constant in `snapshot/src/constants.rs`, since the import direction would otherwise cycle.
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.
 
 ---
 

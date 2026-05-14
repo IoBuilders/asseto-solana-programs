@@ -172,16 +172,12 @@ Both PDAs are seed-checked; either may be empty (triggering the current-value fa
 
 ---
 
-## constants.rs
+## Program IDs
 
-All program IDs are hardcoded — the CPI callers (`mint`, `operations`, `transfer-hook`, `coupon`) depend on `snapshot`, so importing any of them here would create a cycle.
+All program IDs come from `common::program_ids`. In `lib.rs` the relevant IDs are imported directly by name — no per-program `constants.rs` exists:
 
 ```rust
-pub const DEPLOY_PROGRAM_ID:        Pubkey = Pubkey::new_from_array([...]);
-pub const DEACTIVATE_PROGRAM_ID:    Pubkey = Pubkey::new_from_array([...]);
-pub const MINT_PROGRAM_ID:          Pubkey = Pubkey::new_from_array([...]);
-pub const OPERATIONS_PROGRAM_ID:    Pubkey = Pubkey::new_from_array([...]);
-pub const TRANSFER_PROGRAM_ID:      Pubkey = Pubkey::new_from_array([...]);
-pub const TRANSFER_HOOK_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-pub const COUPON_PROGRAM_ID:        Pubkey = Pubkey::new_from_array([...]);
+use common::program_ids::{COUPON_PROGRAM_ID, MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID};
 ```
+
+These are used in `assert_authorized_caller` and related functions inside `lib.rs`. Instructions that need IDs use `use common::program_ids as constants;` locally.

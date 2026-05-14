@@ -128,11 +128,6 @@ console.log(stored.interestRate.toString(), stored.interestRateDecimals);
 
 ---
 
-## constants.rs
+## Program IDs
 
-```rust
-pub const DEPLOY_PROGRAM_ID:     Pubkey = Pubkey::new_from_array([...]);
-pub const DEACTIVATE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-```
-
-Both hardcoded. `bond` does not own a Token-2022 extension authority and is not part of the `deploy` CPI chain, so the cycle that forces hardcoding elsewhere doesn't apply here — but the convention across the workspace is to hardcode IDs that are only referenced (no CPI) rather than pulling in extra dependencies just to read a `Pubkey` constant.
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.

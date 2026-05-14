@@ -2,11 +2,11 @@
 
 Program ID: `8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd`
 
-Controls the Token-2022 freeze authority and all CMTAT-level freezing. Owns the `["freeze_authority", mint]` PDA set as the mint's freeze authority during `deploy_mint`.
+Controls the Token-2022 freeze authority and all programmatic freezing. Owns the `["freeze_authority", mint]` PDA set as the mint's freeze authority during `deploy_mint`.
 
 Exposes two categories of instructions:
 - **Auxiliary** (`block_account`, `unblock_account`): called exclusively via CPI by `mint`, `operations`, and `transfer` as part of their token operation flows.
-- **Management** (`freeze_account`, `unfreeze_account`, `partially_freeze_account`): called directly by the deployer to enforce CMTAT-level account restrictions.
+- **Management** (`freeze_account`, `unfreeze_account`, `partially_freeze_account`): called directly by the deployer to enforce account-level restrictions.
 
 Also exports two verification functions used by `transfer` to gate transfers.
 
@@ -25,7 +25,7 @@ pub struct FrozenAccountStatus {
 // Seeds: ["frozen_account", mint, account]
 ```
 
-Marker PDA. Exists if and only if the account has been frozen at the CMTAT management level by `freeze_account`. Its mere existence blocks transfers out of the account (checked by `require_unfrozen_account` in `transfer`).
+Marker PDA. Exists if and only if the account has been frozen at the management level by `freeze_account`. Its mere existence blocks transfers out of the account (checked by `require_unfrozen_account` in `transfer`).
 
 ### `FrozenBalance`
 
@@ -197,17 +197,8 @@ Creates the `frozen_balance_pda` on first call; overwrites `balance` on subseque
 
 ---
 
-## Circular Dependency Note
+## Program IDs
 
-`mint`, `operations`, and `transfer` all depend on `freeze` for CPI calls. Therefore `freeze` cannot import any of them. All three program IDs are hardcoded in `constants.rs`:
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file, and via `use common::program_ids::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGRAM_ID};` in `lib.rs` where the `assert_authorized_caller` function uses them directly. There is no per-program `constants.rs`.
 
-```rust
-// All hardcoded — would create circular deps if imported from their crates.
-pub const DEPLOY_PROGRAM_ID:     Pubkey = Pubkey::new_from_array([...]);
-pub const DEACTIVATE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-pub const MINT_PROGRAM_ID:       Pubkey = Pubkey::new_from_array([...]);
-pub const OPERATIONS_PROGRAM_ID: Pubkey = Pubkey::new_from_array([...]);
-pub const TRANSFER_PROGRAM_ID:   Pubkey = Pubkey::new_from_array([...]);
-```
-
-Each must be kept in sync manually with the corresponding `declare_id!`.
+`mint`, `operations`, and `transfer` all depend on `freeze` for CPI calls — the circular dependency that previously required hardcoding IDs is resolved by sourcing them all from `common::program_ids` instead.

@@ -135,10 +135,6 @@ Same shape as `add_to_whitelist` but the `whitelist_pda` constraint uses `close 
 
 ---
 
-## constants.rs
+## Program IDs
 
-```rust
-// Sourced from crates.
-pub use deploy::ID     as DEPLOY_PROGRAM_ID;
-pub use deactivate::ID as DEACTIVATE_PROGRAM_ID;
-```
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.

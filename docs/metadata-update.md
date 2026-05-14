@@ -72,8 +72,6 @@ Core fields (name, symbol, uri) cannot be removed — Token-2022 will reject the
 
 ---
 
-## constants.rs
+## Program IDs
 
-```rust
-pub use deploy::ID as DEPLOY_PROGRAM_ID;
-```
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.
