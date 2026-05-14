@@ -7,7 +7,7 @@ use common::{pda_seeds, require_active, verify_deployer};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
 
-use crate::constants;
+use common::program_ids as constants;
 
 /// Burns `amount` tokens from any `token_account` for the given mint.
 ///

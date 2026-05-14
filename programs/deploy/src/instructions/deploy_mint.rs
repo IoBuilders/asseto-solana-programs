@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_lang::solana_program::system_instruction;
-use crate::constants;
+use common::program_ids as constants;
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::{
     extension::{
@@ -47,12 +47,12 @@ pub struct DeployMintParams {
 ///
 /// | Extension          | Authority PDA seeds                    | Owner program                       |
 /// |--------------------|----------------------------------------|-------------------------------------|
-/// | Mint authority     | `["mint_authority",             mint]` | MINT_AUTHORITY_PROGRAM_ID           |
-/// | PermanentDelegate  | `["permanent_delegate",         mint]` | PERMANENT_DELEGATE_PROGRAM_ID       |
-/// | TransferHook       | `["transfer_hook_authority",    mint]` | TRANSFER_HOOK_AUTHORITY_PROGRAM_ID  |
-/// | MetadataPointer    | `["metadata_pointer_authority", mint]` | METADATA_POINTER_AUTHORITY_PROGRAM_ID |
-/// | Metadata update    | `["metadata_update_authority",  mint]` | METADATA_UPDATE_AUTHORITY_PROGRAM_ID  |
-/// | Pausable           | `["pausable_authority",         mint]` | PAUSABLE_AUTHORITY_PROGRAM_ID       |
+/// | Mint authority     | `["mint_authority",             mint]` | MINT_PROGRAM_ID           |
+/// | PermanentDelegate  | `["permanent_delegate",         mint]` | OPERATIONS_PROGRAM_ID       |
+/// | TransferHook       | `["transfer_hook_authority",    mint]` | TRANSFER_HOOK_PROGRAM_ID  |
+/// | MetadataPointer    | n/a (points to mint itself)            | none — immutable             |
+/// | Metadata update    | `["metadata_update_authority",  mint]` | METADATA_UPDATE_PROGRAM_ID  |
+/// | Pausable           | `["pausable_authority",         mint]` | PAUSE_PROGRAM_ID       |
 ///
 /// To bootstrap metadata initialization (which requires the mint authority to
 /// sign), a temporary PDA owned by this program is used as mint authority for
@@ -194,7 +194,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     // step 8 and the authority transfer in step 9.
     // Token-2022 requires a non-null freeze authority when DefaultAccountState
     // is Frozen (step 5). The freeze_authority PDA is owned by freeze
-    // (FREEZE_AUTHORITY_PROGRAM_ID = freeze::ID). freeze uses this
+    // (FREEZE_PROGRAM_ID = freeze::ID). freeze uses this
     // PDA to transiently thaw and re-freeze accounts during mint, burn, and
     // transfer operations.
     invoke(
@@ -264,7 +264,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     // ── 11. Transfer update authority to the external PDA ────────────────────
     //
     // temp_mint_authority hands over update authority to metadata_update_authority,
-    // owned by METADATA_UPDATE_AUTHORITY_PROGRAM_ID.
+    // owned by METADATA_UPDATE_PROGRAM_ID.
     let new_update_authority =
         OptionalNonZeroPubkey::try_from(Some(ctx.accounts.metadata_update_authority.key()))
             .map_err(|_| error!(ErrorCode::InvalidMintAccountSize))?;
@@ -286,7 +286,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     // ── 12. Transfer mint authority to the external PDA ──────────────────────
     //
     // temp_mint_authority hands over control to mint_authority, which is
-    // owned by MINT_AUTHORITY_PROGRAM_ID.  After this point our program has
+    // owned by MINT_PROGRAM_ID.  After this point our program has
     // no further control over minting.
     invoke_signed(
         &set_authority(
@@ -382,61 +382,61 @@ pub struct DeployMint<'info> {
     pub temp_mint_authority: UncheckedAccount<'info>,
 
     /// Final mint authority: controls future token minting.
-    /// Owned by MINT_AUTHORITY_PROGRAM_ID — stored as the destination address
+    /// Owned by MINT_PROGRAM_ID — stored as the destination address
     /// for the authority transfer in step 9; does not sign during deployment.
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::MINT_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::MINT_AUTHORITY_PROGRAM_ID,
+        seeds::program = constants::MINT_PROGRAM_ID,
         bump,
     )]
     pub mint_authority: UncheckedAccount<'info>,
 
     /// PermanentDelegate authority: can transfer/burn any token account.
-    /// Owned by PERMANENT_DELEGATE_PROGRAM_ID — stored as an address only;
+    /// Owned by OPERATIONS_PROGRAM_ID — stored as an address only;
     /// does not sign during mint deployment.
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::PERMANENT_DELEGATE, mint.key().as_ref()],
-        seeds::program = constants::PERMANENT_DELEGATE_PROGRAM_ID,
+        seeds::program = constants::OPERATIONS_PROGRAM_ID,
         bump,
     )]
     pub permanent_delegate_authority: UncheckedAccount<'info>,
 
     /// Metadata update authority: can update token name/symbol/uri fields.
-    /// Owned by METADATA_UPDATE_AUTHORITY_PROGRAM_ID — stored as an address only
+    /// Owned by METADATA_UPDATE_PROGRAM_ID — stored as an address only
     /// during deployment; required as a Signer in update_metadata instructions.
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::METADATA_UPDATE_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::METADATA_UPDATE_AUTHORITY_PROGRAM_ID,
+        seeds::program = constants::METADATA_UPDATE_PROGRAM_ID,
         bump,
     )]
     pub metadata_update_authority: UncheckedAccount<'info>,
 
     /// Pausable authority: can pause and resume minting/burning/transfers.
-    /// Owned by PAUSABLE_AUTHORITY_PROGRAM_ID — stored as an address only.
+    /// Owned by PAUSE_PROGRAM_ID — stored as an address only.
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::PAUSABLE_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::PAUSABLE_AUTHORITY_PROGRAM_ID,
+        seeds::program = constants::PAUSE_PROGRAM_ID,
         bump,
     )]
     pub pausable_authority: UncheckedAccount<'info>,
 
     /// Freeze authority: satisfies the Token-2022 requirement that a mint with
     /// DefaultAccountState::Frozen must have a non-null freeze authority.
-    /// Owned by FREEZE_AUTHORITY_PROGRAM_ID — a program that is never deployed,
+    /// Owned by FREEZE_PROGRAM_ID — a program that is never deployed,
     /// so no one can ever sign a thaw instruction; token accounts are permanently frozen.
     ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::FREEZE_AUTHORITY_PROGRAM_ID,
+        seeds::program = constants::FREEZE_PROGRAM_ID,
         bump,
     )]
     pub freeze_authority: UncheckedAccount<'info>,

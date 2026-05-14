@@ -566,7 +566,21 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "bond",
+ "coupon",
+ "deactivate",
+ "deploy",
+ "freeze",
+ "metadata-update",
+ "mint",
+ "operations",
+ "pause",
+ "snapshot",
  "spl-token-2022",
+ "transfer",
+ "transfer-control",
+ "transfer-hook",
+ "treasury",
 ]
 
 [[package]]

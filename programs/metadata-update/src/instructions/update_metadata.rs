@@ -10,7 +10,7 @@ use spl_token_metadata_interface::{
     state::{Field, TokenMetadata},
 };
 
-use crate::constants;
+use common::program_ids as constants;
 use common::{pda_utils, pda_seeds, require_active, verify_deployer, require_not_paused};
 
 

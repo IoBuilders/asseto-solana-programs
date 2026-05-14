@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, verify_deployer, require_not_paused};
 
-use crate::constants;
+use common::program_ids as constants;
 use crate::state::FrozenBalance;
 
 /// Records (or updates) a frozen balance for a specific token account.

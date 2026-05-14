@@ -6,7 +6,6 @@ pub mod instructions;
 
 use instructions::*;
 
-
 declare_id!("482AUGU4SbYePPHaV7yvXrGEprHhiWSTRBds4Bdr6CPz");
 
 #[program]

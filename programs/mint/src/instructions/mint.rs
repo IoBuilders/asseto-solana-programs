@@ -8,7 +8,7 @@ use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
 use transfer_control::{get_transfer_mode, verify_whitelist, TransferMode};
 
-use crate::constants;
+use common::program_ids as constants;
 
 /// Mints `amount` tokens of the given mint to `destination`.
 ///

@@ -5,7 +5,7 @@ use common::pda_utils;
 use spl_token_2022::extension::pausable::instruction::pause as spl_pause;
 use common::{pda_seeds, require_active, verify_deployer};
 
-use crate::constants;
+use common::program_ids as constants;
 
 /// Pauses the Token-2022 mint.
 ///

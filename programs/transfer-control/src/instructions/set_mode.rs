@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
 use common::{pda_seeds, pda_utils, require_active, verify_deployer, require_not_paused};
 
-use crate::constants;
+use common::program_ids as constants;
 use crate::state::{TransferControlMode, TransferMode};
 
 /// Sets, updates, or removes the transfer control mode for a mint.

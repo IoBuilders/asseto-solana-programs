@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, verify_deployer, require_not_paused};
 
-use crate::constants;
+use common::program_ids as constants;
 use crate::state::{BondTerms, BondTermsArgs};
 
 /// Creates the `bond_terms_pda` on the first call (init_if_needed) and

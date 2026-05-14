@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
-use crate::constants;
+use common::program_ids as constants;
 use crate::state::TreasuryConfig;
 
 /// Stores `payment_mint`'s pubkey and decimals in `treasury_config` (creating

@@ -5,7 +5,7 @@ use spl_token_metadata_interface::{
     instruction::{remove_key},
 };
 
-use crate::constants;
+use common::program_ids as constants;
 use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 
 

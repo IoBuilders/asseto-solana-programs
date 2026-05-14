@@ -46,8 +46,7 @@ asseto-solana-programs/
 Each program:
 ```
 programs/<name>/src/
-├── lib.rs           — declare_id!, mod declarations, #[program] impl
-├── constants.rs     — program IDs used in account constraints
+├── lib.rs           — declare_id!, mod declarations, #[program] impl, pub use common::program_ids::*
 ├── errors.rs        — #[error_code] enum (if needed)
 ├── state.rs / state/ — on-chain account structs (if needed)
 └── instructions/
@@ -55,7 +54,10 @@ programs/<name>/src/
     └── <instruction>.rs
 ```
 
+Exception: `transfer-hook` also has `constants.rs` for instruction discriminators (not program IDs).
+
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
+- `program_ids` — all 14 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
 - `state::MintOwner` — struct for the `mint_owner_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] MintOwner` wrapping the same fields for `Account<MintOwner>` usage.
 - `verify_deployer()` — Borsh-deserializes `MintOwner` (skipping discriminator) and checks the signer.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
@@ -84,21 +86,21 @@ programs/<name>/src/
 
 ### ID sharing pattern
 
-Reference another program's ID via crate import — `declare_id!` is the single source of truth:
+All program IDs are defined once in `common/src/program_ids.rs` using the `pubkey!()` macro. Each program re-exports them at the crate root in `lib.rs`:
+
 ```rust
-pub use mint::ID as MINT_AUTHORITY_PROGRAM_ID;  // in deploy/constants.rs
+pub use common::program_ids::*;
 ```
-Add the target as a dependency with `features = ["cpi"]`. When a circular dependency prevents a crate import, hardcode the ID as `Pubkey::new_from_array` with a comment and keep it manually in sync.
 
-**Circular dependency map** — programs that must hardcode IDs because the natural import direction would create a cycle:
+Instructions reference IDs via:
 
-| Program needing the ID | ID they hardcode | Why |
-|---|---|---|
-| `freeze` | `deploy`, `deactivate`, `mint`, `operations`, `transfer` | `mint`, `operations`, and `transfer` all depend on `freeze` for CPI |
-| `mint` | `deploy`, `deactivate` | `deploy` depends on `mint` |
-| `transfer` | `deploy`, `deactivate` | `deploy` depends on `transfer` indirectly |
-| `transfer-hook` | `deploy`, `deactivate`, `transfer` | `transfer` depends on `transfer-hook` (for the hook's program ID); the hook needs `transfer`'s ID for its introspection-of-N check |
-| `snapshot` | `coupon` | `coupon` depends on `snapshot` for the `take_snapshot` CPI; `snapshot` needs `coupon`'s ID to verify the `coupon_authority` PDA in its auxiliary auth check |
+```rust
+use common::program_ids as constants;
+// …
+seeds::program = constants::FREEZE_PROGRAM_ID,
+```
+
+**When a program ID changes:** update the value in `common/src/program_ids.rs` only.
 
 ---
 
@@ -173,7 +175,7 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 |---|---|
 | New program | `docs/<name>.md` + link below + `CLAUDE.md` tables |
 | New / modified instruction | relevant `docs/` file |
-| Program ID changed | Program IDs table + relevant `docs/` file + any hardcoded constants |
+| Program ID changed | `common/src/program_ids.rs` + Program IDs table + relevant `docs/` file |
 | New PDA | PDA Seed Reference table |
 
 ---

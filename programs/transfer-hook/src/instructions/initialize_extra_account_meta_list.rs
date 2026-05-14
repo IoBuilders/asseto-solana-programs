@@ -8,7 +8,7 @@ use spl_tlv_account_resolution::{
 use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
 use common::pda_seeds;
-use crate::constants;
+use common::program_ids::{DEPLOY_PROGRAM_ID, SNAPSHOT_PROGRAM_ID};
 use crate::errors::TransferHookError;
 
 /// Number of extra account metas produced by `initialize_extra_account_meta_list`.
@@ -37,7 +37,7 @@ pub fn initialize_extra_account_meta_list(
 
     let metas = vec![
         // 5: snapshot program
-        ExtraAccountMeta::new_with_pubkey(&constants::SNAPSHOT_PROGRAM_ID, false, false)?,
+        ExtraAccountMeta::new_with_pubkey(&SNAPSHOT_PROGRAM_ID, false, false)?,
 
         // 6: snapshot_counter_pda — seeds ["snapshot_counter", mint@1], program@5
         ExtraAccountMeta::new_external_pda_with_seeds(
@@ -117,7 +117,7 @@ pub struct InitializeExtraAccountMetaList<'info> {
     #[account(
         signer,
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
-        seeds::program = constants::DEPLOY_PROGRAM_ID,
+        seeds::program = DEPLOY_PROGRAM_ID,
         bump,
     )]
     pub mint_owner_pda: UncheckedAccount<'info>,

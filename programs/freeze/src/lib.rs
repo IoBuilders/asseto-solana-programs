@@ -1,14 +1,13 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, pda_utils};
+use common::program_ids::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGRAM_ID};
 
-pub mod constants;
 pub mod errors;
 pub mod instructions;
 pub mod state;
 
 use instructions::*;
 use state::FrozenBalance;
-
 declare_id!("ERyVR64dpCpoEa335A7LfJZnrEUeL7bxgqfqTogXYoAr");
 
 #[program]
@@ -65,7 +64,6 @@ pub mod freeze {
 /// Uses short-circuit `||` so at most one `find_program_address` is performed
 /// when the first candidate matches, and at most three in the worst case.
 pub(crate) fn assert_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
-    use crate::constants::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGRAM_ID};
     use crate::errors::ErrorCode;
 
     require!(
@@ -83,7 +81,10 @@ pub(crate) fn assert_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Re
 /// Returns `Ok(())` if the PDA does not exist (empty data).
 /// Returns `Err(CommonError::AccountFrozen)` if the PDA has been created.
 pub fn require_unfrozen_account(frozen_account_pda: &AccountInfo) -> Result<()> {
-    require!(frozen_account_pda.data_is_empty(), errors::ErrorCode::AccountFrozen);
+    require!(
+        frozen_account_pda.data_is_empty(),
+        errors::ErrorCode::AccountFrozen
+    );
     Ok(())
 }
 
@@ -100,9 +101,9 @@ pub fn require_unfrozen_balance(
     token_account: &AccountInfo,
     frozen_balance_pda: &AccountInfo,
 ) -> Result<()> {
+    use crate::errors::ErrorCode;
     use spl_token_2022::extension::StateWithExtensions;
     use spl_token_2022::state::Account as TokenAccountState;
-    use crate::errors::ErrorCode;
 
     // ── Read the current token account balance ────────────────────────────────
     let token_data = token_account.try_borrow_data()?;

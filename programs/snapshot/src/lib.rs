@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, pda_utils};
+use common::program_ids::{COUPON_PROGRAM_ID, MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID};
 
-pub mod constants;
 pub mod errors;
 pub mod instructions;
 pub mod state;
@@ -45,9 +45,7 @@ pub mod snapshot {
     }
 
     // Just to make SnapshotHistory part of the IDL
-    pub fn __idl_expose_snapshot_history(
-        _ctx: Context<__SnapshotHistoryIDL>,
-    ) -> Result<()> {
+    pub fn __idl_expose_snapshot_history(_ctx: Context<__SnapshotHistoryIDL>) -> Result<()> {
         Ok(())
     }
 }
@@ -56,7 +54,6 @@ pub mod snapshot {
 /// (seeds: `["coupon_authority", mint]`). Sole authorised caller of
 /// `take_snapshot`.
 pub(crate) fn assert_take_snapshot_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
-    use crate::constants::COUPON_PROGRAM_ID;
     use crate::errors::ErrorCode;
 
     let (expected, _) = Pubkey::find_program_address(
@@ -72,7 +69,6 @@ pub(crate) fn assert_take_snapshot_authorized_caller(mint_key: &Pubkey, caller: 
 ///   - `mint_authority`     (mint,       seeds: `["mint_authority",     mint]`)
 ///   - `permanent_delegate` (operations,  seeds: `["permanent_delegate", mint]`)
 pub(crate) fn assert_total_supply_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
-    use crate::constants::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID};
     use crate::errors::ErrorCode;
 
     require!(
@@ -89,7 +85,6 @@ pub(crate) fn assert_total_supply_authorized_caller(mint_key: &Pubkey, caller: &
 ///   - `permanent_delegate` (operations,  seeds: `["permanent_delegate", mint]`)
 ///   - `transfer_hook_authority` (transfer,   seeds: `["transfer_hook_authority",           mint]`)
 pub(crate) fn assert_holder_balance_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
-    use crate::constants::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID};
     use crate::errors::ErrorCode;
 
     require!(

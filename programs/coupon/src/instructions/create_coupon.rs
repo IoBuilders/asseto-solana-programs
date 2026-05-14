@@ -3,7 +3,7 @@ use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_de
 use snapshot::cpi::accounts::TakeSnapshot;
 use snapshot::state::SnapshotCounter;
 
-use crate::constants;
+use common::program_ids as constants;
 use crate::errors::ErrorCode;
 use crate::state::{Coupon, CouponCounter};
 

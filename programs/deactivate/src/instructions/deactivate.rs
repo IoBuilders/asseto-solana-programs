@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, verify_deployer, require_not_paused};
 
-use crate::constants;
+use common::program_ids as constants;
 use crate::state::DeactivateStatus;
 
 /// Deactivates the Token-2022 mint by creating an on-chain marker PDA.

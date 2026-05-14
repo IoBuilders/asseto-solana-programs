@@ -1,8 +1,8 @@
-# CMTAT One Atelier — Project Context
+# Asseto Solana Programs
 
 ## Purpose
 
-Modular multi-program Anchor workspace extending Token-2022 for CMTAT-compliant token issuance. Each extension is governed by a dedicated program owning a PDA authority for it.
+Modular multi-program Anchor workspace extending Token-2022 for compliant token issuance. Each extension is governed by a dedicated program owning a PDA authority for it.
 
 ---
 
@@ -13,25 +13,28 @@ Modular multi-program Anchor workspace extending Token-2022 for CMTAT-compliant 
 ├── Anchor.toml               — program IDs (localnet) + test runner config
 ├── Cargo.toml                — workspace root (glob: programs/*)
 ├── programs/
-│   ├── common/         — shared library: no program ID, no entrypoint
-│   ├── deploy/         — deploys mints; records deployer
-│   ├── mint/           — controls token minting
-│   ├── metadata-update/— controls metadata updates
-│   ├── freeze/         — controls freeze/thaw (block/unblock + management freeze)
-│   ├── operations/     — burn via permanent delegate
-│   ├── pause/          — pause/unpause the mint
-│   ├── deactivate/     — permanently deactivate the mint
-│   ├── transfer-control/ — whitelist / clearing mode
-│   ├── transfer/       — custom transfer with all compliance checks
-│   └── transfer-hook/  — SPL Transfer Hook interface handler
+│   ├── common/               — shared library: no program ID, no entrypoint
+│   ├── deploy/               — deploys mints; records deployer
+│   ├── mint/                 — controls token minting
+│   ├── metadata-update/      — controls metadata updates
+│   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
+│   ├── operations/           — burn via permanent delegate
+│   ├── pause/                — pause/unpause the mint
+│   ├── deactivate/           — permanently deactivate the mint
+│   ├── transfer-control/     — whitelist / clearing mode
+│   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block)
+│   ├── transfer-hook/        — SPL Transfer Hook; double-introspection gate + snapshot updates
+│   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
+│   ├── bond/                 — typed PDA exposing on-chain-readable bond terms
+│   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot`
+│   └── treasury/             — coupon payouts: `pay_coupon` signed by `treasury_authority` PDA
 └── tests/                    — one .ts file per program
 ```
 
 Each program:
 ```
 programs/<name>/src/
-├── lib.rs           — declare_id!, mod declarations, #[program] impl
-├── constants.rs     — program IDs used in account constraints
+├── lib.rs           — declare_id!, mod declarations, #[program] impl, pub use common::program_ids::*
 ├── errors.rs        — #[error_code] enum (if needed)
 ├── state.rs / state/ — on-chain account structs (if needed)
 └── instructions/
@@ -39,7 +42,10 @@ programs/<name>/src/
     └── <instruction>.rs
 ```
 
+Exception: `transfer-hook` also has `constants.rs` for instruction discriminators (not program IDs).
+
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
+- `program_ids` — all 14 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
 - `state::MintOwner` — struct for the `mint_owner_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] MintOwner` wrapping the same fields for `Account<MintOwner>` usage.
 - `verify_deployer()` — Borsh-deserializes `MintOwner` (skipping discriminator) and checks the signer.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
@@ -61,22 +67,28 @@ programs/<name>/src/
 | `transfer-control` | `BTLbhoZDCguRqmwhXvQej7pmAqV2TXY3iGdwMPsMBBMw` |
 | `transfer` | `EY3ndaFy8e647firyg1MiyNH9LJkBKfV9VK8CNc4N1MD` |
 | `transfer-hook` | `482AUGU4SbYePPHaV7yvXrGEprHhiWSTRBds4Bdr6CPz` |
+| `snapshot` | `BcuEispMLyXAa44oRbxjgacAJWdEhFXqrBNXQfgHnfWW` |
+| `bond` | `BLA6wUczWivPKBw7wnZbvHfYPxcRWEE2Z5aGRnTdfUcU` |
+| `coupon` | `4pvS3t8wey2MhcgTgBSZZbHRUe6EFUv2pD9jJLFKWZ6u` |
+| `treasury` | `CBxS9txE8qZqZkNXhTaWE42Ur3J3GtYv1ufLfNDNUEct` |
 
 ### ID sharing pattern
 
-Reference another program's ID via crate import — `declare_id!` is the single source of truth:
+All program IDs are defined once in `common/src/program_ids.rs` using the `pubkey!()` macro. Each program re-exports them at the crate root in `lib.rs`:
+
 ```rust
-pub use mint::ID as MINT_AUTHORITY_PROGRAM_ID;  // in deploy/constants.rs
+pub use common::program_ids::*;
 ```
-Add the target as a dependency with `features = ["cpi"]`. When a circular dependency prevents a crate import, hardcode the ID as `Pubkey::new_from_array` with a comment and keep it manually in sync.
 
-**Circular dependency map** — programs that must hardcode IDs because the natural import direction would create a cycle:
+Instructions reference IDs via:
 
-| Program needing the ID | ID they hardcode | Why |
-|---|---|---|
-| `freeze` | `deploy`, `deactivate`, `mint`, `operations`, `transfer` | `mint`, `operations`, and `transfer` all depend on `freeze` for CPI |
-| `mint` | `deploy`, `deactivate` | `deploy` depends on `mint` |
-| `transfer` | `deploy`, `deactivate` | `deploy` depends on `transfer` indirectly |
+```rust
+use common::program_ids as constants;
+// …
+seeds::program = constants::FREEZE_PROGRAM_ID,
+```
+
+**When a program ID changes:** update the value in `common/src/program_ids.rs` only.
 
 ---
 
@@ -90,7 +102,7 @@ Every program exposes instructions in one of three categories:
 | **Operational** | Token holders / participants | Program-specific access controls |
 | **Auxiliary** | Other programs via CPI only | Requires a specific known PDA as `Signer` (only the authorized program can produce it via `invoke_signed`) |
 
-Auxiliary instructions cannot be called by any external wallet. `block_account` / `unblock_account` in `freeze` accept three callers: `mint_authority` (mint), `permanent_delegate` (operations), and `transfer` (transfer).
+Auxiliary instructions cannot be called by any external wallet. `block_account` / `unblock_account` in `freeze` accept three callers: `mint_authority` (mint), `permanent_delegate` (operations), and `transfer` (transfer). `take_snapshot` in `snapshot` accepts only one caller: `coupon_authority` (coupon) — every snapshot is anchored to a coupon.
 
 ---
 
@@ -103,7 +115,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["mint_authority", mint]` | `mint` | Token-2022 mint authority |
 | `["metadata_update_authority", mint]` | `metadata-update` | Token-2022 metadata update authority |
 | `["freeze_authority", mint]` | `freeze` | Token-2022 freeze authority |
-| `["frozen_account", mint, account]` | `freeze` | Marker: account fully frozen at CMTAT level |
+| `["frozen_account", mint, account]` | `freeze` | Marker: account fully frozen |
 | `["frozen_balance", mint, account]` | `freeze` | Stores locked balance for partial freeze |
 | `["permanent_delegate", mint]` | `operations` | Token-2022 PermanentDelegate authority |
 | `["pausable_authority", mint]` | `pause` | Token-2022 Pausable authority |
@@ -111,8 +123,18 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["transfer_control_mode", mint]` | `transfer-control` | Stores `is_clearing` flag |
 | `["whitelist", mint, account]` | `transfer-control` | Marker: account is whitelisted |
 | `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
-| `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority |
+| `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority; also the payer + calling-authority for snapshot CPIs during a transfer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
+| `["snapshot_counter", mint]` | `snapshot` | Current snapshot index for the mint (created by `take_snapshot`) |
+| `["snapshot_totalsupply", mint]` | `snapshot` | `SnapshotHistory` of total supply (one entry per snapshot id) |
+| `["snapshot_holderbalance", mint, token_account]` | `snapshot` | `SnapshotHistory` of that holder's balance |
+| `["bond_terms", mint]` | `bond` | Typed `BondTerms` PDA (interest rate, par value, min denomination, issuance date, day-count) |
+| `["coupon_authority", mint]` | `coupon` | Signing key for the `take_snapshot` CPI |
+| `["coupon_counter", mint]` | `coupon` | `CouponCounter` PDA — strictly-increasing coupon id per mint |
+| `["coupon", mint, coupon_id]` | `coupon` | Per-coupon record: snapshot id at issuance + payment date |
+| `["treasury_config", mint]` | `treasury` | Stores the Token-2022 *payment* mint pubkey + cached decimals used by `pay_coupon` |
+| `["treasury_authority", mint]` | `treasury` | Owner of the treasury's payment-mint token account; signs `transfer_checked` during `pay_coupon` |
+| `["coupon_paid", mint, coupon_id, holder_token_account]` | `treasury` | Marker created by `pay_coupon`; existence prevents double-payment of the same `(coupon, holder)` pair |
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
@@ -131,17 +153,17 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
 | `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` | All new accounts start frozen; thawed/re-frozen transiently during mint/burn/transfer |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked` |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer` or `Token-2022::transfer_checked`, both with matching args), then updates the sender/receiver snapshot entries. Compliance rules live in `transfer::verify_transfer`, not in the hook. |
 
 ---
 
 ## Checklist: Adding a New Program
 
 1. Create `programs/<name>/` with the standard structure.
-2. `constants.rs`: `pub use deploy::ID as DEPLOY_PROGRAM_ID;` (or hardcode if circular dep).
+2. Add `common` as a dependency in `Cargo.toml` — program IDs come from `common::program_ids` via `pub use common::program_ids::*;` in `lib.rs`.
 3. Add to `Anchor.toml` `[workspace]` members and `[programs.localnet]`.
 4. Implement instructions following the correct category pattern above.
-5. If the program owns a Token-2022 extension authority PDA: wire it into `deploy` (add crate dep with `cpi` feature, export ID in `constants.rs`, add authority PDA to `DeployMint` accounts, call the extension initializer CPI).
+5. If the program owns a Token-2022 extension authority PDA: wire it into `deploy` (add crate dep with `cpi` feature, add authority PDA to `DeployMint` accounts, call the extension initializer CPI).
 6. Add `tests/<name>.ts` with a `deployMint()` helper.
 7. Create `docs/<name>.md` and link it below.
 
@@ -151,7 +173,7 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 |---|---|
 | New program | `docs/<name>.md` + link below + `CLAUDE.md` tables |
 | New / modified instruction | relevant `docs/` file |
-| Program ID changed | Program IDs table + relevant `docs/` file + any hardcoded constants |
+| Program ID changed | `common/src/program_ids.rs` + Program IDs table + relevant `docs/` file |
 | New PDA | PDA Seed Reference table |
 
 ---
@@ -169,3 +191,8 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 - [`docs/transfer-control.md`](docs/transfer-control.md)
 - [`docs/transfer.md`](docs/transfer.md)
 - [`docs/transfer-hook.md`](docs/transfer-hook.md)
+- [`docs/snapshot.md`](docs/snapshot.md)
+- [`docs/bond.md`](docs/bond.md)
+- [`docs/coupon.md`](docs/coupon.md)
+- [`docs/treasury.md`](docs/treasury.md)
+- [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design

@@ -9,7 +9,7 @@ use spl_token_2022::{
 };
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use common::{pda_utils, pda_seeds};
-use crate::constants;
+use common::program_ids as constants;
 
 /// Transfers `amount` tokens from `source` to `destination`.
 ///

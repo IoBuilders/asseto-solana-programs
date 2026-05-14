@@ -8,6 +8,7 @@ use snapshot::cpi::accounts::UpdateHolderBalanceSnapshot;
 
 use crate::constants;
 use crate::errors::TransferHookError;
+use common::program_ids::TRANSFER_PROGRAM_ID;
 
 /// Called by Token-2022 on every transfer via the SPL Transfer Hook Interface.
 ///
@@ -56,7 +57,7 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
 
     // N-1 must be transfer::verify_transfer.
     require!(
-        prev_ix.program_id == constants::TRANSFER_PROGRAM_ID,
+        prev_ix.program_id == TRANSFER_PROGRAM_ID,
         TransferHookError::PrevInstructionWrongProgram
     );
     assert_matches_transfer_ix(
@@ -67,7 +68,7 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
     )?;
 
     // N must be transfer::transfer OR Token-2022::transfer_checked.
-    if curr_ix.program_id == constants::TRANSFER_PROGRAM_ID {
+    if curr_ix.program_id == TRANSFER_PROGRAM_ID {
         assert_matches_transfer_ix(
             &curr_ix,
             &constants::TRANSFER_DISCRIMINATOR,

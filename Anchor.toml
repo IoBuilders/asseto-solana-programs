@@ -39,6 +39,10 @@ bond = "BLA6wUczWivPKBw7wnZbvHfYPxcRWEE2Z5aGRnTdfUcU"
 coupon = "4pvS3t8wey2MhcgTgBSZZbHRUe6EFUv2pD9jJLFKWZ6u"
 treasury = "CBxS9txE8qZqZkNXhTaWE42Ur3J3GtYv1ufLfNDNUEct"
 
+[programs.devnet]
+
+[programs.mainnet]
+
 [registry]
 url = "https://api.apr.dev"
 

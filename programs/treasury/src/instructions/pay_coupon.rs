@@ -7,7 +7,7 @@ use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_de
 use coupon::state::Coupon;
 use snapshot::cpi::accounts::GetHolderBalanceSnapshotAt;
 
-use crate::constants;
+use common::program_ids as constants;
 use crate::errors::ErrorCode;
 use crate::state::{CouponPaidMarker, TreasuryConfig};
 

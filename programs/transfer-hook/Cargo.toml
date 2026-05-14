@@ -30,5 +30,5 @@ snapshot = { path = "../snapshot", features = ["cpi"] }
 freeze = { path = "../freeze", features = ["cpi"] }
 transfer-control = { path = "../transfer-control", features = ["cpi"] }
 
-[lints.rust]
+[package.metadata.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

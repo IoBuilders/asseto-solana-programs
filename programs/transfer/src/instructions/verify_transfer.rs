@@ -3,7 +3,7 @@ use common::{pda_seeds, require_active, verify_deployer};
 use freeze::{require_unfrozen_account, require_unfrozen_balance};
 use transfer_control::{get_transfer_mode, verify_whitelist, TransferMode};
 
-use crate::constants;
+use common::program_ids as constants;
 use crate::errors::TransferError;
 
 /// Pre-transfer compliance check.
