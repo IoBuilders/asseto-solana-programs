@@ -2,27 +2,27 @@
 // workspace Anchor.toml, and update the constant here.
 use anchor_lang::{prelude::Pubkey, pubkey};
 
-pub const DEPLOY_PROGRAM_ID: Pubkey = pubkey!("2XMEMg7FUxWksDRZQU9vtGHHSyKoSaH9bncj1noe38QK");
+pub const DEPLOY_PROGRAM_ID: Pubkey = pubkey!("HCe5Um7ThFBzDSyn256EPQvyr6jy6E66ydzZ5hMta3Tq");
 pub const DEACTIVATE_PROGRAM_ID: Pubkey =
-    pubkey!("8rds1q4evGug816bswEEmDmJSymq86sq7mgYRcPQP996");
-pub const MINT_PROGRAM_ID: Pubkey = pubkey!("AXGtgWoPXfyfQ7o823WG2ip6qSRw1s3wA3RCSdtCyN1P");
+    pubkey!("H2iRjVVKsKQMAnJKqiTfW2LGvT1G9tDqQ81DzRjxfX7V");
+pub const MINT_PROGRAM_ID: Pubkey = pubkey!("BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ");
 pub const OPERATIONS_PROGRAM_ID: Pubkey =
-    pubkey!("BANmGRnoLxXCTzKm2aM1Zww8qn7GN2KBkbyY7QpW3vcX");
-pub const FREEZE_PROGRAM_ID: Pubkey = pubkey!("ERyVR64dpCpoEa335A7LfJZnrEUeL7bxgqfqTogXYoAr");
+    pubkey!("BHDyg8PeUyVBpmkcjYLdnt3VCmYf4wp8Xeu6TXREiLKp");
+pub const FREEZE_PROGRAM_ID: Pubkey = pubkey!("8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd");
 pub const METADATA_UPDATE_PROGRAM_ID: Pubkey =
-    pubkey!("Ei1dX3P7N9cBz2Vs28iB8nsWFqUAWTDicGX7YZSc5HXU");
-pub const PAUSE_PROGRAM_ID: Pubkey = pubkey!("9GjHsbG5MgerXdyWRmNVMP9uXzi9iZyRyCrKw1LnSw1w");
+    pubkey!("iShebeGRBZYSBMQYGAg8DbLnbaW2eDvX1Zt8EG9G1ZV");
+pub const PAUSE_PROGRAM_ID: Pubkey = pubkey!("5j3F89fmVVusjwy9z3Rv5wLaVj4ovhwctQ7TRBsxNghq");
 pub const TRANSFER_CONTROL_PROGRAM_ID: Pubkey =
-    pubkey!("BTLbhoZDCguRqmwhXvQej7pmAqV2TXY3iGdwMPsMBBMw");
+    pubkey!("3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo");
 pub const TRANSFER_PROGRAM_ID: Pubkey =
-    pubkey!("EY3ndaFy8e647firyg1MiyNH9LJkBKfV9VK8CNc4N1MD");
+    pubkey!("Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q");
 pub const TRANSFER_HOOK_PROGRAM_ID: Pubkey =
-    pubkey!("482AUGU4SbYePPHaV7yvXrGEprHhiWSTRBds4Bdr6CPz");
+    pubkey!("2qjsucJfrjP93FCwnYjc9EjYzYS8u31eWHhQo1jR9pcg");
 pub const SNAPSHOT_PROGRAM_ID: Pubkey =
-    pubkey!("BcuEispMLyXAa44oRbxjgacAJWdEhFXqrBNXQfgHnfWW");
-pub const BOND_PROGRAM_ID: Pubkey = pubkey!("BLA6wUczWivPKBw7wnZbvHfYPxcRWEE2Z5aGRnTdfUcU");
-pub const COUPON_PROGRAM_ID: Pubkey = pubkey!("4pvS3t8wey2MhcgTgBSZZbHRUe6EFUv2pD9jJLFKWZ6u");
-pub const TREASURY_PROGRAM_ID: Pubkey = pubkey!("CBxS9txE8qZqZkNXhTaWE42Ur3J3GtYv1ufLfNDNUEct");
+    pubkey!("hgUtrpstViwxutrkoVXwQh3GQC18wHAmuAvYFTNiV2M");
+pub const BOND_PROGRAM_ID: Pubkey = pubkey!("8opYXiWzWBrUEr5vtcvaX1ybzYaMKrndxkW1U9Patk46");
+pub const COUPON_PROGRAM_ID: Pubkey = pubkey!("CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK");
+pub const TREASURY_PROGRAM_ID: Pubkey = pubkey!("G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA");
 
 #[cfg(test)]
 mod tests {

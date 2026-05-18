@@ -1,6 +1,6 @@
 # freeze — Program Reference
 
-Program ID: `ERyVR64dpCpoEa335A7LfJZnrEUeL7bxgqfqTogXYoAr`
+Program ID: `8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd`
 
 Controls the Token-2022 freeze authority and all CMTAT-level freezing. Owns the `["freeze_authority", mint]` PDA set as the mint's freeze authority during `deploy_mint`.
 

@@ -8,7 +8,7 @@ pub mod state;
 
 use instructions::*;
 use state::FrozenBalance;
-declare_id!("ERyVR64dpCpoEa335A7LfJZnrEUeL7bxgqfqTogXYoAr");
+declare_id!("8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd");
 
 #[program]
 pub mod freeze {

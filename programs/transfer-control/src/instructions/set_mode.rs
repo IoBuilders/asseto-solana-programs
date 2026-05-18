@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
+use anchor_lang::solana_program::program::invoke_signed;
+use solana_system_interface::instruction as system_instruction;
 use common::{pda_seeds, pda_utils, require_active, verify_deployer, require_not_paused};
 
 use common::program_ids as constants;

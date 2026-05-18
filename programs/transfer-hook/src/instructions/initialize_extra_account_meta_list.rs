@@ -91,7 +91,7 @@ pub fn initialize_extra_account_meta_list(
         // check (verifies prior transfer::verify_transfer + current
         // transfer::transfer / token-2022::transfer_checked).
         ExtraAccountMeta::new_with_pubkey(
-            &anchor_lang::solana_program::sysvar::instructions::ID,
+            &solana_instructions_sysvar::ID,
             false,
             false,
         )?,

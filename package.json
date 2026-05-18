@@ -1,11 +1,12 @@
 {
   "license": "ISC",
   "scripts": {
+    "test:integration": "anchor deploy --no-idl && ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=./test-wallet.json NODE_OPTIONS='--import tsx' mocha -t 1000000 --require tests/setup.ts \"tests/${TEST_FILE:-**/*}.ts\"",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.32.1",
+    "@anchor-lang/core": "^1.0.0",
     "@solana/spl-token": "^0.4.14"
   },
   "devDependencies": {

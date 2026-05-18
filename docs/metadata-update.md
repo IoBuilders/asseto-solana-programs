@@ -1,6 +1,6 @@
 # metadata-update — Program Reference
 
-Program ID: `Ei1dX3P7N9cBz2Vs28iB8nsWFqUAWTDicGX7YZSc5HXU`
+Program ID: `iShebeGRBZYSBMQYGAg8DbLnbaW2eDvX1Zt8EG9G1ZV`
 
 Controls Token-2022 embedded metadata. Owns the `["metadata_update_authority", mint]` PDA that was set as the metadata update authority during `deploy_mint`. Only the deployer may call these instructions.
 

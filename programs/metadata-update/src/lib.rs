@@ -6,7 +6,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("Ei1dX3P7N9cBz2Vs28iB8nsWFqUAWTDicGX7YZSc5HXU");
+declare_id!("iShebeGRBZYSBMQYGAg8DbLnbaW2eDvX1Zt8EG9G1ZV");
 
 #[program]
 pub mod metadata_update {

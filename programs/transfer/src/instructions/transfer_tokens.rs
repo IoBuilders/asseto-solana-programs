@@ -41,7 +41,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     // ── 1. Unblock source and destination (CPI to freeze) ─────────────
     freeze::cpi::unblock_account(
         CpiContext::new_with_signer(
-            ctx.accounts.freeze_program.to_account_info(),
+            constants::FREEZE_PROGRAM_ID,
             UnblockAccount {
                 calling_authority: ctx.accounts.transfer_authority.to_account_info(),
                 freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
@@ -55,7 +55,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
 
     freeze::cpi::unblock_account(
         CpiContext::new_with_signer(
-            ctx.accounts.freeze_program.to_account_info(),
+            constants::FREEZE_PROGRAM_ID,
             UnblockAccount {
                 calling_authority: ctx.accounts.transfer_authority.to_account_info(),
                 freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
@@ -125,7 +125,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     // ── 3. Re-block source and destination (CPI to freeze) ────────────
     freeze::cpi::block_account(
         CpiContext::new_with_signer(
-            ctx.accounts.freeze_program.to_account_info(),
+            constants::FREEZE_PROGRAM_ID,
             BlockAccount {
                 calling_authority: ctx.accounts.transfer_authority.to_account_info(),
                 freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
@@ -139,7 +139,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
 
     freeze::cpi::block_account(
         CpiContext::new_with_signer(
-            ctx.accounts.freeze_program.to_account_info(),
+            constants::FREEZE_PROGRAM_ID,
             BlockAccount {
                 calling_authority: ctx.accounts.transfer_authority.to_account_info(),
                 freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
@@ -270,7 +270,7 @@ pub struct TransferTokens<'info> {
     /// instruction.
     ///
     /// CHECK: Address pinned by constraint and re-verified by the hook's metalist.
-    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
 
     pub token_2022_program: Program<'info, Token2022>,

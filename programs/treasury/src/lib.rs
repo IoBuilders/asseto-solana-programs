@@ -6,7 +6,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("CBxS9txE8qZqZkNXhTaWE42Ur3J3GtYv1ufLfNDNUEct");
+declare_id!("G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA");
 
 #[program]
 pub mod treasury {

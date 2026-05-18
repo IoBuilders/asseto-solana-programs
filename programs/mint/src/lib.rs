@@ -4,7 +4,7 @@ pub mod instructions;
 
 use instructions::*;
 
-declare_id!("AXGtgWoPXfyfQ7o823WG2ip6qSRw1s3wA3RCSdtCyN1P");
+declare_id!("BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ");
 
 #[cfg(test)]
 mod program_id_sync_tests {

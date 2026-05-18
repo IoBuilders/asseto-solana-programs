@@ -1,6 +1,6 @@
 # transfer-control — Program Reference
 
-Program ID: `BTLbhoZDCguRqmwhXvQej7pmAqV2TXY3iGdwMPsMBBMw`
+Program ID: `3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo`
 
 Governs who may transfer tokens for a given mint. Two modes are supported:
 

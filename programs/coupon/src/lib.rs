@@ -6,7 +6,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("4pvS3t8wey2MhcgTgBSZZbHRUe6EFUv2pD9jJLFKWZ6u");
+declare_id!("CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK");
 
 #[program]
 pub mod coupon {

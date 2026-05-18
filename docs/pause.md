@@ -1,6 +1,6 @@
 # pause — Program Reference
 
-Program ID: `9GjHsbG5MgerXdyWRmNVMP9uXzi9iZyRyCrKw1LnSw1w`
+Program ID: `5j3F89fmVVusjwy9z3Rv5wLaVj4ovhwctQ7TRBsxNghq`
 
 Controls the Token-2022 `Pausable` extension. Owns the `["pausable_authority", mint]` PDA registered as the pausable authority during `deploy_mint`. When the mint is paused, Token-2022 rejects all `mint_to`, `burn`, and `transfer_checked` instructions at the protocol level.
 

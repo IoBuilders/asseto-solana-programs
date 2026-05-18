@@ -59,7 +59,7 @@ pub fn create_coupon(
 
     snapshot::cpi::take_snapshot(
         CpiContext::new_with_signer(
-            ctx.accounts.snapshot_program.to_account_info(),
+            constants::SNAPSHOT_PROGRAM_ID,
             TakeSnapshot {
                 calling_authority: ctx.accounts.coupon_authority.to_account_info(),
                 payer: ctx.accounts.payer.to_account_info(),

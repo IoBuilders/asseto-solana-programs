@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
-use anchor_lang::solana_program::system_instruction;
+use solana_system_interface::instruction as system_instruction;
 use spl_token_2022::extension::StateWithExtensions;
 use spl_token_2022::state::Mint;
 use common::{pda_seeds, pda_utils};

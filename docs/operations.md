@@ -1,6 +1,6 @@
 # operations — Program Reference
 
-Program ID: `BANmGRnoLxXCTzKm2aM1Zww8qn7GN2KBkbyY7QpW3vcX`
+Program ID: `BHDyg8PeUyVBpmkcjYLdnt3VCmYf4wp8Xeu6TXREiLKp`
 
 Controls token burning via the Token-2022 `PermanentDelegate` extension. Owns the `["permanent_delegate", mint]` PDA that was registered as the permanent delegate during `deploy_mint`. The permanent delegate can burn tokens from any token account without the account owner's consent.
 

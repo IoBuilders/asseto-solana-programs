@@ -1,6 +1,6 @@
 # deactivate — Program Reference
 
-Program ID: `8rds1q4evGug816bswEEmDmJSymq86sq7mgYRcPQP996`
+Program ID: `H2iRjVVKsKQMAnJKqiTfW2LGvT1G9tDqQ81DzRjxfX7V`
 
 Permanently deactivates a Token-2022 mint by creating an on-chain marker PDA. Once deactivated, the mint cannot be minted, burned, or operated on — every other CMTAT program checks `require_active` before executing.
 

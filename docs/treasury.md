@@ -1,6 +1,6 @@
 # treasury — Program Reference
 
-Program ID: `CBxS9txE8qZqZkNXhTaWE42Ur3J3GtYv1ufLfNDNUEct`
+Program ID: `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA`
 
 Pays coupon interest to bond holders in a separate token mint (the *payment mint*, e.g. a stablecoin) — distinct from the bond mint the rest of the workspace targets. The payment mint may be **classic SPL Token or Token-2022** — `treasury` uses Anchor's token *interface* so either is accepted.
 

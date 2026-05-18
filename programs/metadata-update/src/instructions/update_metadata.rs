@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{program::invoke_signed, program::invoke, system_instruction};
+use anchor_lang::solana_program::{program::invoke_signed, program::invoke};
+use solana_system_interface::instruction as system_instruction;
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::{
     extension::{BaseStateWithExtensions, StateWithExtensions},

@@ -7,7 +7,7 @@ pub mod state;
 use instructions::*;
 pub use state::TransferMode;
 
-declare_id!("BTLbhoZDCguRqmwhXvQej7pmAqV2TXY3iGdwMPsMBBMw");
+declare_id!("3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo");
 
 /// Checks whether a `whitelist_pda` (seeds: `["whitelist", mint, account]`) exists,
 /// indicating the account has been whitelisted for this mint.

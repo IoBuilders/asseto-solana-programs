@@ -68,7 +68,7 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
     let snapshot_id = coupon.snapshot_id;
     let holder_balance: u64 = snapshot::cpi::get_holderbalance_snapshot_at(
         CpiContext::new(
-            ctx.accounts.snapshot_program.to_account_info(),
+            constants::SNAPSHOT_PROGRAM_ID,
             GetHolderBalanceSnapshotAt {
                 mint: ctx.accounts.mint.to_account_info(),
                 holder_balance_snapshot: ctx.accounts.holder_balance_snapshot.to_account_info(),
@@ -147,7 +147,7 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
 
     token_interface::transfer_checked(
         CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             TransferChecked {
                 from: ctx.accounts.treasury_token_account.to_account_info(),
                 mint: ctx.accounts.payment_mint.to_account_info(),

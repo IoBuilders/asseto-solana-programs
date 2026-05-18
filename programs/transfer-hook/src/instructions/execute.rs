@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::Instruction;
-use anchor_lang::solana_program::sysvar::instructions::{
+use solana_instructions_sysvar::{
     load_current_index_checked, load_instruction_at_checked,
 };
 use common::{pda_seeds, pda_utils};
@@ -8,7 +8,7 @@ use snapshot::cpi::accounts::UpdateHolderBalanceSnapshot;
 
 use crate::constants;
 use crate::errors::TransferHookError;
-use common::program_ids::TRANSFER_PROGRAM_ID;
+use common::program_ids::{TRANSFER_PROGRAM_ID, SNAPSHOT_PROGRAM_ID};
 
 /// Called by Token-2022 on every transfer via the SPL Transfer Hook Interface.
 ///
@@ -94,7 +94,7 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
 
     snapshot::cpi::update_holderbalance_snapshot(
         CpiContext::new_with_signer(
-            ctx.accounts.snapshot_program.to_account_info(),
+            SNAPSHOT_PROGRAM_ID,
             UpdateHolderBalanceSnapshot {
                 calling_authority: ctx.accounts.transfer_hook_authority.to_account_info(),
                 payer: ctx.accounts.transfer_hook_authority.to_account_info(),
@@ -112,7 +112,7 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
 
     snapshot::cpi::update_holderbalance_snapshot(
         CpiContext::new_with_signer(
-            ctx.accounts.snapshot_program.to_account_info(),
+            SNAPSHOT_PROGRAM_ID,
             UpdateHolderBalanceSnapshot {
                 calling_authority: ctx.accounts.transfer_hook_authority.to_account_info(),
                 payer: ctx.accounts.transfer_hook_authority.to_account_info(),
@@ -280,6 +280,6 @@ pub struct Execute<'info> {
     /// Address pinned by the metalist; contents read via the
     /// `solana_program::sysvar::instructions` helpers.
     /// CHECK: Address verified by the metalist's literal-pubkey entry.
-    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
 }

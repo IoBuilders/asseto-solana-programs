@@ -50,7 +50,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     // ── 1. Update total supply snapshot (CPI to snapshot) ──────────────
     snapshot::cpi::update_totalsupply_snapshot(
         CpiContext::new_with_signer(
-            ctx.accounts.snapshot_program.to_account_info(),
+            constants::SNAPSHOT_PROGRAM_ID,
             UpdateTotalSupplySnapshot {
                 calling_authority: ctx.accounts.mint_authority.to_account_info(),
                 payer: ctx.accounts.deployer.to_account_info(),
@@ -66,7 +66,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     // ── 2. Update holder balance snapshot (CPI to snapshot) ────────────
     snapshot::cpi::update_holderbalance_snapshot(
         CpiContext::new_with_signer(
-            ctx.accounts.snapshot_program.to_account_info(),
+            constants::SNAPSHOT_PROGRAM_ID,
             UpdateHolderBalanceSnapshot {
                 calling_authority: ctx.accounts.mint_authority.to_account_info(),
                 payer: ctx.accounts.deployer.to_account_info(),
@@ -85,7 +85,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     // ── 3. Unblock destination (CPI to freeze) ─────────────────────────
     freeze::cpi::unblock_account(
         CpiContext::new_with_signer(
-            ctx.accounts.freeze_program.to_account_info(),
+            constants::FREEZE_PROGRAM_ID,
             UnblockAccount {
                 calling_authority: ctx.accounts.mint_authority.to_account_info(),
                 freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
@@ -119,7 +119,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     // ── 5. Re-block destination (CPI to freeze) ────────────────────────
     freeze::cpi::block_account(
         CpiContext::new_with_signer(
-            ctx.accounts.freeze_program.to_account_info(),
+            constants::FREEZE_PROGRAM_ID,
             BlockAccount {
                 calling_authority: ctx.accounts.mint_authority.to_account_info(),
                 freeze_authority: ctx.accounts.freeze_authority.to_account_info(),

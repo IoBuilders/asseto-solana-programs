@@ -5,7 +5,7 @@ pub mod instructions;
 
 use instructions::*;
 
-declare_id!("9GjHsbG5MgerXdyWRmNVMP9uXzi9iZyRyCrKw1LnSw1w");
+declare_id!("5j3F89fmVVusjwy9z3Rv5wLaVj4ovhwctQ7TRBsxNghq");
 
 #[program]
 pub mod pause {

@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
-use anchor_lang::solana_program::system_instruction;
+use solana_system_interface::instruction as system_instruction;
 use common::program_ids as constants;
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::{
@@ -268,7 +268,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     let new_update_authority =
         OptionalNonZeroPubkey::try_from(Some(ctx.accounts.metadata_update_authority.key()))
             .map_err(|_| error!(ErrorCode::InvalidMintAccountSize))?;
-        
+
     invoke_signed(
         &update_authority(
             &token_program_id,
@@ -319,7 +319,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     );
     transfer_hook::cpi::initialize_extra_account_meta_list(
         CpiContext::new_with_signer(
-            ctx.accounts.transfer_hook_program.to_account_info(),
+            constants::TRANSFER_HOOK_PROGRAM_ID,
             transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
                 payer: ctx.accounts.payer.to_account_info(),
                 mint_owner_pda: ctx.accounts.mint_owner_pda.to_account_info(),

@@ -6,7 +6,7 @@ pub mod state;
 use instructions::*;
 use state::BondTermsArgs;
 
-declare_id!("BLA6wUczWivPKBw7wnZbvHfYPxcRWEE2Z5aGRnTdfUcU");
+declare_id!("8opYXiWzWBrUEr5vtcvaX1ybzYaMKrndxkW1U9Patk46");
 
 #[program]
 pub mod bond {

@@ -6,7 +6,7 @@ pub mod instructions;
 
 use instructions::*;
 
-declare_id!("482AUGU4SbYePPHaV7yvXrGEprHhiWSTRBds4Bdr6CPz");
+declare_id!("2qjsucJfrjP93FCwnYjc9EjYzYS8u31eWHhQo1jR9pcg");
 
 #[program]
 pub mod transfer_hook {

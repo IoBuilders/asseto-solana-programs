@@ -40,22 +40,22 @@ now fail with the same root error. Representative log:
 
 ```
 Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb success
-Program ERyVR64dpCpoEa335A7LfJZnrEUeL7bxgqfqTogXYoAr consumed 14000 of 338133 compute units
-Program ERyVR64dpCpoEa335A7LfJZnrEUeL7bxgqfqTogXYoAr success
+Program 8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd consumed 14000 of 338133 compute units
+Program 8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd success
 Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb invoke [2]
 Program log: Instruction: TransferChecked
 Program log: Error: memory allocation failed, out of memory
 Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb consumed 65799 of 317484 compute units
 Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: SBF program panicked
-Program EY3ndaFy8e647firyg1MiyNH9LJkBKfV9VK8CNc4N1MD consumed 148015 of 399700 compute units
-Program EY3ndaFy8e647firyg1MiyNH9LJkBKfV9VK8CNc4N1MD failed: Program failed to complete
+Program Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q consumed 148015 of 399700 compute units
+Program Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q failed: Program failed to complete
 ```
 
 Two important facts to read out of this log:
 
 1. The OOM and panic are emitted by `TokenzQ…` (Token-2022, program ID
    `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`), not by our hook program
-   (`482AUGU4SbYePPHaV7yvXrGEprHhiWSTRBds4Bdr6CPz`).
+   (`2qjsucJfrjP93FCwnYjc9EjYzYS8u31eWHhQo1jR9pcg`).
 2. The very next log line after the OOM would have been
    `"Program 482AU… invoke [3]"` (the hook). That line never appears, so the
    hook code did not execute at all.

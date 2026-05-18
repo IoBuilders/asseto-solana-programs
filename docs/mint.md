@@ -1,6 +1,6 @@
 # mint — Program Reference
 
-Program ID: `AXGtgWoPXfyfQ7o823WG2ip6qSRw1s3wA3RCSdtCyN1P`
+Program ID: `BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ`
 
 Controls token minting. Owns the `["mint_authority", mint]` PDA that was set as the Token-2022 mint authority during `deploy_mint`. Only the deployer recorded in `mint_owner_pda` may call the mint instruction.
 

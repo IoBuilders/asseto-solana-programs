@@ -8,7 +8,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("BcuEispMLyXAa44oRbxjgacAJWdEhFXqrBNXQfgHnfWW");
+declare_id!("hgUtrpstViwxutrkoVXwQh3GQC18wHAmuAvYFTNiV2M");
 
 #[program]
 pub mod snapshot {
