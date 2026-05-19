@@ -46,6 +46,5 @@ rpc_port = 8899
 ws_port = 8900
 host = "127.0.0.1"
 online = false
-airdrop_addresses = ["2Jab7uKeHtzDDvUY23ZqbSZaJz4FEatUxZkNMDYqdTuN"]
 log_level = "warn"
 block_production_mode = "clock"
