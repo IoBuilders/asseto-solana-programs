@@ -6,7 +6,7 @@ use spl_token_2022::instruction::mint_to;
 use common::{pda_seeds, require_active, verify_deployer};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
-use transfer_control::{get_transfer_mode, verify_whitelist, TransferMode};
+use transfer_control::{get_transfer_modes, verify_whitelist, TransferMode};
 
 use common::program_ids as constants;
 
@@ -33,8 +33,8 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     // ── If whitelist mode is active, verify destination is whitelisted ────────
-    if get_transfer_mode(&ctx.accounts.transfer_control_mode_pda.to_account_info())?
-        == Some(TransferMode::Whitelist)
+    if get_transfer_modes(&ctx.accounts.transfer_control_mode_pda.to_account_info())?
+        .contains(&TransferMode::Whitelist)
     {
         verify_whitelist(&ctx.accounts.destination_whitelist_pda.to_account_info())?;
     }

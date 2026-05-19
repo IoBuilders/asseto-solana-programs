@@ -9,9 +9,11 @@ Governs who may transfer tokens for a given mint. Two modes are supported:
 | **Whitelist** | Both source and destination must be individually whitelisted before a transfer is allowed |
 | **Clearing** | The deployer must co-sign every transfer (acts as a central clearing entity) |
 
-If neither mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
+If no mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
 
-Also exports two helper functions (`verify_whitelist`, `get_transfer_mode`) used by `mint` and `transfer-hook` to enforce mode-specific rules.
+If multiple modes are set, one of them must succeed.
+
+Also exports two helper functions (`verify_whitelist`, `get_transfer_modes`) used by `mint` and `transfer-hook` to enforce mode-specific rules.
 
 ---
 
@@ -20,7 +22,7 @@ Also exports two helper functions (`verify_whitelist`, `get_transfer_mode`) used
 ```rust
 #[account]
 pub struct TransferControlMode {
-    pub mode: TransferMode,  // Clearing | Whitelist
+    pub modes: Vec<TransferMode>,
     pub bump: u8,
 }
 
@@ -51,30 +53,30 @@ pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()>
 
 Returns `Ok(())` if the `whitelist_pda` (seeds `["whitelist", mint, account]`) exists (non-empty data). Returns `Err(TransferControlError::NotWhitelisted)` if absent. Called by `mint` and `transfer-hook` when whitelist mode is active.
 
-### `get_transfer_mode`
+### `get_transfer_modes`
 
 ```rust
-pub fn get_transfer_mode(transfer_control_mode_pda: &AccountInfo) -> Result<Option<TransferMode>>
+pub fn get_transfer_modes(transfer_control_mode_pda: &AccountInfo) -> Result<Vec<TransferMode>>
 ```
 
 Single-deserialization mode read. Returns:
-- `None` when the PDA does not exist (no controls active).
-- `Some(TransferMode::Clearing)` — deployer must co-sign every transfer.
-- `Some(TransferMode::Whitelist)` — source and destination must each be whitelisted.
+- `.isEmpty()` when the PDA does not exist (no controls active).
+- `.contains(&TransferMode::Clearing)` — deployer must co-sign every transfer.
+- `.contains(&TransferMode::Whitelist)` — source and destination must each be whitelisted.
 
-Callers match on the returned `Option<TransferMode>` instead of calling two boolean helpers back-to-back.
+Callers match on the returned `Vec<TransferMode>` instead of calling two boolean helpers back-to-back.
 
 ---
 
-## Instruction: `set_mode` (Management)
+## Instruction: `set_modes` (Management)
 
 ### Parameters
 
 ```rust
-mode: Option<TransferMode>
+modes: Vec<TransferMode>
 ```
 
-Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when `Some`. When `None`, closes the PDA and returns its rent to the deployer — no transfer controls.
+Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when not empty. When empty, closes the PDA and returns its rent to the deployer — no transfer controls.
 
 ### Preconditions
 

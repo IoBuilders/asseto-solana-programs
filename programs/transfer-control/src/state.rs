@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-/// The active transfer control policy for a mint.
+/// A single transfer control policy.
 ///
 /// Serialized as a single `u8` (Borsh enum variant index):
 /// - `0` → `Clearing`
@@ -14,14 +14,22 @@ pub enum TransferMode {
 /// Transfer Control Mode PDA.
 /// Seeds: `["transfer_control_mode", mint]`
 ///
-/// Created or updated by `set_mode(Some(_))`.
-/// Closed (and rent returned) by `set_mode(None)`.
+/// Created or updated by `set_mode` when at least one mode is active.
+/// Closed (and rent returned) by `set_mode` with an empty list.
 /// When the PDA is absent, no transfer controls are active.
 #[account]
-#[derive(InitSpace)]
 pub struct TransferControlMode {
-    pub mode: TransferMode,
+    pub modes: Vec<TransferMode>,
     pub bump: u8,
+}
+
+impl TransferControlMode {
+    pub fn space(num_modes: usize) -> usize {
+        8       // discriminator
+        + 4     // vec length (u32)
+        + (num_modes * TransferMode::INIT_SPACE)
+        + 1     // bump
+    }
 }
 
 

@@ -1,7 +1,6 @@
 {
   "license": "ISC",
   "scripts": {
-    "test:integration": "solana airdrop 1000 $(solana-keygen pubkey ./test-wallet.json) -u http://127.0.0.1:8899 && anchor deploy --no-idl && ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=./test-wallet.json NODE_OPTIONS='--import tsx' mocha -t 1000000 --require tests/setup.ts \"tests/${TEST_FILE:-**/*}.ts\"",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },

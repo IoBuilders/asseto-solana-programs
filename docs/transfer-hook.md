@@ -196,7 +196,6 @@ before the hook ever runs.
 ```rust
 pub enum TransferHookError {
     InvalidAccountSize,                           // ExtraAccountMetaList size mismatch during init
-    ClearingModeUnauthorized,                     // legacy — verify_transfer raises this directly now
 
     // Introspection — structural
     InstructionsSysvarUnreadable,                 // sysvar load syscall failed

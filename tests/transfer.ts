@@ -2,6 +2,7 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { Mint } from "../target/types/mint";
+import { TransferControl } from "../target/types/transfer_control";
 import { AccountMeta, Keypair, PublicKey, SYSVAR_RENT_PUBKEY, SendTransactionError } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
@@ -34,7 +35,7 @@ describe("transfer", () => {
   const pauseProgram      = anchor.workspace.Pause      as Program<any>;
   const transferProgram   = anchor.workspace.Transfer   as Program<any>;
   const deactivateProgram         = anchor.workspace.Deactivate         as Program<any>;
-  const transferControlProgram    = anchor.workspace.TransferControl    as Program<any>;
+  const transferControlProgram    = anchor.workspace.TransferControl    as Program<TransferControl>;
   const transferHookProgram       = anchor.workspace.TransferHook       as Program<any>;
   const snapshotProgram           = anchor.workspace.Snapshot           as Program<any>;
   const couponProgram             = anchor.workspace.Coupon             as Program<any>;
@@ -1299,7 +1300,7 @@ describe("transfer", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("transfer: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
+  it("transfer: fails with TransferControlDenied when whitelist mode is active and destination is not whitelisted", async () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
       await deployMint();
 
@@ -1330,9 +1331,9 @@ describe("transfer", () => {
     const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
 
     // Activate whitelist mode
-    const setModeTx = await (transferControlProgram as any).methods
-      .setMode({ whitelist: {} })
-      .accounts({
+    const setModeTx = await transferControlProgram.methods
+      .setModes([{ whitelist: {} }])
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
@@ -1343,9 +1344,9 @@ describe("transfer", () => {
       .rpc({ commitment: "confirmed" });
 
     // Add source to whitelist — destination is NOT whitelisted
-    await (transferControlProgram as any).methods
+    await transferControlProgram.methods
       .addToWhitelist()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
@@ -1366,7 +1367,7 @@ describe("transfer", () => {
 
     await fundTransferHookAuthority(transferHookAuthority);
     try {
-      // verify_transfer runs the NotWhitelisted check on its own.
+      // verify_transfer runs the TransferControlDenied check on its own.
       const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
       await (transferProgram as any).methods
@@ -1397,7 +1398,7 @@ describe("transfer", () => {
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
-      assert.fail("Expected NotWhitelisted error but instruction succeeded");
+      assert.fail("Expected TransferControlDenied error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
@@ -1405,14 +1406,14 @@ describe("transfer", () => {
       console.log("  caught error msg:   ", anchorErr.error.errorMessage);
       assert.equal(
         anchorErr.error.errorCode.code,
-        "NotWhitelisted",
-        "error code should be NotWhitelisted"
+        "TransferControlDenied",
+        "error code should be TransferControlDenied"
       );
     }
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("transfer: fails with NotWhitelisted when whitelist mode is active and source is not whitelisted", async () => {
+  it("transfer: fails with TransferControlDenied when whitelist mode is active and source is not whitelisted", async () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
       await deployMint();
 
@@ -1444,9 +1445,9 @@ describe("transfer", () => {
 
 
     // Activate whitelist mode
-    const setModeTx = await (transferControlProgram as any).methods
-      .setMode({ whitelist: {} })
-      .accounts({
+    const setModeTx = await transferControlProgram.methods
+      .setModes([{ whitelist: {} }])
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
@@ -1457,9 +1458,9 @@ describe("transfer", () => {
       .rpc({ commitment: "confirmed" });
 
     // Add destination to whitelist — source is NOT whitelisted
-    await (transferControlProgram as any).methods
+    await transferControlProgram.methods
       .addToWhitelist()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
@@ -1480,7 +1481,7 @@ describe("transfer", () => {
 
     await fundTransferHookAuthority(transferHookAuthority);
     try {
-      // verify_transfer runs the NotWhitelisted check on its own.
+      // verify_transfer runs the TransferControlDenied check on its own.
       const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
       await (transferProgram as any).methods
@@ -1511,7 +1512,7 @@ describe("transfer", () => {
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
-      assert.fail("Expected NotWhitelisted error but instruction succeeded");
+      assert.fail("Expected TransferControlDenied error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
@@ -1519,14 +1520,14 @@ describe("transfer", () => {
       console.log("  caught error msg:   ", anchorErr.error.errorMessage);
       assert.equal(
         anchorErr.error.errorCode.code,
-        "NotWhitelisted",
-        "error code should be NotWhitelisted"
+        "TransferControlDenied",
+        "error code should be TransferControlDenied"
       );
     }
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("transfer: fails with UnauthorizedDeployer when clearing mode is active and signer is not the deployer", async () => {
+  it("transfer: fails with TransferControlDenied when clearing mode is active and signer is not the deployer", async () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
       await deployMint();
 
@@ -1554,9 +1555,9 @@ describe("transfer", () => {
     const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
 
     // Activate clearing mode
-    const setModeTx = await (transferControlProgram as any).methods
-      .setMode({ clearing: {} })
-      .accounts({
+    const setModeTx = await transferControlProgram.methods
+      .setModes([{ clearing: {} }])
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
@@ -1632,7 +1633,7 @@ describe("transfer", () => {
 
     try {
       await connection.sendRawTransaction(rawTx.serialize(), { preflightCommitment: "confirmed" });
-      assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+      assert.fail("Expected TransferControlDenied error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, SendTransactionError, "should fail as SendTransactionError");
       const logs = (err as SendTransactionError).logs ?? [];
@@ -1642,8 +1643,8 @@ describe("transfer", () => {
       console.log("  caught error msg:   ", anchorErr!.error.errorMessage);
       assert.equal(
         anchorErr!.error.errorCode.code,
-        "UnauthorizedDeployer",
-        "error code should be UnauthorizedDeployer"
+        "TransferControlDenied",
+        "error code should be TransferControlDenied"
       );
     }
   });

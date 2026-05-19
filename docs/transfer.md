@@ -170,8 +170,6 @@ authority + system program + Instructions sysvar) must be **appended to
 ```rust
 pub enum CmtatTransferError {
     UnauthorizedTransfer,       // legacy — ownership enforced by Token-2022
-    ClearingModeUnauthorized,   // raised by verify_transfer when clearing mode
-                                // is active and `deployer.is_signer` is false
 }
 ```
 

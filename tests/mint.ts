@@ -9,6 +9,7 @@ import {
   getAccount,
 } from "@solana/spl-token";
 import { assert } from "chai";
+import { TransferControl } from "../target/types/transfer_control";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -34,7 +35,7 @@ describe("mint", () => {
   const metadataUpdateProgram  = anchor.workspace.MetadataUpdate  as Program<any>;
   const freezeProgram          = anchor.workspace.Freeze          as Program<any>;
   const deactivateProgram      = anchor.workspace.Deactivate      as Program<any>;
-  const transferControlProgram = anchor.workspace.TransferControl as Program<any>;
+  const transferControlProgram = anchor.workspace.TransferControl as Program<TransferControl>;
   const transferHookProgram    = anchor.workspace.TransferHook    as Program<any>;
   const snapshotProgram        = anchor.workspace.Snapshot        as Program<any>;
   const couponProgram          = anchor.workspace.Coupon          as Program<any>;
@@ -423,9 +424,9 @@ describe("mint", () => {
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
     const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
 
-    const setModeTx = await (transferControlProgram as any).methods
-      .setMode({ whitelist: {} })
-      .accounts({
+    const setModeTx = await transferControlProgram.methods
+      .setModes([{ whitelist: {} }])
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,

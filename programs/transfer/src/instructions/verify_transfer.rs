@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, verify_deployer};
 use freeze::{require_unfrozen_account, require_unfrozen_balance};
-use transfer_control::{get_transfer_mode, verify_whitelist, TransferMode};
+use transfer_control::{get_transfer_modes, verify_whitelist, TransferMode};
 
 use common::program_ids as constants;
 use crate::errors::TransferError;
@@ -26,22 +26,14 @@ pub fn verify_transfer(ctx: Context<VerifyTransfer>, amount: u64) -> Result<()> 
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     // ── Transfer control mode check ──────────────────────────────────────
-    match get_transfer_mode(&ctx.accounts.transfer_control_mode_pda.to_account_info())? {
-        None => {}
-        Some(TransferMode::Clearing) => {
-            require!(
-                ctx.accounts.deployer.is_signer,
-                TransferError::ClearingModeUnauthorized
-            );
-            verify_deployer(
-                &ctx.accounts.mint_owner_pda.to_account_info(),
-                &ctx.accounts.deployer.key(),
-            )?;
-        }
-        Some(TransferMode::Whitelist) => {
-            verify_whitelist(&ctx.accounts.source_whitelist_pda.to_account_info())?;
-            verify_whitelist(&ctx.accounts.destination_whitelist_pda.to_account_info())?;
-        }
+    // At least one active mode must be satisfied; if all fail, deny the transfer.
+    let transfer_modes = get_transfer_modes(&ctx.accounts.transfer_control_mode_pda.to_account_info())?;
+    if !transfer_modes.is_empty() {
+        let any_passed = transfer_modes.iter().any(|mode| match mode {
+            TransferMode::Clearing => check_clearing_mode(&ctx.accounts),
+            TransferMode::Whitelist => check_whitelist_mode(&ctx.accounts),
+        });
+        require!(any_passed, TransferError::TransferControlDenied);
     }
 
     // ── Verify source account has not been frozen at token level ─────────
@@ -57,6 +49,19 @@ pub fn verify_transfer(ctx: Context<VerifyTransfer>, amount: u64) -> Result<()> 
     // Silence the unused-variable warning on `mint_key` if no check above uses it.
     let _ = mint_key;
     Ok(())
+}
+
+fn check_clearing_mode(accounts: &VerifyTransfer) -> bool {
+    accounts.deployer.is_signer
+        && verify_deployer(
+            &accounts.mint_owner_pda.to_account_info(),
+            &accounts.deployer.key(),
+        ).is_ok()
+}
+
+fn check_whitelist_mode(accounts: &VerifyTransfer) -> bool {
+    verify_whitelist(&accounts.source_whitelist_pda.to_account_info()).is_ok()
+        && verify_whitelist(&accounts.destination_whitelist_pda.to_account_info()).is_ok()
 }
 
 /// Accounts for `verify_transfer`.

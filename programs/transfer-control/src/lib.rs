@@ -17,46 +17,42 @@ declare_id!("3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo");
 pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()> {
     require!(
         !whitelist_pda.data_is_empty(),
-        crate::errors::TransferControlError::NotWhitelisted
+        errors::TransferControlError::NotWhitelisted
     );
     Ok(())
 }
 
-/// Returns the active transfer control mode for the given mint.
+/// Returns the active transfer control modes for the given mint.
 ///
-/// - `None`                       — PDA absent; no controls active.
-/// - `Some(TransferMode::Clearing)` — deployer must co-sign every transfer.
-/// - `Some(TransferMode::Whitelist)` — source and destination must be whitelisted.
-///
-/// Deserializes the PDA only once, eliminating the double-read that two separate
-/// boolean helpers would require.
-pub fn get_transfer_mode(transfer_control_mode_pda: &AccountInfo) -> Result<Option<TransferMode>> {
+/// Returns an empty vec when the PDA is absent (no controls active).
+/// Otherwise deserializes the PDA and returns the full list of active modes.
+pub fn get_transfer_modes(transfer_control_mode_pda: &AccountInfo) -> Result<Vec<TransferMode>> {
     use crate::state::TransferControlMode;
 
     if transfer_control_mode_pda.data_is_empty() {
-        return Ok(None);
+        return Ok(vec![]);
     }
     let data = transfer_control_mode_pda.try_borrow_data()?;
     let mut slice: &[u8] = &data;
     let mode_pda = TransferControlMode::try_deserialize(&mut slice)
         .map_err(|_| error!(anchor_lang::error::ErrorCode::AccountDidNotDeserialize))?;
-    Ok(Some(mode_pda.mode))
+    Ok(mode_pda.modes)
 }
 
 #[program]
 pub mod transfer_control {
     use super::*;
 
-    /// Sets, updates, or removes the Transfer Control Mode for a mint.
+    /// Sets, updates, or removes the active transfer control modes for a mint.
     ///
-    /// - `Some(TransferMode::Clearing)`  — creates or overwrites the PDA; deployer must co-sign transfers.
-    /// - `Some(TransferMode::Whitelist)` — creates or overwrites the PDA; source/dest must be whitelisted.
-    /// - `None`                          — closes the PDA if present (returns rent to deployer); no controls.
+    /// The full active mode list is replaced on every call.
+    /// - Non-empty vec — creates or updates the PDA with the given modes.
+    /// - Empty vec     — closes the PDA if present (returns rent to deployer); no controls.
     ///
     /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
     /// The mint must not be paused or deactivated.
-    pub fn set_mode(ctx: Context<SetMode>, mode: Option<TransferMode>) -> Result<()> {
-        set_mode::set_mode(ctx, mode)
+    pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> {
+        set_modes::set_modes(ctx, modes)
     }
 
     /// Adds a token account to the whitelist for a mint by creating a marker PDA.

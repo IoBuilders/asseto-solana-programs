@@ -4,8 +4,6 @@ use anchor_lang::prelude::*;
 pub enum TransferHookError {
     #[msg("Failed to compute extra account meta list size")]
     InvalidAccountSize,
-    #[msg("Mint is in clearing mode: deployer signature is required")]
-    ClearingModeUnauthorized,
 
     // ── Introspection: structural ───────────────────────────────────────────
     #[msg("Instructions sysvar could not be read")]
