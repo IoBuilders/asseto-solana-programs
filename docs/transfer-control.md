@@ -90,7 +90,7 @@ Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when not emp
 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | `init_if_needed`; seeds `["transfer_control_mode", mint]` |
+| `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | created if empty using `SystemProgram.create_account`; seeds `["transfer_control_mode", mint]` |
 | `system_program` | no | no | Program<System> | |
 
 ---
