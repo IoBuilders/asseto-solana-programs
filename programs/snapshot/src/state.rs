@@ -8,7 +8,6 @@ pub struct SnapshotCounter {
     pub count: u64,
 }
 
-
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct SnapshotEntry {
     pub key: u64,

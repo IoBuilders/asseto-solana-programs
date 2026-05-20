@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
+use common::{pda_seeds, pda_utils};
 use solana_system_interface::instruction as system_instruction;
 use spl_token_2022::extension::StateWithExtensions;
 use spl_token_2022::state::Mint;
-use common::{pda_seeds, pda_utils};
 
 use crate::state::{SnapshotCounter, SnapshotEntry, SnapshotHistory};
 
@@ -50,7 +50,7 @@ pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> R
     if ctx.accounts.total_supply_snapshot.data_is_empty() {
         let snapshot_totalsupply_signer_seeds = pda_utils::build_pda_signer_seeds(
             pda_seeds::snapshot_totalsupply_seeds(&mint_key),
-            &bump
+            &bump,
         );
         let space = SnapshotHistory::len_for(1);
         let lamports = Rent::get()?.minimum_balance(space);
@@ -72,7 +72,10 @@ pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> R
 
         let history = SnapshotHistory {
             bump,
-            entries: vec![SnapshotEntry { key: current_snapshot, value: current_supply }],
+            entries: vec![SnapshotEntry {
+                key: current_snapshot,
+                value: current_supply,
+            }],
         };
         history.store(&ctx.accounts.total_supply_snapshot.to_account_info())?;
 
@@ -83,7 +86,10 @@ pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> R
     // Callers are responsible for ensuring each key is strictly greater than the
     // previously recorded one; no idempotency or ordering check is done here.
     let mut history = SnapshotHistory::load(&ctx.accounts.total_supply_snapshot.to_account_info())?;
-    history.entries.push(SnapshotEntry { key: current_snapshot, value: current_supply });
+    history.entries.push(SnapshotEntry {
+        key: current_snapshot,
+        value: current_supply,
+    });
 
     // ── Grow the account to fit the new entry ─────────────────────────────────
     let new_space = SnapshotHistory::len_for(history.entries.len());

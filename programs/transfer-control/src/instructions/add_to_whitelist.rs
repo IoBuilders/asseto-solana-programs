@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
-use common::{pda_seeds, require_active, verify_deployer, require_not_paused};
+use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
-use common::program_ids as constants;
 use crate::state::WhitelistStatus;
+use common::program_ids as constants;
 
 /// Adds a token account to the whitelist for a mint by creating a marker PDA.
 ///

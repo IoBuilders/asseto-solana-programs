@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
-use common::{pda_seeds, require_active, verify_deployer, require_not_paused};
+use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
-use common::program_ids as constants;
 use crate::state::FrozenBalance;
+use common::program_ids as constants;
 
 /// Records (or updates) a frozen balance for a specific token account.
 ///
@@ -25,7 +25,7 @@ pub fn partially_freeze_account(ctx: Context<PartiallyFreezeAccount>, balance: u
 
     // ── Set (or overwrite) the frozen balance ─────────────────────────────────
     ctx.accounts.frozen_balance_pda.balance = balance;
-    ctx.accounts.frozen_balance_pda.bump    = ctx.bumps.frozen_balance_pda;
+    ctx.accounts.frozen_balance_pda.bump = ctx.bumps.frozen_balance_pda;
 
     Ok(())
 }

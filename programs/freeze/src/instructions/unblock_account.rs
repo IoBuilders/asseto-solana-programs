@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
-use spl_token_2022::instruction::thaw_account;
 use common::{pda_seeds, pda_utils};
+use spl_token_2022::instruction::thaw_account;
 
 /// Thaws `token_account` for the given mint.
 ///
@@ -24,7 +24,7 @@ pub fn unblock_account(ctx: Context<UnblockAccount>) -> Result<()> {
     // ── Freeze via this program's PDA ──────────────────────────────────────
     let freeze_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::freeze_authority_seeds(&mint_key),
-        &ctx.bumps.freeze_authority
+        &ctx.bumps.freeze_authority,
     );
 
     invoke_signed(
@@ -49,7 +49,7 @@ pub fn unblock_account(ctx: Context<UnblockAccount>) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct UnblockAccount<'info> {
-     /// The authority allowed to call this instruction.
+    /// The authority allowed to call this instruction.
     /// Must be either:
     /// - mint_authority PDA (mint)
     /// - permanent_delegate PDA (operations)

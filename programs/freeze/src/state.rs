@@ -9,7 +9,6 @@ pub struct FrozenAccountStatus {
     pub bump: u8,
 }
 
-
 /// On-chain marker storing the frozen balance for a specific token account.
 /// Seeds: `["frozen_balance", mint, account]` — created or updated by the
 /// `partially_freeze_account` management instruction.
@@ -17,6 +16,5 @@ pub struct FrozenAccountStatus {
 #[derive(InitSpace)]
 pub struct FrozenBalance {
     pub balance: u64,
-    pub bump:    u8,
+    pub bump: u8,
 }
-

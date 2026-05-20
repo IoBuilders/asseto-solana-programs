@@ -2,10 +2,10 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::pda_utils;
-use spl_token_2022::instruction::burn as spl_burn;
 use common::{pda_seeds, require_active, verify_deployer};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
+use spl_token_2022::instruction::burn as spl_burn;
 
 use common::program_ids as constants;
 
@@ -33,24 +33,22 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
 
     let permanent_delegate_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::permanent_delegate_seeds(&mint_key),
-        &ctx.bumps.operations_authority
+        &ctx.bumps.operations_authority,
     );
 
     // ── 1. Update total supply snapshot (CPI to snapshot) ──────────────
-    snapshot::cpi::update_totalsupply_snapshot(
-        CpiContext::new_with_signer(
-            constants::SNAPSHOT_PROGRAM_ID,
-            UpdateTotalSupplySnapshot {
-                calling_authority: ctx.accounts.operations_authority.to_account_info(),
-                payer: ctx.accounts.deployer.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
-                total_supply_snapshot: ctx.accounts.total_supply_snapshot.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-            },
-            &[permanent_delegate_signer_seeds.as_slice()],
-        ),
-    )?;
+    snapshot::cpi::update_totalsupply_snapshot(CpiContext::new_with_signer(
+        constants::SNAPSHOT_PROGRAM_ID,
+        UpdateTotalSupplySnapshot {
+            calling_authority: ctx.accounts.operations_authority.to_account_info(),
+            payer: ctx.accounts.deployer.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
+            total_supply_snapshot: ctx.accounts.total_supply_snapshot.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+        },
+        &[permanent_delegate_signer_seeds.as_slice()],
+    ))?;
 
     // ── 2. Update holder balance snapshot (CPI to snapshot) ────────────
     snapshot::cpi::update_holderbalance_snapshot(
@@ -72,19 +70,17 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
     )?;
 
     // ── 3. Unblock token_account (CPI to freeze) ───────────────────────
-    freeze::cpi::unblock_account(
-        CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            UnblockAccount {
-                calling_authority: ctx.accounts.operations_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: ctx.accounts.token_account.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[permanent_delegate_signer_seeds.as_slice()],
-        ),
-    )?;
+    freeze::cpi::unblock_account(CpiContext::new_with_signer(
+        constants::FREEZE_PROGRAM_ID,
+        UnblockAccount {
+            calling_authority: ctx.accounts.operations_authority.to_account_info(),
+            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            token_account: ctx.accounts.token_account.to_account_info(),
+            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
+        },
+        &[permanent_delegate_signer_seeds.as_slice()],
+    ))?;
 
     // ── 4. Burn via permanent delegate ──────────────────────────────────────────
     invoke_signed(
@@ -106,19 +102,17 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
     )?;
 
     // ── 5. Re-block token_account (CPI to freeze) ──────────────────────
-    freeze::cpi::block_account(
-        CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            BlockAccount {
-                calling_authority: ctx.accounts.operations_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: ctx.accounts.token_account.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[permanent_delegate_signer_seeds.as_slice()],
-        ),
-    )?;
+    freeze::cpi::block_account(CpiContext::new_with_signer(
+        constants::FREEZE_PROGRAM_ID,
+        BlockAccount {
+            calling_authority: ctx.accounts.operations_authority.to_account_info(),
+            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            token_account: ctx.accounts.token_account.to_account_info(),
+            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
+        },
+        &[permanent_delegate_signer_seeds.as_slice()],
+    ))?;
 
     Ok(())
 }

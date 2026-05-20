@@ -4,45 +4,52 @@ import { Deploy } from "../target/types/deploy";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
+import { Deactivate } from "../target/types/deactivate";
+import { Mint } from "../target/types/mint";
+import { MetadataUpdate } from "../target/types/metadata_update";
+import { Freeze } from "../target/types/freeze";
+import { Operations } from "../target/types/operations";
+import { Pause } from "../target/types/pause";
+import { TransferHook } from "../target/types/transfer_hook";
+import { Snapshot } from "../target/types/snapshot";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
-const MINT_NAME     = "CMTAT Test Token";
-const MINT_SYMBOL   = "CMTAT";
-const MINT_URI      = "https://example.com/metadata.json";
+const MINT_NAME = "CMTAT Test Token";
+const MINT_SYMBOL = "CMTAT";
+const MINT_URI = "https://example.com/metadata.json";
 
 describe("deactivate", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const deployProgram     = anchor.workspace.Deploy     as Program<Deploy>;
-  const mintProgram       = anchor.workspace.Mint       as Program<any>;
-  const metadataProgram   = anchor.workspace.MetadataUpdate as Program<any>;
-  const freezeProgram      = anchor.workspace.Freeze      as Program<any>;
-  const operationsProgram = anchor.workspace.Operations as Program<any>;
-  const pauseProgram      = anchor.workspace.Pause      as Program<any>;
-  const deactivateProgram = anchor.workspace.Deactivate as Program<any>;
-  const transferHookProgram = anchor.workspace.TransferHook as Program<any>;
-  const snapshotProgram           = anchor.workspace.Snapshot           as Program<any>;
+  const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
+  const mintProgram = anchor.workspace.Mint as Program<Mint>;
+  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
+  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
+  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
+  const pauseProgram = anchor.workspace.Pause as Program<Pause>;
+  const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
+  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
+  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
 
   const connection = provider.connection;
-  const deployer   = provider.wallet.publicKey;
+  const deployer = provider.wallet.publicKey;
 
-  const MINT_AUTHORITY_PROGRAM_ID     = mintProgram.programId;
-  const FREEZE_AUTHORITY_PROGRAM_ID   = freezeProgram.programId;
+  const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
+  const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
   const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
-  const METADATA_UPDATE_PROGRAM_ID    = metadataProgram.programId;
+  const METADATA_UPDATE_PROGRAM_ID = metadataProgram.programId;
   const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
   const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
-
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{
-    mint:         PublicKey;
+    mint: PublicKey;
     mintOwnerPda: PublicKey;
   }> {
     const mintKeypair = Keypair.generate();
-    const mint        = mintKeypair.publicKey;
+    const mint = mintKeypair.publicKey;
 
     const [mintOwnerPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("mint_owner"), mint.toBuffer()],
@@ -84,14 +91,14 @@ describe("deactivate", () => {
 
     const tx = await deployProgram.methods
       .deployMint({
-        decimals:           MINT_DECIMALS,
-        name:               MINT_NAME,
-        symbol:             MINT_SYMBOL,
-        uri:                MINT_URI,
+        decimals: MINT_DECIMALS,
+        name: MINT_NAME,
+        symbol: MINT_SYMBOL,
+        uri: MINT_URI,
         additionalMetadata: [],
       })
-      .accounts({
-        payer:                      deployer,
+      .accountsStrict({
+        payer: deployer,
         deployer,
         mintOwnerPda,
         mint,
@@ -103,10 +110,10 @@ describe("deactivate", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram:   transferHookProgram.programId,
+        transferHookProgram: transferHookProgram.programId,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
-        rent:             SYSVAR_RENT_PUBKEY,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
       .rpc({ commitment: "confirmed" });
@@ -130,7 +137,7 @@ describe("deactivate", () => {
     // ── Call the deactivate instruction ───────────────────────────────────────
     const tx = await deactivateProgram.methods
       .deactivate()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
@@ -152,10 +159,6 @@ describe("deactivate", () => {
 
     assert.isNull(deactivateStatusBefore, "deactivate PDA should not exist before calling deactivate");
     assert.isNotNull(deactivateStatusAfter, "deactivate PDA should exist after calling deactivate");
-    assert.equal(
-      deactivateStatusAfter.bump,
-      expectedBump,
-      "deactivate PDA bump should match the canonical bump"
-    );
+    assert.equal(deactivateStatusAfter.bump, expectedBump, "deactivate PDA bump should match the canonical bump");
   });
 });

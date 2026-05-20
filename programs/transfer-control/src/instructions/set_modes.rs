@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
-use common::{pda_seeds, pda_utils, require_active, verify_deployer, require_not_paused};
+use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 
-use common::program_ids as constants;
 use crate::state::{TransferControlMode, TransferMode};
+use common::program_ids as constants;
 
 /// Sets, updates, or removes the transfer control modes for a mint.
 ///
@@ -42,14 +42,14 @@ pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> 
         let bump = ctx.bumps.transfer_control_mode_pda;
         let new_space = TransferControlMode::space(modes.len());
         if pda.data_is_empty() {
-            create_pda(
-                &ctx,
+            create_pda(&ctx, pda, bump, new_space)?;
+        } else if pda.data_len() != new_space {
+            resize_pda(
                 pda,
-                bump,
+                &ctx.accounts.deployer,
+                &ctx.accounts.system_program,
                 new_space,
             )?;
-        } else if pda.data_len() != new_space {
-            resize_pda(pda, &ctx.accounts.deployer, &ctx.accounts.system_program, new_space)?;
         }
         write_pda(pda, TransferControlMode { modes, bump })?;
     }
@@ -58,10 +58,7 @@ pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> 
 }
 
 /// Closes the PDA and returns rent to the deployer. No-op if already absent.
-fn close_pda<'info>(
-    pda: &UncheckedAccount<'info>,
-    deployer: &Signer<'info>,
-) -> Result<()> {
+fn close_pda<'info>(pda: &UncheckedAccount<'info>, deployer: &Signer<'info>) -> Result<()> {
     if pda.data_is_empty() {
         return Ok(());
     }
@@ -80,10 +77,8 @@ fn create_pda<'info>(
     space: usize,
 ) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
-    let signer_seeds = pda_utils::build_pda_signer_seeds(
-        pda_seeds::transfer_control_mode_seeds(&mint_key),
-        &bump,
-    );
+    let signer_seeds =
+        pda_utils::build_pda_signer_seeds(pda_seeds::transfer_control_mode_seeds(&mint_key), &bump);
     invoke_signed(
         &system_instruction::create_account(
             ctx.accounts.deployer.key,
@@ -191,7 +186,6 @@ pub struct SetMode<'info> {
 
     pub system_program: Program<'info, System>,
 }
-
 
 // Just to make TransferControlMode part of the IDL
 #[derive(Accounts)]

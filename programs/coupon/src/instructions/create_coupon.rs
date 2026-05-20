@@ -3,9 +3,9 @@ use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_de
 use snapshot::cpi::accounts::TakeSnapshot;
 use snapshot::state::SnapshotCounter;
 
-use common::program_ids as constants;
 use crate::errors::ErrorCode;
 use crate::state::{Coupon, CouponCounter};
+use common::program_ids as constants;
 
 /// Creates a coupon for the mint:
 /// 1. Verifies the deployer signature, mint not paused, mint not deactivated.
@@ -36,8 +36,14 @@ pub fn create_coupon(
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     // ── Date-triple validation ───────────────────────────────────────────────
-    require!(period_end_date > period_start_date, ErrorCode::InvalidCouponPeriod);
-    require!(payment_date > period_end_date, ErrorCode::InvalidPaymentDate);
+    require!(
+        period_end_date > period_start_date,
+        ErrorCode::InvalidCouponPeriod
+    );
+    require!(
+        payment_date > period_end_date,
+        ErrorCode::InvalidPaymentDate
+    );
 
     // ── Increment coupon_counter and re-check the supplied id ────────────────
     let counter = &mut ctx.accounts.coupon_counter;
@@ -54,22 +60,20 @@ pub fn create_coupon(
     let mint_key = ctx.accounts.mint.key();
     let coupon_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::coupon_authority_seeds(&mint_key),
-        &ctx.bumps.coupon_authority
+        &ctx.bumps.coupon_authority,
     );
 
-    snapshot::cpi::take_snapshot(
-        CpiContext::new_with_signer(
-            constants::SNAPSHOT_PROGRAM_ID,
-            TakeSnapshot {
-                calling_authority: ctx.accounts.coupon_authority.to_account_info(),
-                payer: ctx.accounts.payer.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                snapshot_counter: ctx.accounts.snapshot_counter.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-            },
-            &[coupon_authority_signer_seeds.as_slice()],
-        ),
-    )?;
+    snapshot::cpi::take_snapshot(CpiContext::new_with_signer(
+        constants::SNAPSHOT_PROGRAM_ID,
+        TakeSnapshot {
+            calling_authority: ctx.accounts.coupon_authority.to_account_info(),
+            payer: ctx.accounts.payer.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            snapshot_counter: ctx.accounts.snapshot_counter.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+        },
+        &[coupon_authority_signer_seeds.as_slice()],
+    ))?;
 
     // ── Read the snapshot id that take_snapshot just wrote ───────────────────
     let snapshot_id = {

@@ -1,18 +1,15 @@
 use anchor_lang::prelude::*;
-use common::{pda_seeds, require_active, verify_deployer, require_not_paused};
+use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
-use common::program_ids as constants;
 use crate::state::{BondTerms, BondTermsArgs};
+use common::program_ids as constants;
 
 /// Creates the `bond_terms_pda` on the first call (init_if_needed) and
 /// overwrites every field with `args` on every call.
 ///
 /// Management instruction — gated by `verify_deployer` + `require_not_paused`
 /// + `require_active`.
-pub fn update_bond_terms(
-    ctx: Context<UpdateBondTerms>,
-    args: BondTermsArgs,
-) -> Result<()> {
+pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> Result<()> {
     verify_deployer(
         &ctx.accounts.mint_owner_pda.to_account_info(),
         &ctx.accounts.deployer.key(),

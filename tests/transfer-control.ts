@@ -7,43 +7,48 @@ import { assert } from "chai";
 import { TransferControl } from "../target/types/transfer_control";
 import { Pause } from "../target/types/pause";
 import { Deactivate } from "../target/types/deactivate";
+import { Mint } from "../target/types/mint";
+import { MetadataUpdate } from "../target/types/metadata_update";
+import { Freeze } from "../target/types/freeze";
+import { Operations } from "../target/types/operations";
+import { TransferHook } from "../target/types/transfer_hook";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
-const MINT_NAME     = "CMTAT Test Token";
-const MINT_SYMBOL   = "CMTAT";
-const MINT_URI      = "https://example.com/metadata.json";
+const MINT_NAME = "CMTAT Test Token";
+const MINT_SYMBOL = "CMTAT";
+const MINT_URI = "https://example.com/metadata.json";
 
 describe("transfer-control", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const deployProgram          = anchor.workspace.Deploy          as Program<Deploy>;
-  const mintProgram            = anchor.workspace.Mint            as Program<any>;
-  const metadataProgram        = anchor.workspace.MetadataUpdate  as Program<any>;
-  const freezeProgram          = anchor.workspace.Freeze           as Program<any>;
-  const operationsProgram      = anchor.workspace.Operations      as Program<any>;
-  const pauseProgram           = anchor.workspace.Pause           as Program<Pause>;
-  const deactivateProgram      = anchor.workspace.Deactivate      as Program<Deactivate>;
+  const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
+  const mintProgram = anchor.workspace.Mint as Program<Mint>;
+  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
+  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
+  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
+  const pauseProgram = anchor.workspace.Pause as Program<Pause>;
+  const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
   const transferControlProgram = anchor.workspace.TransferControl as Program<TransferControl>;
-  const transferHookProgram    = anchor.workspace.TransferHook    as Program<any>;
+  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
 
   const connection = provider.connection;
-  const deployer   = provider.wallet.publicKey;
+  const deployer = provider.wallet.publicKey;
 
-  const MINT_AUTHORITY_PROGRAM_ID     = mintProgram.programId;
-  const FREEZE_AUTHORITY_PROGRAM_ID   = freezeProgram.programId;
+  const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
+  const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
   const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
-  const METADATA_UPDATE_PROGRAM_ID    = metadataProgram.programId;
+  const METADATA_UPDATE_PROGRAM_ID = metadataProgram.programId;
   const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
 
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{
-    mint:         PublicKey;
+    mint: PublicKey;
     mintOwnerPda: PublicKey;
   }> {
     const mintKeypair = Keypair.generate();
-    const mint        = mintKeypair.publicKey;
+    const mint = mintKeypair.publicKey;
 
     const [mintOwnerPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("mint_owner"), mint.toBuffer()],
@@ -83,16 +88,16 @@ describe("transfer-control", () => {
       transferHookProgram.programId
     );
 
-    const tx = await (deployProgram as any).methods
+    const tx = await deployProgram.methods
       .deployMint({
-        decimals:           MINT_DECIMALS,
-        name:               MINT_NAME,
-        symbol:             MINT_SYMBOL,
-        uri:                MINT_URI,
+        decimals: MINT_DECIMALS,
+        name: MINT_NAME,
+        symbol: MINT_SYMBOL,
+        uri: MINT_URI,
         additionalMetadata: [],
       })
-      .accounts({
-        payer:                      deployer,
+      .accountsStrict({
+        payer: deployer,
         deployer,
         mintOwnerPda,
         mint,
@@ -104,10 +109,10 @@ describe("transfer-control", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram:   transferHookProgram.programId,
+        transferHookProgram: transferHookProgram.programId,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
-        rent:             SYSVAR_RENT_PUBKEY,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
       .rpc({ commitment: "confirmed" });
@@ -123,7 +128,7 @@ describe("transfer-control", () => {
 
   // ── Happy-path: set_modes creates the PDA and sets modes = [Clearing] ───────────
   it("set_modes: creates the transfer_control_mode PDA with modes = [Clearing]", async () => {
-    const modes = [{ clearing: {} }]
+    const modes = [{ clearing: {} }];
     const { mint, mintOwnerPda } = await deployMint();
 
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -136,9 +141,7 @@ describe("transfer-control", () => {
     );
 
     // ── Verify the PDA does not exist before the instruction ────────────────
-    const stateBefore = await transferControlProgram.account.transferControlMode.fetchNullable(
-      transferControlModePda
-    );
+    const stateBefore = await transferControlProgram.account.transferControlMode.fetchNullable(transferControlModePda);
 
     // ── Call set_modes({ clearing: {} }) ────────────────────────────────────
     const tx = await transferControlProgram.methods
@@ -156,9 +159,7 @@ describe("transfer-control", () => {
     console.log(`  set_modes(${modes}) tx:`, tx);
 
     // ── Fetch and verify the PDA ─────────────────────────────────────────────
-    const stateAfter = await transferControlProgram.account.transferControlMode.fetch(
-      transferControlModePda
-    );
+    const stateAfter = await transferControlProgram.account.transferControlMode.fetch(transferControlModePda);
     const accountInfo = await connection.getAccountInfo(transferControlModePda, "confirmed");
 
     console.log("\n══════════════════════════════════════════════════════════");
@@ -170,7 +171,7 @@ describe("transfer-control", () => {
 
     const expectedSize = getSizeOfTransferControlModePda(modes.length);
 
-    assert.isNull(stateBefore,   "transfer_control_mode PDA should not exist before set_modes");
+    assert.isNull(stateBefore, "transfer_control_mode PDA should not exist before set_modes");
     assert.isNotNull(stateAfter, "transfer_control_mode PDA should exist after set_modes");
     assert.deepEqual(stateAfter.modes, modes, `modes should be ${modes}`);
     assert.equal(stateAfter.bump, expectedBump, "bump should match the canonical bump");
@@ -179,8 +180,8 @@ describe("transfer-control", () => {
 
   // ── Happy-path: set_modes expands the PDA when a mode is added ────────────────────
   it("set_modes: adds mode to an existing transfer_control_mode PDA", async () => {
-    const initialModes = [{ clearing: {} }]
-    const newModes = [...initialModes, { whitelist: {} }]
+    const initialModes = [{ clearing: {} }];
+    const newModes = [...initialModes, { whitelist: {} }];
     const { mint, mintOwnerPda } = await deployMint();
 
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -205,18 +206,20 @@ describe("transfer-control", () => {
       })
       .rpc({ commitment: "confirmed" });
 
-    const stateAfterFirst = await transferControlProgram.account.transferControlMode.fetch(
-      transferControlModePda
-    );
+    const stateAfterFirst = await transferControlProgram.account.transferControlMode.fetch(transferControlModePda);
     const accountInfoBefore = await connection.getAccountInfo(transferControlModePda, "confirmed");
-    const dataSizeBefore    = accountInfoBefore.data.length;
-    const lamportsBefore    = accountInfoBefore.lamports;
-    const expectedSizeBefore    = getSizeOfTransferControlModePda(initialModes.length);
+    const dataSizeBefore = accountInfoBefore.data.length;
+    const lamportsBefore = accountInfoBefore.lamports;
+    const expectedSizeBefore = getSizeOfTransferControlModePda(initialModes.length);
     const expectedLamportsBefore = await connection.getMinimumBalanceForRentExemption(expectedSizeBefore);
 
     assert.deepEqual(stateAfterFirst.modes, initialModes, `modes should be ${initialModes} after first call`);
     assert.equal(dataSizeBefore, expectedSizeBefore, `PDA size before should be ${expectedSizeBefore} bytes`);
-    assert.equal(lamportsBefore, expectedLamportsBefore, `PDA lamports should be rent-exempt for ${expectedSizeBefore} bytes`);
+    assert.equal(
+      lamportsBefore,
+      expectedLamportsBefore,
+      `PDA lamports should be rent-exempt for ${expectedSizeBefore} bytes`
+    );
 
     // ── Second call: Add Whitelist to modes ──────────────────
     const updateTx = await transferControlProgram.methods
@@ -233,9 +236,7 @@ describe("transfer-control", () => {
 
     console.log(`  set_modes(${newModes}) tx:`, updateTx);
 
-    const stateAfterUpdate = await transferControlProgram.account.transferControlMode.fetch(
-      transferControlModePda
-    );
+    const stateAfterUpdate = await transferControlProgram.account.transferControlMode.fetch(transferControlModePda);
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:                        ", mint.toBase58());
@@ -245,14 +246,18 @@ describe("transfer-control", () => {
 
     const accountInfoAfter = await connection.getAccountInfo(transferControlModePda, "confirmed");
     const lamportsAfter = accountInfoAfter.lamports;
-    const dataSizeAfter  = accountInfoAfter.data.length;
-    const expectedSizeAfter  = getSizeOfTransferControlModePda(newModes.length);
+    const dataSizeAfter = accountInfoAfter.data.length;
+    const expectedSizeAfter = getSizeOfTransferControlModePda(newModes.length);
     const expectedLamportsAfter = await connection.getMinimumBalanceForRentExemption(expectedSizeAfter);
 
     assert.deepEqual(stateAfterUpdate.modes, newModes, `modes should be ${newModes} after update`);
-    assert.equal(dataSizeAfter, expectedSizeAfter,  `PDA size after should be ${expectedSizeAfter} bytes`);
+    assert.equal(dataSizeAfter, expectedSizeAfter, `PDA size after should be ${expectedSizeAfter} bytes`);
     assert.ok(dataSizeAfter > dataSizeBefore, `PDA data size should increase (${dataSizeBefore} → ${dataSizeAfter})`);
-    assert.equal(lamportsAfter, expectedLamportsAfter, `PDA lamports should be rent-exempt for ${expectedSizeAfter} bytes`);
+    assert.equal(
+      lamportsAfter,
+      expectedLamportsAfter,
+      `PDA lamports should be rent-exempt for ${expectedSizeAfter} bytes`
+    );
     assert.ok(lamportsAfter > lamportsBefore, `PDA lamports should increase (${lamportsBefore} → ${lamportsAfter})`);
   });
 
@@ -284,18 +289,20 @@ describe("transfer-control", () => {
       })
       .rpc({ commitment: "confirmed" });
 
-    const stateAfterFirst = await transferControlProgram.account.transferControlMode.fetch(
-      transferControlModePda
-    );
+    const stateAfterFirst = await transferControlProgram.account.transferControlMode.fetch(transferControlModePda);
     const accountInfoBefore = await connection.getAccountInfo(transferControlModePda, "confirmed");
-    const dataSizeBefore    = accountInfoBefore.data.length;
-    const lamportsBefore    = accountInfoBefore.lamports;
-    const expectedSizeBefore    = getSizeOfTransferControlModePda(initialModes.length);
+    const dataSizeBefore = accountInfoBefore.data.length;
+    const lamportsBefore = accountInfoBefore.lamports;
+    const expectedSizeBefore = getSizeOfTransferControlModePda(initialModes.length);
     const expectedLamportsBefore = await connection.getMinimumBalanceForRentExemption(expectedSizeBefore);
 
     assert.deepEqual(stateAfterFirst.modes, initialModes, `modes should be ${initialModes} after first call`);
     assert.equal(dataSizeBefore, expectedSizeBefore, `PDA size before should be ${expectedSizeBefore} bytes`);
-    assert.equal(lamportsBefore, expectedLamportsBefore, `PDA lamports should be rent-exempt for ${expectedSizeBefore} bytes`);
+    assert.equal(
+      lamportsBefore,
+      expectedLamportsBefore,
+      `PDA lamports should be rent-exempt for ${expectedSizeBefore} bytes`
+    );
 
     // ── Second call: remove Whitelist, keeping only [Clearing] ───────────────
     const updateTx = await transferControlProgram.methods
@@ -312,9 +319,7 @@ describe("transfer-control", () => {
 
     console.log(`  set_modes(${newModes}) tx:`, updateTx);
 
-    const stateAfterUpdate  = await transferControlProgram.account.transferControlMode.fetch(
-      transferControlModePda
-    );
+    const stateAfterUpdate = await transferControlProgram.account.transferControlMode.fetch(transferControlModePda);
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:                        ", mint.toBase58());
@@ -322,16 +327,20 @@ describe("transfer-control", () => {
     console.log("  modes (after update):         ", JSON.stringify(stateAfterUpdate.modes));
     console.log("══════════════════════════════════════════════════════════\n");
 
-    const accountInfoAfter  = await connection.getAccountInfo(transferControlModePda, "confirmed");
-    const dataSizeAfter     = accountInfoAfter.data.length;
-    const lamportsAfter     = accountInfoAfter.lamports;
-    const expectedSizeAfter     = getSizeOfTransferControlModePda(newModes.length);
+    const accountInfoAfter = await connection.getAccountInfo(transferControlModePda, "confirmed");
+    const dataSizeAfter = accountInfoAfter.data.length;
+    const lamportsAfter = accountInfoAfter.lamports;
+    const expectedSizeAfter = getSizeOfTransferControlModePda(newModes.length);
     const expectedLamportsAfter = await connection.getMinimumBalanceForRentExemption(expectedSizeAfter);
 
     assert.deepEqual(stateAfterUpdate.modes, newModes, "modes should be [Clearing] after removing Whitelist");
-    assert.equal(dataSizeAfter,  expectedSizeAfter,  `PDA size after should be ${expectedSizeAfter} bytes`);
+    assert.equal(dataSizeAfter, expectedSizeAfter, `PDA size after should be ${expectedSizeAfter} bytes`);
     assert.ok(dataSizeAfter < dataSizeBefore, `PDA data size should decrease (${dataSizeBefore} → ${dataSizeAfter})`);
-    assert.equal(lamportsAfter, expectedLamportsAfter, `PDA lamports should be rent-exempt for ${expectedSizeAfter} bytes`);
+    assert.equal(
+      lamportsAfter,
+      expectedLamportsAfter,
+      `PDA lamports should be rent-exempt for ${expectedSizeAfter} bytes`
+    );
     assert.ok(lamportsAfter < lamportsBefore, `PDA lamports should decrease (${lamportsBefore} → ${lamportsAfter})`);
   });
 
@@ -361,9 +370,7 @@ describe("transfer-control", () => {
       })
       .rpc({ commitment: "confirmed" });
 
-    const stateAfterCreate = await transferControlProgram.account.transferControlMode.fetch(
-      transferControlModePda
-    );
+    const stateAfterCreate = await transferControlProgram.account.transferControlMode.fetch(transferControlModePda);
     assert.isNotNull(stateAfterCreate, "transfer_control_mode PDA should exist after set_modes([{ clearing: {} }])");
 
     // ── Then: remove it by passing empty vector ────────────────────
@@ -399,16 +406,16 @@ describe("transfer-control", () => {
   it("add_to_whitelist: creates the whitelist PDA for a token account", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair   = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
     const accountKeypair = Keypair.generate();
-    const tokenAccount   = await createAccount(
+    const tokenAccount = await createAccount(
       connection,
       payerKeypair,
       mint,
       deployer,
       accountKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
 
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -421,9 +428,7 @@ describe("transfer-control", () => {
     );
 
     // ── Verify the PDA does not exist before the instruction ────────────────
-    const stateBefore = await transferControlProgram.account.whitelistStatus.fetchNullable(
-      whitelistPda
-    );
+    const stateBefore = await transferControlProgram.account.whitelistStatus.fetchNullable(whitelistPda);
 
     // ── Call add_to_whitelist ───────────────────────────────────────────────
     const tx = await transferControlProgram.methods
@@ -432,7 +437,7 @@ describe("transfer-control", () => {
         deployer,
         mintOwnerPda,
         mint,
-        account:       tokenAccount,
+        account: tokenAccount,
         deactivatePda,
         whitelistPda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -442,9 +447,7 @@ describe("transfer-control", () => {
     console.log("  add_to_whitelist tx:", tx);
 
     // ── Fetch and verify the PDA ─────────────────────────────────────────────
-    const stateAfter = await transferControlProgram.account.whitelistStatus.fetch(
-      whitelistPda
-    );
+    const stateAfter = await transferControlProgram.account.whitelistStatus.fetch(whitelistPda);
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:          ", mint.toBase58());
@@ -453,7 +456,7 @@ describe("transfer-control", () => {
     console.log("  bump:          ", stateAfter.bump);
     console.log("══════════════════════════════════════════════════════════\n");
 
-    assert.isNull(stateBefore,   "whitelist PDA should not exist before add_to_whitelist");
+    assert.isNull(stateBefore, "whitelist PDA should not exist before add_to_whitelist");
     assert.isNotNull(stateAfter, "whitelist PDA should exist after add_to_whitelist");
     assert.equal(stateAfter.bump, expectedBump, "bump should match the canonical bump");
   });
@@ -462,16 +465,16 @@ describe("transfer-control", () => {
   it("remove_from_whitelist: closes the whitelist PDA for a token account", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair   = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
     const accountKeypair = Keypair.generate();
-    const tokenAccount   = await createAccount(
+    const tokenAccount = await createAccount(
       connection,
       payerKeypair,
       mint,
       deployer,
       accountKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
 
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -490,7 +493,7 @@ describe("transfer-control", () => {
         deployer,
         mintOwnerPda,
         mint,
-        account:       tokenAccount,
+        account: tokenAccount,
         deactivatePda,
         whitelistPda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -499,9 +502,7 @@ describe("transfer-control", () => {
 
     console.log("  add_to_whitelist tx:", addTx);
 
-    const stateAfterAdd = await transferControlProgram.account.whitelistStatus.fetch(
-      whitelistPda
-    );
+    const stateAfterAdd = await transferControlProgram.account.whitelistStatus.fetch(whitelistPda);
     assert.isNotNull(stateAfterAdd, "whitelist PDA should exist after add_to_whitelist");
 
     // ── Then: remove from whitelist ─────────────────────────────────────────
@@ -511,7 +512,7 @@ describe("transfer-control", () => {
         deployer,
         mintOwnerPda,
         mint,
-        account:       tokenAccount,
+        account: tokenAccount,
         deactivatePda,
         whitelistPda,
       })
@@ -520,9 +521,7 @@ describe("transfer-control", () => {
     console.log("  remove_from_whitelist tx:", removeTx);
 
     // ── Verify the PDA has been closed ──────────────────────────────────────
-    const stateAfterRemove = await transferControlProgram.account.whitelistStatus.fetchNullable(
-      whitelistPda
-    );
+    const stateAfterRemove = await transferControlProgram.account.whitelistStatus.fetchNullable(whitelistPda);
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:                     ", mint.toBase58());
@@ -562,12 +561,12 @@ describe("transfer-control", () => {
       await transferControlProgram.methods
         .setModes([{ clearing: {} }])
         .accountsStrict({
-          deployer:               rogueKeypair.publicKey,
+          deployer: rogueKeypair.publicKey,
           mintOwnerPda,
           mint,
           deactivatePda,
           transferControlModePda,
-          systemProgram:          anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([rogueKeypair])
         .rpc({ commitment: "confirmed" });
@@ -695,16 +694,16 @@ describe("transfer-control", () => {
   it("add_to_whitelist: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair   = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
     const accountKeypair = Keypair.generate();
-    const tokenAccount   = await createAccount(
+    const tokenAccount = await createAccount(
       connection,
       payerKeypair,
       mint,
       deployer,
       accountKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
 
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -731,10 +730,10 @@ describe("transfer-control", () => {
       await transferControlProgram.methods
         .addToWhitelist()
         .accountsStrict({
-          deployer:      rogueKeypair.publicKey,
+          deployer: rogueKeypair.publicKey,
           mintOwnerPda,
           mint,
-          account:       tokenAccount,
+          account: tokenAccount,
           deactivatePda,
           whitelistPda,
           systemProgram: anchor.web3.SystemProgram.programId,
@@ -756,16 +755,16 @@ describe("transfer-control", () => {
   it("add_to_whitelist: fails with MintPaused when mint is paused", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair   = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
     const accountKeypair = Keypair.generate();
-    const tokenAccount   = await createAccount(
+    const tokenAccount = await createAccount(
       connection,
       payerKeypair,
       mint,
       deployer,
       accountKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
 
     const [pausableAuthority] = PublicKey.findProgramAddressSync(
@@ -805,7 +804,7 @@ describe("transfer-control", () => {
           deployer,
           mintOwnerPda,
           mint,
-          account:       tokenAccount,
+          account: tokenAccount,
           deactivatePda,
           whitelistPda,
           systemProgram: anchor.web3.SystemProgram.programId,
@@ -826,16 +825,16 @@ describe("transfer-control", () => {
   it("add_to_whitelist: fails with Deactivated when mint has been deactivated", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair   = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
     const accountKeypair = Keypair.generate();
-    const tokenAccount   = await createAccount(
+    const tokenAccount = await createAccount(
       connection,
       payerKeypair,
       mint,
       deployer,
       accountKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
 
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -870,7 +869,7 @@ describe("transfer-control", () => {
           deployer,
           mintOwnerPda,
           mint,
-          account:       tokenAccount,
+          account: tokenAccount,
           deactivatePda,
           whitelistPda,
           systemProgram: anchor.web3.SystemProgram.programId,
@@ -891,16 +890,16 @@ describe("transfer-control", () => {
   it("remove_from_whitelist: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair   = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
     const accountKeypair = Keypair.generate();
-    const tokenAccount   = await createAccount(
+    const tokenAccount = await createAccount(
       connection,
       payerKeypair,
       mint,
       deployer,
       accountKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
 
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -918,7 +917,7 @@ describe("transfer-control", () => {
         deployer,
         mintOwnerPda,
         mint,
-        account:       tokenAccount,
+        account: tokenAccount,
         deactivatePda,
         whitelistPda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -940,10 +939,10 @@ describe("transfer-control", () => {
       await transferControlProgram.methods
         .removeFromWhitelist()
         .accountsStrict({
-          deployer:      rogueKeypair.publicKey,
+          deployer: rogueKeypair.publicKey,
           mintOwnerPda,
           mint,
-          account:       tokenAccount,
+          account: tokenAccount,
           deactivatePda,
           whitelistPda,
         })
@@ -964,16 +963,16 @@ describe("transfer-control", () => {
   it("remove_from_whitelist: fails with MintPaused when mint is paused", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair   = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
     const accountKeypair = Keypair.generate();
-    const tokenAccount   = await createAccount(
+    const tokenAccount = await createAccount(
       connection,
       payerKeypair,
       mint,
       deployer,
       accountKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
 
     const [pausableAuthority] = PublicKey.findProgramAddressSync(
@@ -995,7 +994,7 @@ describe("transfer-control", () => {
         deployer,
         mintOwnerPda,
         mint,
-        account:       tokenAccount,
+        account: tokenAccount,
         deactivatePda,
         whitelistPda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -1026,7 +1025,7 @@ describe("transfer-control", () => {
           deployer,
           mintOwnerPda,
           mint,
-          account:       tokenAccount,
+          account: tokenAccount,
           deactivatePda,
           whitelistPda,
         })
@@ -1046,16 +1045,16 @@ describe("transfer-control", () => {
   it("remove_from_whitelist: fails with Deactivated when mint has been deactivated", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair   = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
     const accountKeypair = Keypair.generate();
-    const tokenAccount   = await createAccount(
+    const tokenAccount = await createAccount(
       connection,
       payerKeypair,
       mint,
       deployer,
       accountKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
 
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -1073,7 +1072,7 @@ describe("transfer-control", () => {
         deployer,
         mintOwnerPda,
         mint,
-        account:       tokenAccount,
+        account: tokenAccount,
         deactivatePda,
         whitelistPda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -1103,7 +1102,7 @@ describe("transfer-control", () => {
           deployer,
           mintOwnerPda,
           mint,
-          account:       tokenAccount,
+          account: tokenAccount,
           deactivatePda,
           whitelistPda,
         })

@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 
-pub mod program_ids;
-pub mod state;
 pub mod pda_seeds;
 pub mod pda_utils;
+pub mod program_ids;
+pub mod state;
 
 #[error_code]
 pub enum CommonError {
@@ -32,13 +32,19 @@ pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Resul
     use state::MintOwner;
 
     let data = mint_owner_pda.try_borrow_data()?;
-    require!(data.len() >= 8 + MintOwner::INIT_SPACE, CommonError::UnauthorizedDeployer);
+    require!(
+        data.len() >= 8 + MintOwner::INIT_SPACE,
+        CommonError::UnauthorizedDeployer
+    );
 
     // Skip 8-byte discriminator, then Borsh-deserialize the remaining fields.
     let mint_owner = MintOwner::deserialize(&mut &data[8..])
         .map_err(|_| error!(CommonError::UnauthorizedDeployer))?;
 
-    require!(mint_owner.deployer == *deployer, CommonError::UnauthorizedDeployer);
+    require!(
+        mint_owner.deployer == *deployer,
+        CommonError::UnauthorizedDeployer
+    );
     Ok(())
 }
 
@@ -56,7 +62,6 @@ pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()> {
     Ok(())
 }
 
-
 /// Checks whether a Token-2022 mint is paused via the `PausableConfig` extension.
 ///
 /// Parses the TLV extension data of the mint account using `StateWithExtensions`
@@ -65,8 +70,8 @@ pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()> {
 /// Returns `Ok(())` if the mint is **not** paused (or has no `Pausable` extension).
 /// Returns `Err(CommonError::MintPaused)` if the mint is paused.
 pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()> {
-    use spl_token_2022::extension::{BaseStateWithExtensions, StateWithExtensions};
     use spl_token_2022::extension::pausable::PausableConfig;
+    use spl_token_2022::extension::{BaseStateWithExtensions, StateWithExtensions};
     use spl_token_2022::state::Mint;
 
     let mint_data = mint_account.try_borrow_data()?;

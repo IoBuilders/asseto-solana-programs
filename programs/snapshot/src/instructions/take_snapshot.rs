@@ -16,10 +16,7 @@ use crate::state::{SnapshotCounter, SnapshotHistory};
 pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
 
-    crate::assert_take_snapshot_authorized_caller(
-        &mint_key,
-        ctx.accounts.calling_authority.key,
-    )?;
+    crate::assert_take_snapshot_authorized_caller(&mint_key, ctx.accounts.calling_authority.key)?;
 
     let counter = &mut ctx.accounts.snapshot_counter;
     if counter.count == 0 {

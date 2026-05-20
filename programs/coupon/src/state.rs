@@ -10,7 +10,6 @@ pub struct CouponCounter {
     pub count: u64,
 }
 
-
 /// One coupon record per `(mint, coupon_id)`.
 ///
 /// Each coupon represents the interest accrued over a fixed period, plus the
@@ -37,4 +36,3 @@ pub struct Coupon {
     pub period_end_date: i64,
     pub payment_date: i64,
 }
-

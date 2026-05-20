@@ -1,15 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program;
 use spl_tlv_account_resolution::{
-    account::ExtraAccountMeta,
-    seeds::Seed,
-    state::ExtraAccountMetaList,
+    account::ExtraAccountMeta, seeds::Seed, state::ExtraAccountMetaList,
 };
 use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
+use crate::errors::TransferHookError;
 use common::pda_seeds;
 use common::program_ids::{DEPLOY_PROGRAM_ID, SNAPSHOT_PROGRAM_ID};
-use crate::errors::TransferHookError;
 
 /// Number of extra account metas produced by `initialize_extra_account_meta_list`.
 /// Keep in sync with the `metas` vec length in the handler.
@@ -38,63 +36,61 @@ pub fn initialize_extra_account_meta_list(
     let metas = vec![
         // 5: snapshot program
         ExtraAccountMeta::new_with_pubkey(&SNAPSHOT_PROGRAM_ID, false, false)?,
-
         // 6: snapshot_counter_pda — seeds ["snapshot_counter", mint@1], program@5
         ExtraAccountMeta::new_external_pda_with_seeds(
             5,
             &[
-                Seed::Literal { bytes: pda_seeds::SNAPSHOT_COUNTER.to_vec() },
+                Seed::Literal {
+                    bytes: pda_seeds::SNAPSHOT_COUNTER.to_vec(),
+                },
                 Seed::AccountKey { index: 1 },
             ],
             false,
             false,
         )?,
-
         // 7: sender (source) holder balance snapshot — writable, program@5
         ExtraAccountMeta::new_external_pda_with_seeds(
             5,
             &[
-                Seed::Literal { bytes: pda_seeds::SNAPSHOT_HOLDERBALANCE.to_vec() },
+                Seed::Literal {
+                    bytes: pda_seeds::SNAPSHOT_HOLDERBALANCE.to_vec(),
+                },
                 Seed::AccountKey { index: 1 },
                 Seed::AccountKey { index: 0 },
             ],
             false,
             true,
         )?,
-
         // 8: receiver (destination) holder balance snapshot — writable, program@5
         ExtraAccountMeta::new_external_pda_with_seeds(
             5,
             &[
-                Seed::Literal { bytes: pda_seeds::SNAPSHOT_HOLDERBALANCE.to_vec() },
+                Seed::Literal {
+                    bytes: pda_seeds::SNAPSHOT_HOLDERBALANCE.to_vec(),
+                },
                 Seed::AccountKey { index: 1 },
                 Seed::AccountKey { index: 2 },
             ],
             false,
             true,
         )?,
-
         // 9: transfer hook authority (this program's PDA, writable, pays snapshot PDA creation)
         ExtraAccountMeta::new_with_seeds(
             &[
-                Seed::Literal { bytes: pda_seeds::TRANSFER_HOOK_AUTHORITY.to_vec() },
+                Seed::Literal {
+                    bytes: pda_seeds::TRANSFER_HOOK_AUTHORITY.to_vec(),
+                },
                 Seed::AccountKey { index: 1 },
             ],
             false,
             true,
         )?,
-
         // 10: system program
         ExtraAccountMeta::new_with_pubkey(&solana_program::system_program::ID, false, false)?,
-
         // 11: Instructions sysvar — required for the hook's double-introspection
         // check (verifies prior transfer::verify_transfer + current
         // transfer::transfer / token-2022::transfer_checked).
-        ExtraAccountMeta::new_with_pubkey(
-            &solana_instructions_sysvar::ID,
-            false,
-            false,
-        )?,
+        ExtraAccountMeta::new_with_pubkey(&solana_instructions_sysvar::ID, false, false)?,
     ];
 
     let mut data = ctx.accounts.extra_account_meta_list.try_borrow_mut_data()?;

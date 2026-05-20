@@ -1,42 +1,51 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
+import { Mint } from "../target/types/mint";
+import { MetadataUpdate } from "../target/types/metadata_update";
+import { Freeze } from "../target/types/freeze";
+import { Operations } from "../target/types/operations";
+import { Pause } from "../target/types/pause";
+import { Deactivate } from "../target/types/deactivate";
+import { TransferHook } from "../target/types/transfer_hook";
+import { Snapshot } from "../target/types/snapshot";
+import { Coupon } from "../target/types/coupon";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
-const MINT_NAME     = "CMTAT Test Token";
-const MINT_SYMBOL   = "CMTAT";
-const MINT_URI      = "https://example.com/metadata.json";
+const MINT_NAME = "CMTAT Test Token";
+const MINT_SYMBOL = "CMTAT";
+const MINT_URI = "https://example.com/metadata.json";
 
 describe("coupon", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const deployProgram         = anchor.workspace.Deploy         as Program<Deploy>;
-  const mintProgram           = anchor.workspace.Mint           as Program<any>;
-  const metadataProgram       = anchor.workspace.MetadataUpdate as Program<any>;
-  const freezeProgram         = anchor.workspace.Freeze         as Program<any>;
-  const operationsProgram     = anchor.workspace.Operations     as Program<any>;
-  const pauseProgram          = anchor.workspace.Pause          as Program<any>;
-  const deactivateProgram     = anchor.workspace.Deactivate     as Program<any>;
-  const transferHookProgram   = anchor.workspace.TransferHook   as Program<any>;
-  const snapshotProgram       = anchor.workspace.Snapshot       as Program<any>;
-  const couponProgram         = anchor.workspace.Coupon         as Program<any>;
+  const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
+  const mintProgram = anchor.workspace.Mint as Program<Mint>;
+  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
+  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
+  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
+  const pauseProgram = anchor.workspace.Pause as Program<Pause>;
+  const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
+  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
+  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
+  const couponProgram = anchor.workspace.Coupon as Program<Coupon>;
 
   const connection = provider.connection;
-  const deployer   = provider.wallet.publicKey;
+  const deployer = provider.wallet.publicKey;
 
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{
-    mint:               PublicKey;
-    mintOwnerPda:       PublicKey;
-    pausableAuthority:  PublicKey;
+    mint: PublicKey;
+    mintOwnerPda: PublicKey;
+    pausableAuthority: PublicKey;
   }> {
     const mintKeypair = Keypair.generate();
-    const mint        = mintKeypair.publicKey;
+    const mint = mintKeypair.publicKey;
 
     const [mintOwnerPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("mint_owner"), mint.toBuffer()],
@@ -75,15 +84,15 @@ describe("coupon", () => {
       transferHookProgram.programId
     );
 
-    const tx = await (deployProgram as any).methods
+    const tx = await deployProgram.methods
       .deployMint({
-        decimals:           MINT_DECIMALS,
-        name:               MINT_NAME,
-        symbol:             MINT_SYMBOL,
-        uri:                MINT_URI,
+        decimals: MINT_DECIMALS,
+        name: MINT_NAME,
+        symbol: MINT_SYMBOL,
+        uri: MINT_URI,
         additionalMetadata: [],
       })
-      .accounts({
+      .accountsStrict({
         payer: deployer,
         deployer,
         mintOwnerPda,
@@ -98,8 +107,8 @@ describe("coupon", () => {
         extraAccountMetaList,
         transferHookProgram: transferHookProgram.programId,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
-        rent:             SYSVAR_RENT_PUBKEY,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
       .rpc({ commitment: "confirmed" });
@@ -109,12 +118,15 @@ describe("coupon", () => {
   }
 
   // ── Helper: derive every PDA the coupon flow needs for a given mint ────────
-  function couponPdas(mint: PublicKey, couponId: anchor.BN): {
-    couponAuthority:   PublicKey;
-    couponCounter:     PublicKey;
-    coupon:            PublicKey;
-    snapshotCounter:   PublicKey;
-    deactivatePda:     PublicKey;
+  function couponPdas(
+    mint: PublicKey,
+    couponId: anchor.BN
+  ): {
+    couponAuthority: PublicKey;
+    couponCounter: PublicKey;
+    coupon: PublicKey;
+    snapshotCounter: PublicKey;
+    deactivatePda: PublicKey;
   } {
     const [couponAuthority] = PublicKey.findProgramAddressSync(
       [Buffer.from("coupon_authority"), mint.toBuffer()],
@@ -145,30 +157,30 @@ describe("coupon", () => {
     mintOwnerPda: PublicKey,
     pdas: ReturnType<typeof couponPdas>,
     payerOverride?: PublicKey,
-    deployerOverride?: PublicKey,
+    deployerOverride?: PublicKey
   ) {
     return {
-      payer:             payerOverride    ?? deployer,
-      deployer:          deployerOverride ?? deployer,
+      payer: payerOverride ?? deployer,
+      deployer: deployerOverride ?? deployer,
       mintOwnerPda,
-      deactivatePda:     pdas.deactivatePda,
+      deactivatePda: pdas.deactivatePda,
       mint,
-      couponAuthority:   pdas.couponAuthority,
-      couponCounter:     pdas.couponCounter,
-      coupon:            pdas.coupon,
-      snapshotCounter:   pdas.snapshotCounter,
-      snapshotProgram:   snapshotProgram.programId,
-      systemProgram:     anchor.web3.SystemProgram.programId,
+      couponAuthority: pdas.couponAuthority,
+      couponCounter: pdas.couponCounter,
+      coupon: pdas.coupon,
+      snapshotCounter: pdas.snapshotCounter,
+      snapshotProgram: snapshotProgram.programId,
+      systemProgram: anchor.web3.SystemProgram.programId,
     };
   }
 
   // ────────────────────────────────────────────────────────────────────────────
   it("create_coupon: creates the first coupon, takes a snapshot, and stores both PDAs", async () => {
     const { mint, mintOwnerPda } = await deployMint();
-    const couponId         = new anchor.BN(1);
-    const periodStartDate  = new anchor.BN(1_700_000_000);
-    const periodEndDate    = new anchor.BN(1_750_000_000);
-    const paymentDate      = new anchor.BN(1_800_000_000);
+    const couponId = new anchor.BN(1);
+    const periodStartDate = new anchor.BN(1_700_000_000);
+    const periodEndDate = new anchor.BN(1_750_000_000);
+    const paymentDate = new anchor.BN(1_800_000_000);
     const pdas = couponPdas(mint, couponId);
 
     // Sanity: nothing exists yet
@@ -176,9 +188,9 @@ describe("coupon", () => {
     assert.isNull(await connection.getAccountInfo(pdas.couponCounter, "confirmed"));
     assert.isNull(await connection.getAccountInfo(pdas.snapshotCounter, "confirmed"));
 
-    const tx: string = await (couponProgram as any).methods
+    const tx: string = await couponProgram.methods
       .createCoupon(periodStartDate, periodEndDate, paymentDate, couponId)
-      .accounts(couponAccounts(mint, mintOwnerPda, pdas))
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
       .rpc({ commitment: "confirmed" });
 
     console.log("  create_coupon tx:", tx);
@@ -193,10 +205,18 @@ describe("coupon", () => {
 
     // ── coupon PDA holds the right data ──────────────────────────────────────
     const coupon = await (couponProgram as any).account.coupon.fetch(pdas.coupon);
-    assert.equal(coupon.snapshotId.toString(),       "1", "coupon.snapshot_id should match the just-taken snapshot");
-    assert.equal(coupon.periodStartDate.toString(),  periodStartDate.toString(), "coupon.period_start_date should match the arg");
-    assert.equal(coupon.periodEndDate.toString(),    periodEndDate.toString(),   "coupon.period_end_date should match the arg");
-    assert.equal(coupon.paymentDate.toString(),      paymentDate.toString(),     "coupon.payment_date should match the arg");
+    assert.equal(coupon.snapshotId.toString(), "1", "coupon.snapshot_id should match the just-taken snapshot");
+    assert.equal(
+      coupon.periodStartDate.toString(),
+      periodStartDate.toString(),
+      "coupon.period_start_date should match the arg"
+    );
+    assert.equal(
+      coupon.periodEndDate.toString(),
+      periodEndDate.toString(),
+      "coupon.period_end_date should match the arg"
+    );
+    assert.equal(coupon.paymentDate.toString(), paymentDate.toString(), "coupon.payment_date should match the arg");
 
     const couponAccountInfo = await connection.getAccountInfo(pdas.coupon, "confirmed");
     assert.equal(
@@ -211,25 +231,25 @@ describe("coupon", () => {
     const { mint, mintOwnerPda } = await deployMint();
 
     // First coupon
-    const id1     = new anchor.BN(1);
-    const start1  = new anchor.BN(1_700_000_000);
-    const end1    = new anchor.BN(1_750_000_000);
-    const pay1    = new anchor.BN(1_800_000_000);
-    const pdas1   = couponPdas(mint, id1);
-    await (couponProgram as any).methods
+    const id1 = new anchor.BN(1);
+    const start1 = new anchor.BN(1_700_000_000);
+    const end1 = new anchor.BN(1_750_000_000);
+    const pay1 = new anchor.BN(1_800_000_000);
+    const pdas1 = couponPdas(mint, id1);
+    await couponProgram.methods
       .createCoupon(start1, end1, pay1, id1)
-      .accounts(couponAccounts(mint, mintOwnerPda, pdas1))
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas1))
       .rpc({ commitment: "confirmed" });
 
     // Second coupon — period continues immediately after the first.
-    const id2    = new anchor.BN(2);
+    const id2 = new anchor.BN(2);
     const start2 = end1;
-    const end2   = new anchor.BN(1_850_000_000);
-    const pay2   = new anchor.BN(1_900_000_000);
-    const pdas2  = couponPdas(mint, id2);
-    await (couponProgram as any).methods
+    const end2 = new anchor.BN(1_850_000_000);
+    const pay2 = new anchor.BN(1_900_000_000);
+    const pdas2 = couponPdas(mint, id2);
+    await couponProgram.methods
       .createCoupon(start2, end2, pay2, id2)
-      .accounts(couponAccounts(mint, mintOwnerPda, pdas2))
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas2))
       .rpc({ commitment: "confirmed" });
 
     const counter = await (couponProgram as any).account.couponCounter.fetch(pdas2.couponCounter);
@@ -239,10 +259,10 @@ describe("coupon", () => {
     assert.equal(snapshotCounter.count.toString(), "2", "snapshot_counter.count should be 2");
 
     const coupon2 = await (couponProgram as any).account.coupon.fetch(pdas2.coupon);
-    assert.equal(coupon2.snapshotId.toString(),       "2");
-    assert.equal(coupon2.periodStartDate.toString(),  start2.toString());
-    assert.equal(coupon2.periodEndDate.toString(),    end2.toString());
-    assert.equal(coupon2.paymentDate.toString(),      pay2.toString());
+    assert.equal(coupon2.snapshotId.toString(), "2");
+    assert.equal(coupon2.periodStartDate.toString(), start2.toString());
+    assert.equal(coupon2.periodEndDate.toString(), end2.toString());
+    assert.equal(coupon2.paymentDate.toString(), pay2.toString());
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -254,9 +274,9 @@ describe("coupon", () => {
     const pdas = couponPdas(mint, wrongId);
 
     try {
-      await (couponProgram as any).methods
+      await couponProgram.methods
         .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), wrongId)
-        .accounts(couponAccounts(mint, mintOwnerPda, pdas))
+        .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected InvalidCouponId error but instruction succeeded");
     } catch (err) {
@@ -273,11 +293,12 @@ describe("coupon", () => {
     const couponId = new anchor.BN(1);
     const pdas = couponPdas(mint, couponId);
 
-    await (pauseProgram as any).methods
+    await pauseProgram.methods
       .pause()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
+        deactivatePda: pdas.deactivatePda,
         mint,
         pausableAuthority,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -285,9 +306,14 @@ describe("coupon", () => {
       .rpc({ commitment: "confirmed" });
 
     try {
-      await (couponProgram as any).methods
-        .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), couponId)
-        .accounts(couponAccounts(mint, mintOwnerPda, pdas))
+      await couponProgram.methods
+        .createCoupon(
+          new anchor.BN(1_700_000_000),
+          new anchor.BN(1_750_000_000),
+          new anchor.BN(1_800_000_000),
+          couponId
+        )
+        .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected MintPaused error but instruction succeeded");
     } catch (err) {
@@ -302,9 +328,9 @@ describe("coupon", () => {
     const couponId = new anchor.BN(1);
     const pdas = couponPdas(mint, couponId);
 
-    await (deactivateProgram as any).methods
+    await deactivateProgram.methods
       .deactivate()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
@@ -314,9 +340,14 @@ describe("coupon", () => {
       .rpc({ commitment: "confirmed" });
 
     try {
-      await (couponProgram as any).methods
-        .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), couponId)
-        .accounts(couponAccounts(mint, mintOwnerPda, pdas))
+      await couponProgram.methods
+        .createCoupon(
+          new anchor.BN(1_700_000_000),
+          new anchor.BN(1_750_000_000),
+          new anchor.BN(1_800_000_000),
+          couponId
+        )
+        .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected Deactivated error but instruction succeeded");
     } catch (err) {
@@ -334,9 +365,14 @@ describe("coupon", () => {
     const rogue = Keypair.generate();
 
     try {
-      await (couponProgram as any).methods
-        .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), couponId)
-        .accounts(couponAccounts(mint, mintOwnerPda, pdas, deployer, rogue.publicKey))
+      await couponProgram.methods
+        .createCoupon(
+          new anchor.BN(1_700_000_000),
+          new anchor.BN(1_750_000_000),
+          new anchor.BN(1_800_000_000),
+          couponId
+        )
+        .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas, deployer, rogue.publicKey))
         .signers([rogue])
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
@@ -355,9 +391,9 @@ describe("coupon", () => {
     // start == end (zero-length period) — must fail.
     const sameDate = new anchor.BN(1_700_000_000);
     try {
-      await (couponProgram as any).methods
+      await couponProgram.methods
         .createCoupon(sameDate, sameDate, new anchor.BN(1_800_000_000), couponId)
-        .accounts(couponAccounts(mint, mintOwnerPda, pdas))
+        .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected InvalidCouponPeriod error but instruction succeeded");
     } catch (err) {
@@ -374,11 +410,11 @@ describe("coupon", () => {
 
     // payment_date == period_end_date — must fail (strict `>` is required).
     const start = new anchor.BN(1_700_000_000);
-    const end   = new anchor.BN(1_750_000_000);
+    const end = new anchor.BN(1_750_000_000);
     try {
-      await (couponProgram as any).methods
+      await couponProgram.methods
         .createCoupon(start, end, end, couponId)
-        .accounts(couponAccounts(mint, mintOwnerPda, pdas))
+        .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected InvalidPaymentDate error but instruction succeeded");
     } catch (err) {

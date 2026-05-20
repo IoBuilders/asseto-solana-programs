@@ -28,10 +28,9 @@ impl TransferControlMode {
         8       // discriminator
         + 4     // vec length (u32)
         + (num_modes * TransferMode::INIT_SPACE)
-        + 1     // bump
+        + 1 // bump
     }
 }
-
 
 /// Whitelist marker PDA.
 /// Seeds: `["whitelist", mint, account]`
@@ -43,4 +42,3 @@ impl TransferControlMode {
 pub struct WhitelistStatus {
     pub bump: u8,
 }
-

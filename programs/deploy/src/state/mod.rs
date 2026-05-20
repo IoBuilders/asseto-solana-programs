@@ -18,7 +18,6 @@ pub struct MintOwner {
     pub bump: u8,
 }
 
-
 const _: () = assert!(
     core::mem::size_of::<MintOwner>() == core::mem::size_of::<MintOwnerData>(),
     "deploy::MintOwner and common::MintOwner have diverged — update both structs together",

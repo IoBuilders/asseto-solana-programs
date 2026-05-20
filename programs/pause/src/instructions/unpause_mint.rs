@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::pda_utils;
-use spl_token_2022::extension::pausable::instruction::resume as spl_resume;
 use common::{pda_seeds, require_active, verify_deployer};
+use spl_token_2022::extension::pausable::instruction::resume as spl_resume;
 
 use common::program_ids as constants;
 
@@ -29,7 +29,7 @@ pub fn unpause(ctx: Context<UnpauseMint>) -> Result<()> {
 
     let pausable_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::pausable_authority_seeds(&mint_key),
-        &ctx.bumps.pausable_authority
+        &ctx.bumps.pausable_authority,
     );
 
     // ── Resume via this program's PDA ────────────────────────────────────────

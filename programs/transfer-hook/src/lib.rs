@@ -20,10 +20,7 @@ pub mod transfer_hook {
         ctx: Context<InitializeExtraAccountMetaList>,
         deployer: Pubkey,
     ) -> Result<()> {
-        initialize_extra_account_meta_list::initialize_extra_account_meta_list(
-            ctx,
-            deployer,
-        )
+        initialize_extra_account_meta_list::initialize_extra_account_meta_list(ctx, deployer)
     }
 
     /// Called by Token-2022 on every transfer via the SPL Transfer Hook Interface.

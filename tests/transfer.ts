@@ -3,61 +3,69 @@ import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { Mint } from "../target/types/mint";
 import { TransferControl } from "../target/types/transfer_control";
+import { MetadataUpdate } from "../target/types/metadata_update";
+import { Freeze } from "../target/types/freeze";
+import { Operations } from "../target/types/operations";
+import { Pause } from "../target/types/pause";
+import { Transfer } from "../target/types/transfer";
+import { Deactivate } from "../target/types/deactivate";
+import { TransferHook } from "../target/types/transfer_hook";
+import { Snapshot } from "../target/types/snapshot";
+import { Coupon } from "../target/types/coupon";
 import { AccountMeta, Keypair, PublicKey, SYSVAR_RENT_PUBKEY, SendTransactionError } from "@solana/web3.js";
-import {
-  TOKEN_2022_PROGRAM_ID,
-  createAccount,
-  getAccount,
-} from "@solana/spl-token";
+import { TOKEN_2022_PROGRAM_ID, createAccount, getAccount } from "@solana/spl-token";
 import { assert } from "chai";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
-const MINT_NAME     = "CMTAT Test Token";
-const MINT_SYMBOL   = "CMTAT";
-const MINT_URI      = "https://example.com/metadata.json";
+const MINT_NAME = "CMTAT Test Token";
+const MINT_SYMBOL = "CMTAT";
+const MINT_URI = "https://example.com/metadata.json";
 
-const MINT_AMOUNT     = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
-const TRANSFER_AMOUNT = new anchor.BN(400  * 10 ** MINT_DECIMALS);
+const MINT_AMOUNT = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
+const TRANSFER_AMOUNT = new anchor.BN(400 * 10 ** MINT_DECIMALS);
 const FUND_AMOUNT_IN_LAMPORT = anchor.web3.LAMPORTS_PER_SOL * 0.01;
 
 describe("transfer", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const sourceOwnerKeypair      = Keypair.generate();
+  const sourceOwnerKeypair = Keypair.generate();
   const destinationOwnerKeypair = Keypair.generate();
 
-  const deployProgram     = anchor.workspace.Deploy     as Program<Deploy>;
-  const mintProgram       = anchor.workspace.Mint       as Program<Mint>;
-  const metadataProgram   = anchor.workspace.MetadataUpdate as Program<any>;
-  const freezeProgram      = anchor.workspace.Freeze      as Program<any>;
-  const operationsProgram = anchor.workspace.Operations as Program<any>;
-  const pauseProgram      = anchor.workspace.Pause      as Program<any>;
-  const transferProgram   = anchor.workspace.Transfer   as Program<any>;
-  const deactivateProgram         = anchor.workspace.Deactivate         as Program<any>;
-  const transferControlProgram    = anchor.workspace.TransferControl    as Program<TransferControl>;
-  const transferHookProgram       = anchor.workspace.TransferHook       as Program<any>;
-  const snapshotProgram           = anchor.workspace.Snapshot           as Program<any>;
-  const couponProgram             = anchor.workspace.Coupon             as Program<any>;
-  const connection        = provider.connection;
-  const deployer          = provider.wallet.publicKey;
-  const sourceOwner       = sourceOwnerKeypair.publicKey;
-  const destinationOwner  = destinationOwnerKeypair.publicKey;
-  const payerKeypair      = (provider.wallet as any).payer as Keypair;
+  const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
+  const mintProgram = anchor.workspace.Mint as Program<Mint>;
+  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
+  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
+  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
+  const pauseProgram = anchor.workspace.Pause as Program<Pause>;
+  const transferProgram = anchor.workspace.Transfer as Program<Transfer>;
+  const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
+  const transferControlProgram = anchor.workspace.TransferControl as Program<TransferControl>;
+  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
+  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
+  const couponProgram = anchor.workspace.Coupon as Program<Coupon>;
+  const connection = provider.connection;
+  const deployer = provider.wallet.publicKey;
+  const sourceOwner = sourceOwnerKeypair.publicKey;
+  const destinationOwner = destinationOwnerKeypair.publicKey;
+  const payerKeypair = (provider.wallet as any).payer as Keypair;
 
-  const MINT_AUTHORITY_PROGRAM_ID     = mintProgram.programId;
-  const FREEZE_AUTHORITY_PROGRAM_ID   = freezeProgram.programId;
+  const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
+  const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
   const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
   const TRANSFER_AUTHORITY_PROGRAM_ID = transferProgram.programId;
-  const METADATA_UPDATE_PROGRAM_ID    = metadataProgram.programId;
+  const METADATA_UPDATE_PROGRAM_ID = metadataProgram.programId;
   const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
 
   // ── Helper: derive snapshot-related PDAs for mint/burn operations ──────────
   // PDAs are keyed only by mint (+ token account for holder balance); the full
   // snapshot history is stored in a single account per key.
-  function snapshotAccounts(mint: PublicKey, holderTokenAccount: PublicKey): {
-    snapshotCounterPda:    PublicKey;
-    totalSupplySnapshot:   PublicKey;
+  function snapshotAccounts(
+    mint: PublicKey,
+    holderTokenAccount: PublicKey
+  ): {
+    snapshotCounterPda: PublicKey;
+    totalSupplySnapshot: PublicKey;
     holderBalanceSnapshot: PublicKey;
   } {
     const [snapshotCounterPda] = PublicKey.findProgramAddressSync(
@@ -76,10 +84,14 @@ describe("transfer", () => {
   }
 
   // ── Helper: derive snapshot PDAs required by the transfer instruction ───────
-  function transferSnapshotAccounts(mint: PublicKey, source: PublicKey, destination: PublicKey): {
+  function transferSnapshotAccounts(
+    mint: PublicKey,
+    source: PublicKey,
+    destination: PublicKey
+  ): {
     snapshotCounterPda: PublicKey;
-    senderSnapshot:     PublicKey;
-    receiverSnapshot:   PublicKey;
+    senderSnapshot: PublicKey;
+    receiverSnapshot: PublicKey;
   } {
     const [snapshotCounterPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("snapshot_counter"), mint.toBuffer()],
@@ -105,27 +117,22 @@ describe("transfer", () => {
         lamports: FUND_AMOUNT_IN_LAMPORT,
       })
     );
-    await anchor.web3.sendAndConfirmTransaction(
-      connection,
-      tx,
-      [payerKeypair],
-      { commitment: "confirmed" }
-    );
+    await anchor.web3.sendAndConfirmTransaction(connection, tx, [payerKeypair], { commitment: "confirmed" });
   }
 
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{
-    mint:                 PublicKey;
-    mintOwnerPda:         PublicKey;
-    mintAuthority:        PublicKey;
-    freezeAuthority:      PublicKey;
-    transferAuthority:    PublicKey;
-    pausableAuthority:    PublicKey;
+    mint: PublicKey;
+    mintOwnerPda: PublicKey;
+    mintAuthority: PublicKey;
+    freezeAuthority: PublicKey;
+    transferAuthority: PublicKey;
+    pausableAuthority: PublicKey;
     extraAccountMetaList: PublicKey;
-    transferHookAuthority:PublicKey;
+    transferHookAuthority: PublicKey;
   }> {
     const mintKeypair = Keypair.generate();
-    const mint        = mintKeypair.publicKey;
+    const mint = mintKeypair.publicKey;
 
     const [mintOwnerPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("mint_owner"), mint.toBuffer()],
@@ -169,47 +176,55 @@ describe("transfer", () => {
       transferHookProgram.programId
     );
 
-    const tx = await (deployProgram as any).methods
+    const tx = await deployProgram.methods
       .deployMint({
-        decimals:           MINT_DECIMALS,
-        name:               MINT_NAME,
-        symbol:             MINT_SYMBOL,
-        uri:                MINT_URI,
+        decimals: MINT_DECIMALS,
+        name: MINT_NAME,
+        symbol: MINT_SYMBOL,
+        uri: MINT_URI,
         additionalMetadata: [],
       })
-      .accounts({
-        payer:                      deployer,
+      .accountsStrict({
+        payer: deployer,
         deployer,
         mintOwnerPda,
         mint,
         tempMintAuthority,
         mintAuthority,
         permanentDelegateAuthority: operationsAuthority,
-        transferAuthority,
         metadataUpdateAuthority,
         pausableAuthority,
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram:   transferHookProgram.programId,
+        transferHookProgram: transferHookProgram.programId,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
-        rent:             SYSVAR_RENT_PUBKEY,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
       .rpc({ commitment: "confirmed" });
 
     console.log("  deploy_mint tx:", tx);
-    return { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, pausableAuthority, extraAccountMetaList, transferHookAuthority };
+    return {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      pausableAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    };
   }
 
   // ── Helper: mint tokens to a fresh token account ────────────────────────────
   async function mintTokens(
-    mint:            PublicKey,
-    mintOwnerPda:    PublicKey,
-    mintAuthority:   PublicKey,
+    mint: PublicKey,
+    mintOwnerPda: PublicKey,
+    mintAuthority: PublicKey,
     freezeAuthority: PublicKey,
-    amount:          anchor.BN,
+    amount: anchor.BN
   ): Promise<PublicKey> {
     const destinationKeypair = Keypair.generate();
     await createAccount(
@@ -219,21 +234,36 @@ describe("transfer", () => {
       sourceOwner,
       destinationKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destinationKeypair.publicKey;
 
     const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, destination);
+    const [deactivatePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("deactivate"), mint.toBuffer()],
+      deactivateProgram.programId
+    );
+    const [transferControlModePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("transfer_control_mode"), mint.toBuffer()],
+      transferControlProgram.programId
+    );
+    const [destinationWhitelistPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("whitelist"), mint.toBuffer(), destination.toBuffer()],
+      transferControlProgram.programId
+    );
 
-    const tx = await (mintProgram as any).methods
+    const tx = await mintProgram.methods
       .mint(amount)
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
+        deactivatePda,
         mint,
         mintAuthority,
         destination,
         freezeAuthority,
+        transferControlModePda,
+        destinationWhitelistPda,
         snapshotCounterPda,
         totalSupplySnapshot,
         holderBalanceSnapshot,
@@ -254,14 +284,18 @@ describe("transfer", () => {
   // full set of compliance PDAs (deactivate, mint_owner, transfer-control mode,
   // whitelist for source+destination, frozen-account marker for source, frozen
   // balance for source) so it can run the rules against the pre-debit state.
-  function verifyTransferPdas(mint: PublicKey, source: PublicKey, destination: PublicKey): {
-    mintOwnerPda:               PublicKey;
-    deactivatePda:              PublicKey;
-    transferControlModePda:     PublicKey;
-    sourceWhitelistPda:         PublicKey;
-    destinationWhitelistPda:    PublicKey;
-    sourceFrozenPda:            PublicKey;
-    sourceFrozenBalancePda:     PublicKey;
+  function verifyTransferPdas(
+    mint: PublicKey,
+    source: PublicKey,
+    destination: PublicKey
+  ): {
+    mintOwnerPda: PublicKey;
+    deactivatePda: PublicKey;
+    transferControlModePda: PublicKey;
+    sourceWhitelistPda: PublicKey;
+    destinationWhitelistPda: PublicKey;
+    sourceFrozenPda: PublicKey;
+    sourceFrozenBalancePda: PublicKey;
   } {
     const [mintOwnerPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("mint_owner"), mint.toBuffer()],
@@ -292,9 +326,13 @@ describe("transfer", () => {
       freezeProgram.programId
     );
     return {
-      mintOwnerPda, deactivatePda, transferControlModePda,
-      sourceWhitelistPda, destinationWhitelistPda,
-      sourceFrozenPda, sourceFrozenBalancePda,
+      mintOwnerPda,
+      deactivatePda,
+      transferControlModePda,
+      sourceWhitelistPda,
+      destinationWhitelistPda,
+      sourceFrozenPda,
+      sourceFrozenBalancePda,
     };
   }
 
@@ -305,22 +343,22 @@ describe("transfer", () => {
   // when a test needs a different source_owner (e.g. rogue signer) or a
   // different deployer (e.g. clearing-mode unauthorised-deployer test).
   async function buildVerifyTransferIx(
-    source:        PublicKey,
-    destination:   PublicKey,
-    mint:          PublicKey,
-    amount:        anchor.BN,
+    source: PublicKey,
+    destination: PublicKey,
+    mint: PublicKey,
+    amount: anchor.BN,
     sourceOwnerOverride?: PublicKey,
-    deployerOverride?:    PublicKey,
+    deployerOverride?: PublicKey
   ): Promise<anchor.web3.TransactionInstruction> {
     const pdas = verifyTransferPdas(mint, source, destination);
-    return await (transferProgram as any).methods
+    return await transferProgram.methods
       .verifyTransfer(amount)
-      .accounts({
+      .accountsStrict({
         sourceOwner: sourceOwnerOverride ?? sourceOwner,
         source,
         destination,
         mint,
-        deployer:    deployerOverride ?? deployer,
+        deployer: deployerOverride ?? deployer,
         ...pdas,
       })
       .instruction();
@@ -328,13 +366,18 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: moves tokens from source to destination", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
     // Mint 1 000 tokens to the source account (owned by sourceOwner).
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     // Create a destination token account (owned by destinationOwner).
     const destKeypair = Keypair.generate();
@@ -345,12 +388,12 @@ describe("transfer", () => {
       destinationOwner,
       destKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
-    const sourceBefore = (await getAccount(connection, source,      "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
-    const destBefore   = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const sourceBefore = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destBefore = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
 
     console.log("\n──────────────────────────────────────────────────────────");
     console.log("  Mint:                  ", mint.toBase58());
@@ -358,20 +401,24 @@ describe("transfer", () => {
     console.log("  Source:                ", source.toBase58());
     console.log("  Destination:           ", destination.toBase58());
     console.log("  Source balance BEFORE: ", sourceBefore.toString(), "(raw)");
-    console.log("  Dest   balance BEFORE: ", destBefore.toString(),   "(raw)");
+    console.log("  Dest   balance BEFORE: ", destBefore.toString(), "(raw)");
     console.log("──────────────────────────────────────────────────────────\n");
 
     // Fund transferHookAuthority PDA so it can pay for accounts if needed
     await fundTransferHookAuthority(transferHookAuthority);
 
     // ── Call transfer ──────────────────────────────────────────────────────
-    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
 
     const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
-    const tx = await (transferProgram as any).methods
+    const tx = await transferProgram.methods
       .transfer(TRANSFER_AMOUNT)
-      .accounts({
+      .accountsStrict({
         sourceOwner,
         source,
         destination,
@@ -388,40 +435,47 @@ describe("transfer", () => {
         receiverSnapshot,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
-      .preInstructions([
-        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-        verifyIx,
-      ])
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
       .signers([sourceOwnerKeypair])
       .rpc({ commitment: "confirmed" });
 
-
     console.log("  transfer tx:", tx);
 
-    const sourceAfter = (await getAccount(connection, source,      "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
-    const destAfter   = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const sourceAfter = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destAfter = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
 
     console.log("\n──────────────────────────────────────────────────────────");
     console.log("  Source balance AFTER:  ", sourceAfter.toString(), "(raw)");
-    console.log("  Dest   balance AFTER:  ", destAfter.toString(),   "(raw)");
+    console.log("  Dest   balance AFTER:  ", destAfter.toString(), "(raw)");
     console.log("──────────────────────────────────────────────────────────\n");
 
-    assert.equal(sourceAfter.toString(), (MINT_AMOUNT.toNumber() - TRANSFER_AMOUNT.toNumber()).toString(),
-      "source balance should be reduced by the transfer amount");
-    assert.equal(destAfter.toString(), TRANSFER_AMOUNT.toString(),
-      "destination balance should equal the transfer amount");
+    assert.equal(
+      sourceAfter.toString(),
+      (MINT_AMOUNT.toNumber() - TRANSFER_AMOUNT.toNumber()).toString(),
+      "source balance should be reduced by the transfer amount"
+    );
+    assert.equal(
+      destAfter.toString(),
+      TRANSFER_AMOUNT.toString(),
+      "destination balance should equal the transfer amount"
+    );
   });
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: snapshot 1 captures post-transfer balances (source = minted - transferred, destination = transferred)", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     const destKeypair = Keypair.generate();
     await createAccount(
@@ -431,7 +485,7 @@ describe("transfer", () => {
       destinationOwner,
       destKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -439,7 +493,11 @@ describe("transfer", () => {
       [Buffer.from("deactivate"), mint.toBuffer()],
       deactivateProgram.programId
     );
-    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
 
     // ── Take snapshot via create_coupon (counter: 0 → 1) ─────────────────────
     const couponId = new anchor.BN(1);
@@ -455,9 +513,9 @@ describe("transfer", () => {
       [Buffer.from("coupon"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8)],
       couponProgram.programId
     );
-    const snapshotTx = await (couponProgram as any).methods
+    const snapshotTx = await couponProgram.methods
       .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), couponId)
-      .accounts({
+      .accountsStrict({
         payer: deployer,
         deployer,
         mintOwnerPda,
@@ -466,9 +524,9 @@ describe("transfer", () => {
         couponAuthority,
         couponCounter,
         coupon,
-        snapshotCounter:  snapshotCounterPda,
-        snapshotProgram:  snapshotProgram.programId,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        snapshotCounter: snapshotCounterPda,
+        snapshotProgram: snapshotProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -487,9 +545,9 @@ describe("transfer", () => {
 
     const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
-    const tx = await (transferProgram as any).methods
+    const tx = await transferProgram.methods
       .transfer(TRANSFER_AMOUNT)
-      .accounts({
+      .accountsStrict({
         sourceOwner,
         source,
         destination,
@@ -506,32 +564,29 @@ describe("transfer", () => {
         receiverSnapshot,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
-      .preInstructions([
-        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-        verifyIx,
-      ])
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
       .signers([sourceOwnerKeypair])
       .rpc({ commitment: "confirmed" });
 
     console.log("  transfer tx:", tx);
 
     // ── Assert snapshot values via get_holderbalance_snapshot_at ─────────────
-    const senderValue: anchor.BN = await (snapshotProgram as any).methods
+    const senderValue: anchor.BN = await snapshotProgram.methods
       .getHolderbalanceSnapshotAt(new anchor.BN(1))
-      .accounts({
+      .accountsStrict({
         mint,
         holderBalanceSnapshot: senderSnapshot,
-        holderTokenAccount:    source,
+        holderTokenAccount: source,
       })
       .view();
-    const receiverValue: anchor.BN = await (snapshotProgram as any).methods
+    const receiverValue: anchor.BN = await snapshotProgram.methods
       .getHolderbalanceSnapshotAt(new anchor.BN(1))
-      .accounts({
+      .accountsStrict({
         mint,
         holderBalanceSnapshot: receiverSnapshot,
-        holderTokenAccount:    destination,
+        holderTokenAccount: destination,
       })
       .view();
 
@@ -550,18 +605,22 @@ describe("transfer", () => {
       MINT_AMOUNT.toNumber().toString(),
       "sender snapshot should equal post-debit balance: Token-2022 debits source before invoking the hook"
     );
-
   });
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when there is no previous instruction", async () => {
-     const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
     // Mint 1 000 tokens to the source account (owned by sourceOwner).
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     // Create a destination token account (owned by destinationOwner).
     const destKeypair = Keypair.generate();
@@ -572,7 +631,7 @@ describe("transfer", () => {
       destinationOwner,
       destKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -580,12 +639,16 @@ describe("transfer", () => {
     await fundTransferHookAuthority(transferHookAuthority);
 
     // ── Call transfer ──────────────────────────────────────────────────────
-    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
 
     try {
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(TRANSFER_AMOUNT)
-        .accounts({
+        .accountsStrict({
           sourceOwner,
           source,
           destination,
@@ -602,7 +665,7 @@ describe("transfer", () => {
           receiverSnapshot: receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
@@ -623,13 +686,18 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when previous instruction program is not verify program", async () => {
-     const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
     // Mint 1 000 tokens to the source account (owned by sourceOwner).
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     // Create a destination token account (owned by destinationOwner).
     const destKeypair = Keypair.generate();
@@ -640,7 +708,7 @@ describe("transfer", () => {
       destinationOwner,
       destKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -648,13 +716,17 @@ describe("transfer", () => {
     await fundTransferHookAuthority(transferHookAuthority);
 
     // ── Call transfer ──────────────────────────────────────────────────────
-    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
 
     const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
     try {
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(TRANSFER_AMOUNT)
-        .accounts({
+        .accountsStrict({
           sourceOwner,
           source,
           destination,
@@ -671,12 +743,9 @@ describe("transfer", () => {
           receiverSnapshot: receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
-        .preInstructions([
-          verifyIx,
-          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-        ])
+        .preInstructions([verifyIx, anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
@@ -696,13 +765,18 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when previous instruction method does not have the proper input arguments", async () => {
-     const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
     // Mint 1 000 tokens to the source account (owned by sourceOwner).
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     // Create a destination token account (owned by destinationOwner).
     const destKeypair = Keypair.generate();
@@ -713,7 +787,7 @@ describe("transfer", () => {
       destinationOwner,
       destKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -721,13 +795,17 @@ describe("transfer", () => {
     await fundTransferHookAuthority(transferHookAuthority);
 
     // ── Call transfer ──────────────────────────────────────────────────────
-    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
 
     const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT.sub(new anchor.BN(1))); // Update this part
     try {
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(TRANSFER_AMOUNT)
-        .accounts({
+        .accountsStrict({
           sourceOwner,
           source,
           destination,
@@ -744,12 +822,9 @@ describe("transfer", () => {
           receiverSnapshot: receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
-        .preInstructions([
-          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          verifyIx,
-        ])
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
@@ -769,12 +844,17 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when signer is not token holder", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     // Create a destination token account (owned by destinationOwner).
     const destKeypair = Keypair.generate();
@@ -785,10 +865,9 @@ describe("transfer", () => {
       destinationOwner,
       destKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
-
 
     // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
     const rogueKeypair = Keypair.generate();
@@ -799,22 +878,24 @@ describe("transfer", () => {
     console.log("  Rogue signer:       ", rogueKeypair.publicKey.toBase58());
     console.log("══════════════════════════════════════════════════════════\n");
 
-    const { snapshotCounterPda: sc1, senderSnapshot: ss1, receiverSnapshot: rs1 } = transferSnapshotAccounts(mint, source, destination);
+    const {
+      snapshotCounterPda: sc1,
+      senderSnapshot: ss1,
+      receiverSnapshot: rs1,
+    } = transferSnapshotAccounts(mint, source, destination);
 
     await fundTransferHookAuthority(transferHookAuthority);
     try {
       // verify_transfer is also called with the rogue signer; it does not check
       // source ownership (Token-2022 does that during transfer_checked), so it
       // succeeds. The OwnerMismatch then comes from Token-2022 below.
-      const verifyIx = await buildVerifyTransferIx(
-        source, destination, mint, TRANSFER_AMOUNT, rogueKeypair.publicKey,
-      );
+      const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT, rogueKeypair.publicKey);
 
       // ── Call transfer ──────────────────────────────────────────────────────
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(TRANSFER_AMOUNT)
-        .accounts({
-          sourceOwner:    rogueKeypair.publicKey,
+        .accountsStrict({
+          sourceOwner: rogueKeypair.publicKey,
           source,
           destination,
           mint,
@@ -830,12 +911,9 @@ describe("transfer", () => {
           receiverSnapshot: rs1,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
-        .preInstructions([
-          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          verifyIx,
-        ])
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([rogueKeypair])
         .rpc({ commitment: "confirmed" });
 
@@ -849,10 +927,10 @@ describe("transfer", () => {
       const logs = sendErr.logs ?? [];
       console.log("  caught error:       ", sendErr.message);
       console.log("  transaction logs:");
-      logs.forEach(log => console.log("    ", log));
+      logs.forEach((log) => console.log("    ", log));
 
       assert.isTrue(
-        logs.some(log => log.toLowerCase().includes("owner does not match")),
+        logs.some((log) => log.toLowerCase().includes("owner does not match")),
         "transaction logs should mention Token-2022 owner mismatch"
       );
     }
@@ -860,12 +938,18 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when mint is paused", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, pausableAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      pausableAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     // Create a destination token account (owned by destinationOwner).
     const destKeypair = Keypair.generate();
@@ -876,17 +960,21 @@ describe("transfer", () => {
       destinationOwner,
       destKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
-
+    const [deactivatePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("deactivate"), mint.toBuffer()],
+      deactivateProgram.programId
+    );
 
     // Pause the mint via pause
-    const pauseTx: string = await (pauseProgram as any).methods
+    const pauseTx: string = await pauseProgram.methods
       .pause()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
+        deactivatePda,
         mint,
         pausableAuthority,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -898,7 +986,11 @@ describe("transfer", () => {
     console.log("  pause tx:           ", pauseTx);
     console.log("══════════════════════════════════════════════════════════\n");
 
-    const { snapshotCounterPda: sc2, senderSnapshot: ss2, receiverSnapshot: rs2 } = transferSnapshotAccounts(mint, source, destination);
+    const {
+      snapshotCounterPda: sc2,
+      senderSnapshot: ss2,
+      receiverSnapshot: rs2,
+    } = transferSnapshotAccounts(mint, source, destination);
 
     await fundTransferHookAuthority(transferHookAuthority);
     try {
@@ -908,9 +1000,9 @@ describe("transfer", () => {
       const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
       // ── Call transfer ──────────────────────────────────────────────────────
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(TRANSFER_AMOUNT)
-        .accounts({
+        .accountsStrict({
           sourceOwner,
           source,
           destination,
@@ -927,12 +1019,9 @@ describe("transfer", () => {
           receiverSnapshot: rs2,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
-        .preInstructions([
-          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          verifyIx,
-        ])
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
@@ -944,10 +1033,10 @@ describe("transfer", () => {
 
       console.log("  caught error:       ", sendErr.message);
       console.log("  transaction logs:");
-      logs.forEach(log => console.log("    ", log));
+      logs.forEach((log) => console.log("    ", log));
 
       assert.isTrue(
-        logs.some(log => log.includes("paused")),
+        logs.some((log) => log.includes("paused")),
         "transaction logs should mention the mint is paused"
       );
     }
@@ -955,12 +1044,17 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with AccountFrozen when source account has been frozen", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     // Create a destination token account (owned by destinationOwner).
     const destKeypair = Keypair.generate();
@@ -971,7 +1065,7 @@ describe("transfer", () => {
       destinationOwner,
       destKeypair,
       { commitment: "confirmed" },
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -985,16 +1079,16 @@ describe("transfer", () => {
     );
 
     // ── Freeze the source account via freeze ─────────────────────────
-    const freezeTx = await (freezeProgram as any).methods
+    const freezeTx = await freezeProgram.methods
       .freezeAccount()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
-        account:          source,
+        account: source,
         deactivatePda,
         frozenAccountPda: sourceFrozenPda,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1006,7 +1100,11 @@ describe("transfer", () => {
     console.log("══════════════════════════════════════════════════════════\n");
 
     // ── Transfer must now be rejected with AccountFrozen ──────────────────
-    const { snapshotCounterPda: sc3, senderSnapshot: ss3, receiverSnapshot: rs3 } = transferSnapshotAccounts(mint, source, destination);
+    const {
+      snapshotCounterPda: sc3,
+      senderSnapshot: ss3,
+      receiverSnapshot: rs3,
+    } = transferSnapshotAccounts(mint, source, destination);
 
     await fundTransferHookAuthority(transferHookAuthority);
     try {
@@ -1014,9 +1112,9 @@ describe("transfer", () => {
       // own; it throws here before the hook ever runs.
       const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(TRANSFER_AMOUNT)
-        .accounts({
+        .accountsStrict({
           sourceOwner,
           source,
           destination,
@@ -1033,12 +1131,9 @@ describe("transfer", () => {
           receiverSnapshot: rs3,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
-        .preInstructions([
-          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          verifyIx,
-        ])
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
@@ -1048,119 +1143,123 @@ describe("transfer", () => {
       const anchorErr = err as AnchorError;
       console.log("  caught error code:  ", anchorErr.error.errorCode.code);
       console.log("  caught error msg:   ", anchorErr.error.errorMessage);
-      assert.equal(
-        anchorErr.error.errorCode.code,
-        "AccountFrozen",
-        "error code should be AccountFrozen"
-      );
+      assert.equal(anchorErr.error.errorCode.code, "AccountFrozen", "error code should be AccountFrozen");
     }
   });
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with Deactivated when mint has been deactivated", async () => {
-     const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
-    const source = await mintTokens(
-      mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT
-    );
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
 
     // Create a destination token account (owned by destinationOwner).
     const destKeypair = Keypair.generate();
-      await createAccount(
-        connection,
-        payerKeypair,
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const destination = destKeypair.publicKey;
+
+    const [deactivatePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("deactivate"), mint.toBuffer()],
+      deactivateProgram.programId
+    );
+
+    // ── Deactivate the mint ────────────────────────────────────────────────
+    const deactivateTx = await deactivateProgram.methods
+      .deactivate()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
         mint,
-        destinationOwner,
-        destKeypair,
-        { commitment: "confirmed" },
-        TOKEN_2022_PROGRAM_ID,
-      );
-      const destination = destKeypair.publicKey;
+        deactivatePda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc({ commitment: "confirmed" });
 
-        const [deactivatePda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("deactivate"), mint.toBuffer()],
-          deactivateProgram.programId
-        );
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Mint:               ", mint.toBase58());
+    console.log("  Deactivate PDA:     ", deactivatePda.toBase58());
+    console.log("  deactivate tx:      ", deactivateTx);
+    console.log("══════════════════════════════════════════════════════════\n");
 
-        // ── Deactivate the mint ────────────────────────────────────────────────
-        const deactivateTx = await (deactivateProgram as any).methods
-          .deactivate()
-          .accounts({
-            deployer,
-            mintOwnerPda,
-            mint,
-            deactivatePda,
-            systemProgram: anchor.web3.SystemProgram.programId,
-          })
-          .rpc({ commitment: "confirmed" });
-    
-    
-        console.log("\n══════════════════════════════════════════════════════════");
-        console.log("  Mint:               ", mint.toBase58());
-        console.log("  Deactivate PDA:     ", deactivatePda.toBase58());
-        console.log("  deactivate tx:      ", deactivateTx);
-        console.log("══════════════════════════════════════════════════════════\n");
-    
-        // ── Mint must now be rejected with Deactivated ─────────────────────────
-        const { snapshotCounterPda: sc4, senderSnapshot: ss4, receiverSnapshot: rs4 } = transferSnapshotAccounts(mint, source, destination);
+    // ── Mint must now be rejected with Deactivated ─────────────────────────
+    const {
+      snapshotCounterPda: sc4,
+      senderSnapshot: ss4,
+      receiverSnapshot: rs4,
+    } = transferSnapshotAccounts(mint, source, destination);
 
-        await fundTransferHookAuthority(transferHookAuthority);
-        try {
-          // verify_transfer runs the Deactivated check on its own and throws.
-          const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
+    await fundTransferHookAuthority(transferHookAuthority);
+    try {
+      // verify_transfer runs the Deactivated check on its own and throws.
+      const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
-          await (transferProgram as any).methods
-          .transfer(TRANSFER_AMOUNT)
-          .accounts({
-            sourceOwner,
-            source,
-            destination,
-            mint,
-            transferAuthority,
-            transferHookAuthority,
-            freezeAuthority,
-            extraAccountMetaList,
-            transferHookProgram: transferHookProgram.programId,
-            freezeProgram: freezeProgram.programId,
-            snapshotProgram: snapshotProgram.programId,
-            snapshotCounterPda: sc4,
-            senderSnapshot: ss4,
-            receiverSnapshot: rs4,
-            instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-            token2022Program: TOKEN_2022_PROGRAM_ID,
-            systemProgram:    anchor.web3.SystemProgram.programId,
-          })
-          .preInstructions([
-            anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-            verifyIx,
-          ])
-          .signers([sourceOwnerKeypair])
-          .rpc({ commitment: "confirmed" });
+      await transferProgram.methods
+        .transfer(TRANSFER_AMOUNT)
+        .accountsStrict({
+          sourceOwner,
+          source,
+          destination,
+          mint,
+          transferAuthority,
+          transferHookAuthority,
+          freezeAuthority,
+          extraAccountMetaList,
+          transferHookProgram: transferHookProgram.programId,
+          freezeProgram: freezeProgram.programId,
+          snapshotProgram: snapshotProgram.programId,
+          snapshotCounterPda: sc4,
+          senderSnapshot: ss4,
+          receiverSnapshot: rs4,
+          instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
+        .signers([sourceOwnerKeypair])
+        .rpc({ commitment: "confirmed" });
 
-          assert.fail("Expected Deactivated error but instruction succeeded");
-        } catch (err) {
-          assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-          const anchorErr = err as AnchorError;
-          console.log("  caught error code:  ", anchorErr.error.errorCode.code);
-          console.log("  caught error msg:   ", anchorErr.error.errorMessage);
-          assert.equal(
-            anchorErr.error.errorCode.code,
-            "Deactivated",
-            "error code should be Deactivated"
-          );
-        }
-      });
+      assert.fail("Expected Deactivated error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
+      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
+      assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+    }
+  });
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: succeeds when transfer is within unfrozen balance, then fails with InsufficientUnfrozenBalance when it exceeds it", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
-    const TOTAL_AMOUNT    = new anchor.BN(100 * 10 ** MINT_DECIMALS);
-    const FROZEN_AMOUNT   = new anchor.BN(50  * 10 ** MINT_DECIMALS);
-    const FIRST_TRANSFER  = new anchor.BN(40  * 10 ** MINT_DECIMALS); // 50 available >= 40 ✓
-    const SECOND_TRANSFER = new anchor.BN(20  * 10 ** MINT_DECIMALS); // 10 available < 20  ✗
+    const TOTAL_AMOUNT = new anchor.BN(100 * 10 ** MINT_DECIMALS);
+    const FROZEN_AMOUNT = new anchor.BN(50 * 10 ** MINT_DECIMALS);
+    const FIRST_TRANSFER = new anchor.BN(40 * 10 ** MINT_DECIMALS); // 50 available >= 40 ✓
+    const SECOND_TRANSFER = new anchor.BN(20 * 10 ** MINT_DECIMALS); // 10 available < 20  ✗
 
     // ── Mint 100 tokens to source account (owned by sourceOwner) ─────────────
     const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, TOTAL_AMOUNT);
@@ -1168,8 +1267,13 @@ describe("transfer", () => {
     // ── Create destination token account ──────────────────────────────────────
     const destKeypair = Keypair.generate();
     await createAccount(
-      connection, payerKeypair, mint, destinationOwner, destKeypair,
-      { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID,
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -1184,16 +1288,16 @@ describe("transfer", () => {
     );
 
     // ── Partially freeze 50 tokens ────────────────────────────────────────────
-    const partialFreezeTx = await (freezeProgram as any).methods
+    const partialFreezeTx = await freezeProgram.methods
       .partiallyFreezeAccount(FROZEN_AMOUNT)
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
-        account:          source,
+        account: source,
         deactivatePda,
         frozenBalancePda,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1205,13 +1309,17 @@ describe("transfer", () => {
     console.log("══════════════════════════════════════════════════════════\n");
 
     // ── Transfer 40 tokens — succeeds (available = 100 - 50 = 50 >= 40) ──────
-    const { snapshotCounterPda: sc5, senderSnapshot: ss5, receiverSnapshot: rs5 } = transferSnapshotAccounts(mint, source, destination);
+    const {
+      snapshotCounterPda: sc5,
+      senderSnapshot: ss5,
+      receiverSnapshot: rs5,
+    } = transferSnapshotAccounts(mint, source, destination);
 
     await fundTransferHookAuthority(transferHookAuthority);
     const verifyIx5 = await buildVerifyTransferIx(source, destination, mint, FIRST_TRANSFER);
-    const transferTx = await (transferProgram as any).methods
+    const transferTx = await transferProgram.methods
       .transfer(FIRST_TRANSFER)
-      .accounts({
+      .accountsStrict({
         sourceOwner,
         source,
         destination,
@@ -1228,12 +1336,9 @@ describe("transfer", () => {
         receiverSnapshot: rs5,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
-      .preInstructions([
-        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-        verifyIx5,
-      ])
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx5])
       .signers([sourceOwnerKeypair])
       .rpc({ commitment: "confirmed" });
 
@@ -1241,8 +1346,17 @@ describe("transfer", () => {
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  transfer tx:          ", transferTx);
-    console.log("  Source balance after: ", sourceAfter.toString(), "(raw) — expected", (TOTAL_AMOUNT.toNumber() - FIRST_TRANSFER.toNumber()).toString());
-    console.log("  Available after:      ", (Number(sourceAfter) - FROZEN_AMOUNT.toNumber()).toString(), "(raw) — 10 tokens");
+    console.log(
+      "  Source balance after: ",
+      sourceAfter.toString(),
+      "(raw) — expected",
+      (TOTAL_AMOUNT.toNumber() - FIRST_TRANSFER.toNumber()).toString()
+    );
+    console.log(
+      "  Available after:      ",
+      (Number(sourceAfter) - FROZEN_AMOUNT.toNumber()).toString(),
+      "(raw) — 10 tokens"
+    );
     console.log("══════════════════════════════════════════════════════════\n");
 
     assert.equal(
@@ -1251,15 +1365,14 @@ describe("transfer", () => {
       "source balance should be 60 tokens after transferring 40"
     );
 
-
     // ── Transfer 20 tokens — fails (available = 60 - 50 = 10 < 20) ───────────
     try {
       // verify_transfer runs the InsufficientUnfrozenBalance check on its own.
       const verifyIx = await buildVerifyTransferIx(source, destination, mint, SECOND_TRANSFER);
 
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(SECOND_TRANSFER)
-        .accounts({
+        .accountsStrict({
           sourceOwner,
           source,
           destination,
@@ -1276,12 +1389,9 @@ describe("transfer", () => {
           receiverSnapshot: rs5,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
-        .preInstructions([
-          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          verifyIx,
-        ])
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
@@ -1301,8 +1411,15 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with TransferControlDenied when whitelist mode is active and destination is not whitelisted", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
     // Mint tokens to source before activating whitelist mode
     const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
@@ -1310,8 +1427,13 @@ describe("transfer", () => {
     // Create destination token account
     const destKeypair = Keypair.generate();
     await createAccount(
-      connection, payerKeypair, mint, destinationOwner, destKeypair,
-      { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID,
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -1328,7 +1450,11 @@ describe("transfer", () => {
       [Buffer.from("whitelist"), mint.toBuffer(), source.toBuffer()],
       transferControlProgram.programId
     );
-    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
 
     // Activate whitelist mode
     const setModeTx = await transferControlProgram.methods
@@ -1350,9 +1476,9 @@ describe("transfer", () => {
         deployer,
         mintOwnerPda,
         mint,
-        account:       source,
+        account: source,
         deactivatePda,
-        whitelistPda:  sourceWhitelistPda,
+        whitelistPda: sourceWhitelistPda,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
@@ -1370,9 +1496,9 @@ describe("transfer", () => {
       // verify_transfer runs the TransferControlDenied check on its own.
       const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(TRANSFER_AMOUNT)
-        .accounts({
+        .accountsStrict({
           sourceOwner,
           source,
           destination,
@@ -1389,12 +1515,9 @@ describe("transfer", () => {
           receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
-        .preInstructions([
-          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          verifyIx,
-        ])
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
@@ -1414,8 +1537,15 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with TransferControlDenied when whitelist mode is active and source is not whitelisted", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
     // Mint tokens to source before activating whitelist mode
     const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
@@ -1423,8 +1553,13 @@ describe("transfer", () => {
     // Create destination token account
     const destKeypair = Keypair.generate();
     await createAccount(
-      connection, payerKeypair, mint, destinationOwner, destKeypair,
-      { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID,
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -1441,8 +1576,11 @@ describe("transfer", () => {
       [Buffer.from("whitelist"), mint.toBuffer(), destination.toBuffer()],
       transferControlProgram.programId
     );
-    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
-
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
 
     // Activate whitelist mode
     const setModeTx = await transferControlProgram.methods
@@ -1464,9 +1602,9 @@ describe("transfer", () => {
         deployer,
         mintOwnerPda,
         mint,
-        account:       destination,
+        account: destination,
         deactivatePda,
-        whitelistPda:  destinationWhitelistPda,
+        whitelistPda: destinationWhitelistPda,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
@@ -1484,9 +1622,9 @@ describe("transfer", () => {
       // verify_transfer runs the TransferControlDenied check on its own.
       const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
 
-      await (transferProgram as any).methods
+      await transferProgram.methods
         .transfer(TRANSFER_AMOUNT)
-        .accounts({
+        .accountsStrict({
           sourceOwner,
           source,
           destination,
@@ -1503,12 +1641,9 @@ describe("transfer", () => {
           receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
-        .preInstructions([
-          anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-          verifyIx,
-        ])
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
 
@@ -1528,8 +1663,15 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with TransferControlDenied when clearing mode is active and signer is not the deployer", async () => {
-    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, transferAuthority, extraAccountMetaList, transferHookAuthority } =
-      await deployMint();
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
 
     // Mint tokens to source before activating clearing mode
     const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
@@ -1537,8 +1679,13 @@ describe("transfer", () => {
     // Create destination token account
     const destKeypair = Keypair.generate();
     await createAccount(
-      connection, payerKeypair, mint, destinationOwner, destKeypair,
-      { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID,
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
 
@@ -1552,7 +1699,11 @@ describe("transfer", () => {
       transferControlProgram.programId
     );
 
-    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(mint, source, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
 
     // Activate clearing mode
     const setModeTx = await transferControlProgram.methods
@@ -1589,35 +1740,36 @@ describe("transfer", () => {
     await fundTransferHookAuthority(transferHookAuthority);
 
     const verifyIx = await buildVerifyTransferIx(
-      source, destination, mint, TRANSFER_AMOUNT,
+      source,
+      destination,
+      mint,
+      TRANSFER_AMOUNT,
       undefined,
-      rogueKeypair.publicKey,
+      rogueKeypair.publicKey
     );
-    const deployerIdxInVerify = verifyIx.keys.findIndex(
-      (k: AccountMeta) => k.pubkey.equals(rogueKeypair.publicKey),
-    );
+    const deployerIdxInVerify = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(rogueKeypair.publicKey));
     verifyIx.keys[deployerIdxInVerify].isSigner = true;
 
-    const ix = await (transferProgram as any).methods
+    const ix = await transferProgram.methods
       .transfer(TRANSFER_AMOUNT)
-      .accounts({
+      .accountsStrict({
         sourceOwner,
-          source,
-          destination,
-          mint,
-          transferAuthority,
-          transferHookAuthority,
-          freezeAuthority,
-          extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
-          snapshotCounterPda,
-          senderSnapshot,
-          receiverSnapshot,
-          instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: transferHookProgram.programId,
+        freezeProgram: freezeProgram.programId,
+        snapshotProgram: snapshotProgram.programId,
+        snapshotCounterPda,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .instruction();
 

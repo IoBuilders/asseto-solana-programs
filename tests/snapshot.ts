@@ -1,5 +1,6 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
+import { Snapshot } from "../target/types/snapshot";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 
@@ -7,8 +8,8 @@ describe("snapshot", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const snapshotProgram = anchor.workspace.Snapshot as Program<any>;
-  const deployer        = provider.wallet.publicKey;
+  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
+  const deployer = provider.wallet.publicKey;
 
   // ────────────────────────────────────────────────────────────────────────────
   // `take_snapshot` is auxiliary: only callable via CPI from coupon, with
@@ -18,18 +19,18 @@ describe("snapshot", () => {
     const mint = Keypair.generate().publicKey;
     const [snapshotCounter] = PublicKey.findProgramAddressSync(
       [Buffer.from("snapshot_counter"), mint.toBuffer()],
-      snapshotProgram.programId,
+      snapshotProgram.programId
     );
 
     try {
-      await (snapshotProgram as any).methods
+      await snapshotProgram.methods
         .takeSnapshot()
-        .accounts({
+        .accountsStrict({
           callingAuthority: deployer,
-          payer:            deployer,
+          payer: deployer,
           mint,
           snapshotCounter,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc({ commitment: "confirmed" });
 

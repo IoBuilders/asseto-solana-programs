@@ -5,7 +5,10 @@ pub fn is_caller_pda(caller: &Pubkey, program_seeds: &[&[u8]], program_id: &Pubk
     pda == *caller
 }
 
-pub fn build_pda_signer_seeds<'info>(mut seeds: Vec<&'info [u8]>, bump: &'info u8) -> Vec<&'info [u8]> {
+pub fn build_pda_signer_seeds<'info>(
+    mut seeds: Vec<&'info [u8]>,
+    bump: &'info u8,
+) -> Vec<&'info [u8]> {
     seeds.push(std::slice::from_ref(bump));
     seeds
 }

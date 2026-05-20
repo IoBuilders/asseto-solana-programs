@@ -1,25 +1,24 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
-use solana_system_interface::instruction as system_instruction;
-use common::program_ids as constants;
 use anchor_spl::token_2022::Token2022;
+use common::program_ids as constants;
+use common::{pda_seeds, pda_utils};
+use solana_system_interface::instruction as system_instruction;
+use spl_pod::optional_keys::OptionalNonZeroPubkey;
 use spl_token_2022::{
     extension::{
         default_account_state::instruction::initialize_default_account_state,
         metadata_pointer::instruction::initialize as initialize_metadata_pointer,
         pausable::instruction::initialize as initialize_pausable,
-        transfer_hook::instruction::initialize as initialize_transfer_hook_ext,
-        ExtensionType,
+        transfer_hook::instruction::initialize as initialize_transfer_hook_ext, ExtensionType,
     },
     instruction::{initialize_mint2, initialize_permanent_delegate, set_authority, AuthorityType},
     state::{AccountState, Mint as MintState},
 };
-use spl_pod::optional_keys::OptionalNonZeroPubkey;
 use spl_token_metadata_interface::{
     instruction::{initialize as initialize_token_metadata, update_authority, update_field},
     state::{Field, TokenMetadata},
 };
-use common::{pda_seeds, pda_utils};
 
 use crate::errors::ErrorCode;
 use crate::state::MintOwner;
@@ -77,21 +76,22 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     // metadata) so that the realloc inside initialize_token_metadata succeeds
     // without requiring a separate lamport transfer.
 
-    let base_size =
-        ExtensionType::try_calculate_account_len::<MintState>(&[
-            ExtensionType::PermanentDelegate,
-            ExtensionType::MetadataPointer,
-            ExtensionType::Pausable,
-            ExtensionType::DefaultAccountState,
-            ExtensionType::TransferHook,
-        ])
-        .map_err(|_| error!(ErrorCode::InvalidMintAccountSize))?;
+    let base_size = ExtensionType::try_calculate_account_len::<MintState>(&[
+        ExtensionType::PermanentDelegate,
+        ExtensionType::MetadataPointer,
+        ExtensionType::Pausable,
+        ExtensionType::DefaultAccountState,
+        ExtensionType::TransferHook,
+    ])
+    .map_err(|_| error!(ErrorCode::InvalidMintAccountSize))?;
 
     let metadata_tlv_size = TokenMetadata {
-        name:                params.name.clone(),
-        symbol:              params.symbol.clone(),
-        uri:                 params.uri.clone(),
-        additional_metadata: params.additional_metadata.iter()
+        name: params.name.clone(),
+        symbol: params.symbol.clone(),
+        uri: params.uri.clone(),
+        additional_metadata: params
+            .additional_metadata
+            .iter()
             .map(|f| (f.key.clone(), f.value.clone()))
             .collect(),
         ..Default::default()
@@ -100,7 +100,10 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     .map_err(|_| error!(ErrorCode::InvalidMintAccountSize))?;
 
     // Fund for the full final size, but allocate only base_size bytes.
-    let lamports = ctx.accounts.rent.minimum_balance(base_size + metadata_tlv_size);
+    let lamports = ctx
+        .accounts
+        .rent
+        .minimum_balance(base_size + metadata_tlv_size);
 
     // ── 2. Create mint account ───────────────────────────────────────────────
     invoke(
@@ -126,7 +129,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         &initialize_metadata_pointer(
             &token_program_id,
             &mint_key,
-            None,            // no authority — pointer is permanently locked
+            None, // no authority — pointer is permanently locked
             Some(mint_key),
         )
         .map_err(Error::from)?,
@@ -151,12 +154,8 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     // thawed — tokens are effectively non-transferable without the
     // PermanentDelegate or another compliant mechanism.
     invoke(
-        &initialize_default_account_state(
-            &token_program_id,
-            &mint_key,
-            &AccountState::Frozen,
-        )
-        .map_err(Error::from)?,
+        &initialize_default_account_state(&token_program_id, &mint_key, &AccountState::Frozen)
+            .map_err(Error::from)?,
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
@@ -211,7 +210,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
 
     let temp_mint_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         vec![TEMP_MINT_AUTHORITY_SEED, mint_key.as_ref()],
-        &ctx.bumps.temp_mint_authority
+        &ctx.bumps.temp_mint_authority,
     );
 
     // ── 9. Initialize token metadata — must follow initialize_mint2 ─────────
@@ -223,19 +222,19 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     invoke_signed(
         &initialize_token_metadata(
             &token_program_id,
-            &mint_key,                                              // metadata = mint
-            &ctx.accounts.temp_mint_authority.key(),               // update authority (temp)
-            &mint_key,                                              // mint
-            &ctx.accounts.temp_mint_authority.key(),               // mint authority (signer)
+            &mint_key,                               // metadata = mint
+            &ctx.accounts.temp_mint_authority.key(), // update authority (temp)
+            &mint_key,                               // mint
+            &ctx.accounts.temp_mint_authority.key(), // mint authority (signer)
             params.name,
             params.symbol,
             params.uri,
         ),
         &[
-            ctx.accounts.mint.to_account_info(),                        // metadata (writable)
-            ctx.accounts.temp_mint_authority.to_account_info(),         // update authority
-            ctx.accounts.mint.to_account_info(),                        // mint
-            ctx.accounts.temp_mint_authority.to_account_info(),         // mint authority (signer)
+            ctx.accounts.mint.to_account_info(), // metadata (writable)
+            ctx.accounts.temp_mint_authority.to_account_info(), // update authority
+            ctx.accounts.mint.to_account_info(), // mint
+            ctx.accounts.temp_mint_authority.to_account_info(), // mint authority (signer)
         ],
         &[temp_mint_authority_signer_seeds.as_slice()],
     )?;
@@ -315,7 +314,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     // this call originates from deploy_mint for this specific mint.
     let mint_owner_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::mint_owner_seeds(&mint_key),
-        &ctx.bumps.mint_owner_pda
+        &ctx.bumps.mint_owner_pda,
     );
     transfer_hook::cpi::initialize_extra_account_meta_list(
         CpiContext::new_with_signer(

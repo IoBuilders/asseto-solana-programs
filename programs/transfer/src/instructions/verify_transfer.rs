@@ -3,8 +3,8 @@ use common::{pda_seeds, require_active, verify_deployer};
 use freeze::{require_unfrozen_account, require_unfrozen_balance};
 use transfer_control::{get_transfer_modes, verify_whitelist, TransferMode};
 
-use common::program_ids as constants;
 use crate::errors::TransferError;
+use common::program_ids as constants;
 
 /// Pre-transfer compliance check.
 ///
@@ -27,7 +27,8 @@ pub fn verify_transfer(ctx: Context<VerifyTransfer>, amount: u64) -> Result<()> 
 
     // ── Transfer control mode check ──────────────────────────────────────
     // At least one active mode must be satisfied; if all fail, deny the transfer.
-    let transfer_modes = get_transfer_modes(&ctx.accounts.transfer_control_mode_pda.to_account_info())?;
+    let transfer_modes =
+        get_transfer_modes(&ctx.accounts.transfer_control_mode_pda.to_account_info())?;
     if !transfer_modes.is_empty() {
         let any_passed = transfer_modes.iter().any(|mode| match mode {
             TransferMode::Clearing => check_clearing_mode(&ctx.accounts),
@@ -56,7 +57,8 @@ fn check_clearing_mode(accounts: &VerifyTransfer) -> bool {
         && verify_deployer(
             &accounts.mint_owner_pda.to_account_info(),
             &accounts.deployer.key(),
-        ).is_ok()
+        )
+        .is_ok()
 }
 
 fn check_whitelist_mode(accounts: &VerifyTransfer) -> bool {

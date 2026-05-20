@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
-use common::{pda_seeds, pda_utils};
 use common::program_ids::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGRAM_ID};
+use common::{pda_seeds, pda_utils};
 
 pub mod errors;
 pub mod instructions;
@@ -43,7 +43,10 @@ pub mod freeze {
     /// Records or updates the frozen balance for a token account.
     /// Creates the `frozen_balance_pda` on first call; overwrites `balance` on subsequent calls.
     /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
-    pub fn partially_freeze_account(ctx: Context<PartiallyFreezeAccount>, balance: u64) -> Result<()> {
+    pub fn partially_freeze_account(
+        ctx: Context<PartiallyFreezeAccount>,
+        balance: u64,
+    ) -> Result<()> {
         partially_freeze_account::partially_freeze_account(ctx, balance)
     }
 
@@ -67,9 +70,19 @@ pub(crate) fn assert_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Re
     use crate::errors::ErrorCode;
 
     require!(
-        pda_utils::is_caller_pda(caller, &pda_seeds::mint_authority_seeds(mint_key), &MINT_PROGRAM_ID)
-        || pda_utils::is_caller_pda(caller, &pda_seeds::permanent_delegate_seeds(mint_key), &OPERATIONS_PROGRAM_ID)
-        || pda_utils::is_caller_pda(caller, &pda_seeds::transfer_seeds(mint_key), &TRANSFER_PROGRAM_ID),
+        pda_utils::is_caller_pda(
+            caller,
+            &pda_seeds::mint_authority_seeds(mint_key),
+            &MINT_PROGRAM_ID
+        ) || pda_utils::is_caller_pda(
+            caller,
+            &pda_seeds::permanent_delegate_seeds(mint_key),
+            &OPERATIONS_PROGRAM_ID
+        ) || pda_utils::is_caller_pda(
+            caller,
+            &pda_seeds::transfer_seeds(mint_key),
+            &TRANSFER_PROGRAM_ID
+        ),
         ErrorCode::Unauthorized
     );
     Ok(())

@@ -16,7 +16,6 @@ pub struct TreasuryConfig {
     pub payment_mint_decimals: u8,
 }
 
-
 /// Marker created by `pay_coupon` once a `(coupon_id, holder_token_account)`
 /// pair has been paid. Re-creating it on a second call fails because of `init`
 /// — that's the double-payment guard.
@@ -28,4 +27,3 @@ pub struct CouponPaidMarker {
     pub bump: u8,
     pub amount: u64,
 }
-

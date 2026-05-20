@@ -21,10 +21,7 @@ pub mod bond {
     /// Other on-chain programs read the stored terms by loading the PDA
     /// themselves via `Account<'info, BondTerms>` constrained by
     /// `seeds::program = bond::ID` — no CPI getter is exposed.
-    pub fn update_bond_terms(
-        ctx: Context<UpdateBondTerms>,
-        args: BondTermsArgs,
-    ) -> Result<()> {
+    pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> Result<()> {
         update_bond_terms::update_bond_terms(ctx, args)
     }
 }

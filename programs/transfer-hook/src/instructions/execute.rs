@@ -1,14 +1,12 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::Instruction;
-use solana_instructions_sysvar::{
-    load_current_index_checked, load_instruction_at_checked,
-};
 use common::{pda_seeds, pda_utils};
 use snapshot::cpi::accounts::UpdateHolderBalanceSnapshot;
+use solana_instructions_sysvar::{load_current_index_checked, load_instruction_at_checked};
 
 use crate::constants;
 use crate::errors::TransferHookError;
-use common::program_ids::{TRANSFER_PROGRAM_ID, SNAPSHOT_PROGRAM_ID};
+use common::program_ids::{SNAPSHOT_PROGRAM_ID, TRANSFER_PROGRAM_ID};
 
 /// Called by Token-2022 on every transfer via the SPL Transfer Hook Interface.
 ///
@@ -89,7 +87,7 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
     let transfer_hook_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::transfer_hook_authority_seeds(&mint_key),
-        &ctx.bumps.transfer_hook_authority
+        &ctx.bumps.transfer_hook_authority,
     );
 
     snapshot::cpi::update_holderbalance_snapshot(

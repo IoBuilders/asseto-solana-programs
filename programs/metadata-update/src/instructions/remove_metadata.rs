@@ -1,13 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
-use spl_token_metadata_interface::{
-    instruction::{remove_key},
-};
+use spl_token_metadata_interface::instruction::remove_key;
 
 use common::program_ids as constants;
 use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
-
 
 /// Removes a custom key-value pair from `additional_metadata`.
 ///
@@ -27,9 +24,7 @@ pub fn remove_metadata_field(
     )?;
 
     // ── Verify mint is not paused ───────────────────────────
-    require_not_paused(
-        &ctx.accounts.mint.to_account_info(),
-    )?;
+    require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
@@ -39,7 +34,7 @@ pub fn remove_metadata_field(
 
     let metadata_update_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::metadata_update_authority_seeds(&mint_key),
-        &ctx.bumps.metadata_update_authority
+        &ctx.bumps.metadata_update_authority,
     );
 
     invoke_signed(
@@ -54,7 +49,7 @@ pub fn remove_metadata_field(
             ctx.accounts.mint.to_account_info(),
             ctx.accounts.metadata_update_authority.to_account_info(),
         ],
-         &[metadata_update_signer_seeds.as_slice()],
+        &[metadata_update_signer_seeds.as_slice()],
     )?;
 
     Ok(())

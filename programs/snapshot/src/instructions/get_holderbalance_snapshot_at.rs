@@ -17,7 +17,8 @@ pub fn get_holderbalance_snapshot_at(
     snapshot_id: u64,
 ) -> Result<u64> {
     if !ctx.accounts.holder_balance_snapshot.data_is_empty() {
-        let history = SnapshotHistory::load(&ctx.accounts.holder_balance_snapshot.to_account_info())?;
+        let history =
+            SnapshotHistory::load(&ctx.accounts.holder_balance_snapshot.to_account_info())?;
         if let Some(value) = history.lookup_at_or_above(snapshot_id) {
             return Ok(value);
         }

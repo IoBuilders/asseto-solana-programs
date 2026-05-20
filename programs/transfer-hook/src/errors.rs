@@ -8,7 +8,9 @@ pub enum TransferHookError {
     // ── Introspection: structural ───────────────────────────────────────────
     #[msg("Instructions sysvar could not be read")]
     InstructionsSysvarUnreadable,
-    #[msg("No previous top-level instruction: transfer::verify_transfer must run as instruction N-1")]
+    #[msg(
+        "No previous top-level instruction: transfer::verify_transfer must run as instruction N-1"
+    )]
     NoPreviousInstruction,
 
     // ── Introspection: previous instruction (must be verify_transfer) ───────

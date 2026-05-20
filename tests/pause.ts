@@ -1,50 +1,58 @@
 import * as anchor from "@anchor-lang/core";
-import { AnchorError,Program } from "@anchor-lang/core";
+import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
+import { Mint } from "../target/types/mint";
+import { MetadataUpdate } from "../target/types/metadata_update";
+import { Freeze } from "../target/types/freeze";
+import { Operations } from "../target/types/operations";
+import { Pause } from "../target/types/pause";
+import { Deactivate } from "../target/types/deactivate";
+import { TransferHook } from "../target/types/transfer_hook";
+import { Snapshot } from "../target/types/snapshot";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, getMint, getPausableConfig } from "@solana/spl-token";
 import { assert } from "chai";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
-const MINT_NAME     = "CMTAT Test Token";
-const MINT_SYMBOL   = "CMTAT";
-const MINT_URI      = "https://example.com/metadata.json";
+const MINT_NAME = "CMTAT Test Token";
+const MINT_SYMBOL = "CMTAT";
+const MINT_URI = "https://example.com/metadata.json";
 
 describe("pause", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const deployProgram   = anchor.workspace.Deploy   as Program<Deploy>;
-  const mintProgram     = anchor.workspace.Mint     as Program<any>;
-  const metadataProgram = anchor.workspace.MetadataUpdate as Program<any>;
-  const freezeProgram    = anchor.workspace.Freeze    as Program<any>;
-  const operationsProgram = anchor.workspace.Operations as Program<any>;
-  const pauseProgram    = anchor.workspace.Pause    as Program<any>;
-  const deactivateProgram     = anchor.workspace.Deactivate     as Program<any>;
-  const transferHookProgram   = anchor.workspace.TransferHook   as Program<any>;
-  const snapshotProgram         = anchor.workspace.Snapshot         as Program<any>;
+  const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
+  const mintProgram = anchor.workspace.Mint as Program<Mint>;
+  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
+  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
+  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
+  const pauseProgram = anchor.workspace.Pause as Program<Pause>;
+  const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
+  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
+  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
 
   const connection = provider.connection;
-  const deployer   = provider.wallet.publicKey;
+  const deployer = provider.wallet.publicKey;
 
-  const MINT_AUTHORITY_PROGRAM_ID     = mintProgram.programId;
-  const FREEZE_AUTHORITY_PROGRAM_ID   = freezeProgram.programId;
+  const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
+  const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
   const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
-  const METADATA_UPDATE_PROGRAM_ID    = metadataProgram.programId;
+  const METADATA_UPDATE_PROGRAM_ID = metadataProgram.programId;
   const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
   const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{
-    mint:               PublicKey;
-    mintOwnerPda:       PublicKey;
-    mintAuthority:      PublicKey;
-    freezeAuthority:    PublicKey;
-    pausableAuthority:  PublicKey;
+    mint: PublicKey;
+    mintOwnerPda: PublicKey;
+    mintAuthority: PublicKey;
+    freezeAuthority: PublicKey;
+    pausableAuthority: PublicKey;
   }> {
     const mintKeypair = Keypair.generate();
-    const mint        = mintKeypair.publicKey;
+    const mint = mintKeypair.publicKey;
 
     const [mintOwnerPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("mint_owner"), mint.toBuffer()],
@@ -86,14 +94,14 @@ describe("pause", () => {
 
     const tx = await deployProgram.methods
       .deployMint({
-        decimals:           MINT_DECIMALS,
-        name:               MINT_NAME,
-        symbol:             MINT_SYMBOL,
-        uri:                MINT_URI,
+        decimals: MINT_DECIMALS,
+        name: MINT_NAME,
+        symbol: MINT_SYMBOL,
+        uri: MINT_URI,
         additionalMetadata: [],
       })
-      .accounts({
-        payer:                      deployer,
+      .accountsStrict({
+        payer: deployer,
         deployer,
         mintOwnerPda,
         mint,
@@ -105,10 +113,10 @@ describe("pause", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram:   transferHookProgram.programId,
+        transferHookProgram: transferHookProgram.programId,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
-        rent:             SYSVAR_RENT_PUBKEY,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
       .rpc({ commitment: "confirmed" });
@@ -120,6 +128,10 @@ describe("pause", () => {
   // ── Happy-path test ──────────────────────────────────────────────────────────
   it("pause → unpause: correctly toggles mint pause state", async () => {
     const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
+    const [deactivatePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("deactivate"), mint.toBuffer()],
+      deactivateProgram.programId
+    );
 
     // ── Baseline: mint should NOT be paused after deployment ──────────────────
     const mintInfoInitial = await getMint(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
@@ -143,9 +155,10 @@ describe("pause", () => {
     // ── Step 1: Pause the mint ─────────────────────────────────────────────────
     const pauseTx = await pauseProgram.methods
       .pause()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
+        deactivatePda,
         mint,
         pausableAuthority,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -166,9 +179,10 @@ describe("pause", () => {
     // ── Step 2: Unpause the mint ───────────────────────────────────────────────
     const unpauseTx = await pauseProgram.methods
       .unpause()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
+        deactivatePda,
         mint,
         pausableAuthority,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -189,57 +203,52 @@ describe("pause", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("pause: fails with Deactivated when mint has been deactivated", async () => {
-       const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
-    
-        const [deactivatePda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("deactivate"), mint.toBuffer()],
-          deactivateProgram.programId
-        );
-    
-        // ── Deactivate the mint ────────────────────────────────────────────────
-        const deactivateTx = await deactivateProgram.methods
-          .deactivate()
-          .accounts({
-            deployer,
-            mintOwnerPda,
-            mint,
-            deactivatePda,
-            systemProgram: anchor.web3.SystemProgram.programId,
-          })
-          .rpc({ commitment: "confirmed" });
-    
-    
-        console.log("\n══════════════════════════════════════════════════════════");
-        console.log("  Mint:               ", mint.toBase58());
-        console.log("  Deactivate PDA:     ", deactivatePda.toBase58());
-        console.log("  deactivate tx:      ", deactivateTx);
-        console.log("══════════════════════════════════════════════════════════\n");
-    
-        // ── Mint must now be rejected with Deactivated ─────────────────────────
-        try {
-          await (pauseProgram as any).methods
-            .pause()
-            .accounts({
-              deployer,
-              mintOwnerPda,
-              mint,
-              pausableAuthority,
-              token2022Program: TOKEN_2022_PROGRAM_ID,
-            })
-            .rpc({ commitment: "confirmed" });
-    
-          assert.fail("Expected Deactivated error but instruction succeeded");
-        } catch (err) {
-          assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-          const anchorErr = err as AnchorError;
-          console.log("  caught error code:  ", anchorErr.error.errorCode.code);
-          console.log("  caught error msg:   ", anchorErr.error.errorMessage);
-          assert.equal(
-            anchorErr.error.errorCode.code,
-            "Deactivated",
-            "error code should be Deactivated"
-          );
-        }
-      });
+    const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
 
+    const [deactivatePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("deactivate"), mint.toBuffer()],
+      deactivateProgram.programId
+    );
+
+    // ── Deactivate the mint ────────────────────────────────────────────────
+    const deactivateTx = await deactivateProgram.methods
+      .deactivate()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Mint:               ", mint.toBase58());
+    console.log("  Deactivate PDA:     ", deactivatePda.toBase58());
+    console.log("  deactivate tx:      ", deactivateTx);
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    // ── Mint must now be rejected with Deactivated ─────────────────────────
+    try {
+      await pauseProgram.methods
+        .pause()
+        .accountsStrict({
+          deployer,
+          mintOwnerPda,
+          deactivatePda,
+          mint,
+          pausableAuthority,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        })
+        .rpc({ commitment: "confirmed" });
+
+      assert.fail("Expected Deactivated error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
+      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
+      assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+    }
+  });
 });

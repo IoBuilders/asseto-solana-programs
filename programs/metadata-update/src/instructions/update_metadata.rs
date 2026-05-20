@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{program::invoke_signed, program::invoke};
-use solana_system_interface::instruction as system_instruction;
+use anchor_lang::solana_program::{program::invoke, program::invoke_signed};
 use anchor_spl::token_2022::Token2022;
+use solana_system_interface::instruction as system_instruction;
 use spl_token_2022::{
     extension::{BaseStateWithExtensions, StateWithExtensions},
     state::Mint as MintState,
@@ -12,8 +12,7 @@ use spl_token_metadata_interface::{
 };
 
 use common::program_ids as constants;
-use common::{pda_utils, pda_seeds, require_active, verify_deployer, require_not_paused};
-
+use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 
 /// Converts a plain string key into the typed `Field` enum.
 /// "name", "symbol", "uri" map to their dedicated variants;
@@ -44,9 +43,9 @@ fn packed_meta_size(meta: &TokenMetadata) -> usize {
 fn new_packed_meta_size(meta: &TokenMetadata, field: &Field, new_value: &str) -> usize {
     let base = packed_meta_size(meta);
     match field {
-        Field::Name   => base - meta.name.len()   + new_value.len(),
+        Field::Name => base - meta.name.len() + new_value.len(),
         Field::Symbol => base - meta.symbol.len() + new_value.len(),
-        Field::Uri    => base - meta.uri.len()    + new_value.len(),
+        Field::Uri => base - meta.uri.len() + new_value.len(),
         Field::Key(k) => {
             if let Some((_, old_val)) = meta.additional_metadata.iter().find(|(key, _)| key == k) {
                 base - old_val.len() + new_value.len()
@@ -89,8 +88,8 @@ pub fn update_metadata_field(
     // ── Compute and transfer any additional rent before the CPI ─────────────
     let additional_lamports = {
         let mint_data = ctx.accounts.mint.try_borrow_data()?;
-        let mint_state = StateWithExtensions::<MintState>::unpack(&mint_data)
-            .map_err(Error::from)?;
+        let mint_state =
+            StateWithExtensions::<MintState>::unpack(&mint_data).map_err(Error::from)?;
         let meta = mint_state
             .get_variable_len_extension::<TokenMetadata>()
             .map_err(Error::from)?;
@@ -99,8 +98,7 @@ pub fn update_metadata_field(
         let new_size = new_packed_meta_size(&meta, &field, &value);
 
         if new_size > old_size {
-            let new_rent =
-                Rent::get()?.minimum_balance(mint_data.len() + new_size - old_size);
+            let new_rent = Rent::get()?.minimum_balance(mint_data.len() + new_size - old_size);
             new_rent.saturating_sub(ctx.accounts.mint.lamports())
         } else {
             0
@@ -109,11 +107,7 @@ pub fn update_metadata_field(
 
     if additional_lamports > 0 {
         invoke(
-            &system_instruction::transfer(
-                ctx.accounts.payer.key,
-                &mint_key,
-                additional_lamports,
-            ),
+            &system_instruction::transfer(ctx.accounts.payer.key, &mint_key, additional_lamports),
             &[
                 ctx.accounts.payer.to_account_info(),
                 ctx.accounts.mint.to_account_info(),
@@ -125,7 +119,7 @@ pub fn update_metadata_field(
     // ── CPI: update_field ────────────────────────────────────────────────────
     let metadata_update_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::metadata_update_authority_seeds(&mint_key),
-        &ctx.bumps.metadata_update_authority
+        &ctx.bumps.metadata_update_authority,
     );
 
     invoke_signed(

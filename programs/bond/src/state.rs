@@ -41,7 +41,6 @@ pub struct BondTerms {
     pub day_count_convention: DayCountConvention,
 }
 
-
 /// Args struct passed to `update_bond_terms` — mirrors `BondTerms` minus the
 /// `bump` field, which the program manages itself.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]

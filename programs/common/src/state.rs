@@ -22,4 +22,3 @@ pub struct MintOwner {
     /// Canonical bump for this PDA — saved to spare a find_program_address call.
     pub bump: u8,
 }
-

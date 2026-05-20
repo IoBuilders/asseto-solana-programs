@@ -2,6 +2,12 @@ import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { MetadataUpdate } from "../target/types/metadata_update";
+import { Mint } from "../target/types/mint";
+import { Freeze } from "../target/types/freeze";
+import { Operations } from "../target/types/operations";
+import { Pause } from "../target/types/pause";
+import { TransferHook } from "../target/types/transfer_hook";
+import { Snapshot } from "../target/types/snapshot";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
@@ -16,29 +22,28 @@ import {
 import { assert } from "chai";
 
 // ── Test mint parameters ───────────────────────────────────────────────────────
-const MINT_DECIMALS    = 6;
-const MINT_NAME        = "CMTAT Test Token";
-const MINT_SYMBOL      = "CMTAT";
-const MINT_URI         = "https://example.com/metadata.json";
-const MINT_ISIN_KEY    = "isin";
-const MINT_ISIN_VALUE  = "CH0012221716";
+const MINT_DECIMALS = 6;
+const MINT_NAME = "CMTAT Test Token";
+const MINT_SYMBOL = "CMTAT";
+const MINT_URI = "https://example.com/metadata.json";
+const MINT_ISIN_KEY = "isin";
+const MINT_ISIN_VALUE = "CH0012221716";
 
 // ── Program IDs sourced from workspace (mirrors constants.rs in deploy) ──
-const mintProgram           = anchor.workspace.Mint           as Program<any>;
+const mintProgram = anchor.workspace.Mint as Program<Mint>;
 const metadataUpdateProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
-const freezeProgram          = anchor.workspace.Freeze          as Program<any>;
-const operationsProgram     = anchor.workspace.Operations     as Program<any>;
-const pauseProgram          = anchor.workspace.Pause          as Program<any>;
-const transferHookProgram   = anchor.workspace.TransferHook   as Program<any>;
-const snapshotProgram           = anchor.workspace.Snapshot           as Program<any>;
+const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
+const operationsProgram = anchor.workspace.Operations as Program<Operations>;
+const pauseProgram = anchor.workspace.Pause as Program<Pause>;
+const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
+const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
 
-const MINT_AUTHORITY_PROGRAM_ID            = mintProgram.programId;
+const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
 const METADATA_UPDATE_AUTHORITY_PROGRAM_ID = metadataUpdateProgram.programId;
-const FREEZE_AUTHORITY_PROGRAM_ID          = freezeProgram.programId;
-const PERMANENT_DELEGATE_PROGRAM_ID        = operationsProgram.programId;
-const PAUSABLE_AUTHORITY_PROGRAM_ID        = pauseProgram.programId;
+const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
+const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
+const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
 const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
-
 
 describe("deploy", () => {
   const provider = anchor.AnchorProvider.env();
@@ -122,7 +127,7 @@ describe("deploy", () => {
         uri: MINT_URI,
         additionalMetadata: [{ key: MINT_ISIN_KEY, value: MINT_ISIN_VALUE }],
       })
-      .accounts({
+      .accountsStrict({
         payer: provider.wallet.publicKey,
         deployer,
         mintOwnerPda,
@@ -135,7 +140,7 @@ describe("deploy", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram:   transferHookProgram.programId,
+        transferHookProgram: transferHookProgram.programId,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         systemProgram: anchor.web3.SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
@@ -146,12 +151,7 @@ describe("deploy", () => {
     console.log("  Transaction signature:", tx);
 
     // ── Read back mint account ─────────────────────────────────────────────────
-    const mintInfo = await getMint(
-      connection,
-      mint,
-      "confirmed",
-      TOKEN_2022_PROGRAM_ID
-    );
+    const mintInfo = await getMint(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
 
     // ── Read back mint owner PDA ───────────────────────────────────────────────
     const mintOwnerAccount = await program.account.mintOwner.fetch(mintOwnerPda, "confirmed");
@@ -161,14 +161,8 @@ describe("deploy", () => {
     console.log("  address:          ", mintInfo.address.toBase58());
     console.log("  decimals:         ", mintInfo.decimals);
     console.log("  supply:           ", mintInfo.supply.toString());
-    console.log(
-      "  mintAuthority:    ",
-      mintInfo.mintAuthority?.toBase58() ?? "null"
-    );
-    console.log(
-      "  freezeAuthority:  ",
-      mintInfo.freezeAuthority?.toBase58() ?? "null"
-    );
+    console.log("  mintAuthority:    ", mintInfo.mintAuthority?.toBase58() ?? "null");
+    console.log("  freezeAuthority:  ", mintInfo.freezeAuthority?.toBase58() ?? "null");
     console.log("  isInitialized:    ", mintInfo.isInitialized);
 
     // ── Print extensions ───────────────────────────────────────────────────────
@@ -176,48 +170,33 @@ describe("deploy", () => {
 
     const metadataPointerState = getMetadataPointerState(mintInfo);
     console.log("  MetadataPointer:");
-    console.log(
-      "    authority:       ",
-      metadataPointerState?.authority?.toBase58() ?? "null"
-    );
-    console.log(
-      "    metadataAddress: ",
-      metadataPointerState?.metadataAddress?.toBase58() ?? "null"
-    );
+    console.log("    authority:       ", metadataPointerState?.authority?.toBase58() ?? "null");
+    console.log("    metadataAddress: ", metadataPointerState?.metadataAddress?.toBase58() ?? "null");
 
     const permanentDelegateState = getPermanentDelegate(mintInfo);
     console.log("  PermanentDelegate:");
-    console.log(
-      "    delegate:        ",
-      permanentDelegateState?.delegate?.toBase58() ?? "null"
-    );
+    console.log("    delegate:        ", permanentDelegateState?.delegate?.toBase58() ?? "null");
 
     const defaultAccountState = getDefaultAccountState(mintInfo);
     console.log("  DefaultAccountState:");
-    console.log("    state:           ", defaultAccountState.state === AccountState.Frozen ? "Frozen" : defaultAccountState.state);
+    console.log(
+      "    state:           ",
+      defaultAccountState.state === AccountState.Frozen ? "Frozen" : defaultAccountState.state
+    );
 
     const pausableState = getPausableConfig(mintInfo);
     console.log("  Pausable:");
-    console.log(
-      "    authority:       ",
-      pausableState?.authority?.toBase58() ?? "null"
-    );
+    console.log("    authority:       ", pausableState?.authority?.toBase58() ?? "null");
 
     // ── Print token metadata ───────────────────────────────────────────────────
     const metadata = await getTokenMetadata(connection, mint);
     console.log("\n── Token Metadata ─────────────────────────────────────────");
     console.log("  mint:             ", metadata?.mint.toBase58());
-    console.log(
-      "  updateAuthority:  ",
-      metadata?.updateAuthority?.toBase58() ?? "null"
-    );
+    console.log("  updateAuthority:  ", metadata?.updateAuthority?.toBase58() ?? "null");
     console.log("  name:             ", metadata?.name);
     console.log("  symbol:           ", metadata?.symbol);
     console.log("  uri:              ", metadata?.uri);
-    console.log(
-      "  additionalMetadata:",
-      metadata?.additionalMetadata ?? []
-    );
+    console.log("  additionalMetadata:", metadata?.additionalMetadata ?? []);
 
     // ── Print mint owner PDA ───────────────────────────────────────────────────
     console.log("\n── Mint Owner PDA ─────────────────────────────────────────");
@@ -247,10 +226,7 @@ describe("deploy", () => {
       mint.toBase58(),
       "metadata should point to the mint itself"
     );
-    assert.isNull(
-      metadataPointerState?.authority ?? null,
-      "metadata pointer authority should be null (immutable)"
-    );
+    assert.isNull(metadataPointerState?.authority ?? null, "metadata pointer authority should be null (immutable)");
 
     // ── Assertions: PermanentDelegate ─────────────────────────────────────────
     assert.equal(
@@ -260,18 +236,10 @@ describe("deploy", () => {
     );
 
     // ── Assertions: DefaultAccountState ───────────────────────────────────────
-    assert.equal(
-      defaultAccountState.state,
-      AccountState.Frozen,
-      "default account state should be Frozen"
-    );
+    assert.equal(defaultAccountState.state, AccountState.Frozen, "default account state should be Frozen");
 
     // ── Assertions: Pausable ───────────────────────────────────────────────────
-    assert.equal(
-      pausableState?.authority?.toBase58(),
-      pausableAuthority.toBase58(),
-      "pausable authority mismatch"
-    );
+    assert.equal(pausableState?.authority?.toBase58(), pausableAuthority.toBase58(), "pausable authority mismatch");
 
     // ── Assertions: Token metadata ─────────────────────────────────────────────
     assert.equal(metadata?.name, MINT_NAME);
@@ -299,10 +267,6 @@ describe("deploy", () => {
       [Buffer.from("mint_owner"), mint.toBuffer()],
       program.programId
     );
-    assert.equal(
-      mintOwnerAccount.bump,
-      expectedBump,
-      "stored bump should match the canonical PDA bump"
-    );
+    assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
   });
 });

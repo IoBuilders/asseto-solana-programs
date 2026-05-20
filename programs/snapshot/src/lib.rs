@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
+use common::program_ids::{
+    COUPON_PROGRAM_ID, MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID,
+};
 use common::{pda_seeds, pda_utils};
-use common::program_ids::{COUPON_PROGRAM_ID, MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID};
 
 pub mod errors;
 pub mod instructions;
@@ -53,7 +55,10 @@ pub mod snapshot {
 /// Asserts that `caller` is the `coupon_authority` PDA owned by `coupon`
 /// (seeds: `["coupon_authority", mint]`). Sole authorised caller of
 /// `take_snapshot`.
-pub(crate) fn assert_take_snapshot_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
+pub(crate) fn assert_take_snapshot_authorized_caller(
+    mint_key: &Pubkey,
+    caller: &Pubkey,
+) -> Result<()> {
     use crate::errors::ErrorCode;
 
     let (expected, _) = Pubkey::find_program_address(
@@ -68,12 +73,22 @@ pub(crate) fn assert_take_snapshot_authorized_caller(mint_key: &Pubkey, caller: 
 /// `update_totalsupply_snapshot`:
 ///   - `mint_authority`     (mint,       seeds: `["mint_authority",     mint]`)
 ///   - `permanent_delegate` (operations,  seeds: `["permanent_delegate", mint]`)
-pub(crate) fn assert_total_supply_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
+pub(crate) fn assert_total_supply_authorized_caller(
+    mint_key: &Pubkey,
+    caller: &Pubkey,
+) -> Result<()> {
     use crate::errors::ErrorCode;
 
     require!(
-        pda_utils::is_caller_pda(caller, &pda_seeds::mint_authority_seeds(mint_key), &MINT_PROGRAM_ID)
-        || pda_utils::is_caller_pda(caller, &pda_seeds::permanent_delegate_seeds(mint_key), &OPERATIONS_PROGRAM_ID),
+        pda_utils::is_caller_pda(
+            caller,
+            &pda_seeds::mint_authority_seeds(mint_key),
+            &MINT_PROGRAM_ID
+        ) || pda_utils::is_caller_pda(
+            caller,
+            &pda_seeds::permanent_delegate_seeds(mint_key),
+            &OPERATIONS_PROGRAM_ID
+        ),
         ErrorCode::Unauthorized
     );
     Ok(())
@@ -84,13 +99,26 @@ pub(crate) fn assert_total_supply_authorized_caller(mint_key: &Pubkey, caller: &
 ///   - `mint_authority`     (mint,       seeds: `["mint_authority",     mint]`)
 ///   - `permanent_delegate` (operations,  seeds: `["permanent_delegate", mint]`)
 ///   - `transfer_hook_authority` (transfer,   seeds: `["transfer_hook_authority",           mint]`)
-pub(crate) fn assert_holder_balance_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
+pub(crate) fn assert_holder_balance_authorized_caller(
+    mint_key: &Pubkey,
+    caller: &Pubkey,
+) -> Result<()> {
     use crate::errors::ErrorCode;
 
     require!(
-        pda_utils::is_caller_pda(caller, &pda_seeds::mint_authority_seeds(mint_key), &MINT_PROGRAM_ID)
-        || pda_utils::is_caller_pda(caller, &pda_seeds::permanent_delegate_seeds(mint_key), &OPERATIONS_PROGRAM_ID)
-        || pda_utils::is_caller_pda(caller, &pda_seeds::transfer_hook_authority_seeds(mint_key), &TRANSFER_HOOK_PROGRAM_ID),
+        pda_utils::is_caller_pda(
+            caller,
+            &pda_seeds::mint_authority_seeds(mint_key),
+            &MINT_PROGRAM_ID
+        ) || pda_utils::is_caller_pda(
+            caller,
+            &pda_seeds::permanent_delegate_seeds(mint_key),
+            &OPERATIONS_PROGRAM_ID
+        ) || pda_utils::is_caller_pda(
+            caller,
+            &pda_seeds::transfer_hook_authority_seeds(mint_key),
+            &TRANSFER_HOOK_PROGRAM_ID
+        ),
         ErrorCode::Unauthorized
     );
     Ok(())

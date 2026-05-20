@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
-use common::{pda_seeds, require_active, verify_deployer, require_not_paused};
+use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
-use common::program_ids as constants;
 use crate::state::FrozenAccountStatus;
+use common::program_ids as constants;
 
 /// Unfreezes a specific token account at the management level by closing
 /// the frozen account marker PDA previously created by `freeze_account`.

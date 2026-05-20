@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
-use solana_system_interface::instruction as system_instruction;
 use common::{pda_seeds, pda_utils};
+use solana_system_interface::instruction as system_instruction;
 use spl_token_2022::extension::StateWithExtensions;
 use spl_token_2022::state::Account as TokenAccount;
 
@@ -76,7 +76,7 @@ pub fn update_holderbalance_snapshot(
         let lamports = Rent::get()?.minimum_balance(space);
         let holder_balance_signer_seeds = pda_utils::build_pda_signer_seeds(
             pda_seeds::snapshot_holderbalance_seeds(&mint_key, &token_account_key),
-            &bump
+            &bump,
         );
         invoke_signed(
             &system_instruction::create_account(
@@ -96,7 +96,10 @@ pub fn update_holderbalance_snapshot(
 
         let history = SnapshotHistory {
             bump,
-            entries: vec![SnapshotEntry { key: current_snapshot, value: holder_balance }],
+            entries: vec![SnapshotEntry {
+                key: current_snapshot,
+                value: holder_balance,
+            }],
         };
         history.store(&ctx.accounts.holder_balance_snapshot.to_account_info())?;
 
@@ -106,8 +109,12 @@ pub fn update_holderbalance_snapshot(
     // ── PDA exists — deserialize and append the new entry ─────────────────────
     // Callers are responsible for ensuring each key is strictly greater than the
     // previously recorded one; no idempotency or ordering check is done here.
-    let mut history = SnapshotHistory::load(&ctx.accounts.holder_balance_snapshot.to_account_info())?;
-    history.entries.push(SnapshotEntry { key: current_snapshot, value: holder_balance });
+    let mut history =
+        SnapshotHistory::load(&ctx.accounts.holder_balance_snapshot.to_account_info())?;
+    history.entries.push(SnapshotEntry {
+        key: current_snapshot,
+        value: holder_balance,
+    });
 
     // ── Grow the account to fit the new entry ─────────────────────────────────
     let new_space = SnapshotHistory::len_for(history.entries.len());

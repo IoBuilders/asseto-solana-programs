@@ -7,4 +7,3 @@ use anchor_lang::prelude::*;
 pub struct DeactivateStatus {
     pub bump: u8,
 }
-

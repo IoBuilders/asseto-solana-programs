@@ -1,15 +1,13 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{
-    self, Mint, TokenAccount, TokenInterface, TransferChecked,
-};
+use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 use bond::state::{BondTerms, DayCountConvention};
 use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 use coupon::state::Coupon;
 use snapshot::cpi::accounts::GetHolderBalanceSnapshotAt;
 
-use common::program_ids as constants;
 use crate::errors::ErrorCode;
 use crate::state::{CouponPaidMarker, TreasuryConfig};
+use common::program_ids as constants;
 
 /// Computes and pays the coupon to a single holder.
 ///
@@ -100,11 +98,10 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
 
     // Collapse all four 10^… factors into a single signed exponent.
     // i32 is wide enough: each input is u8, so the sum is bounded by 4·255 = 1020.
-    let bond_mint_dec    = ctx.accounts.mint.decimals;
+    let bond_mint_dec = ctx.accounts.mint.decimals;
     let payment_mint_dec = ctx.accounts.treasury_config.payment_mint_decimals;
-    let positive_decs: i32 = bond.interest_rate_decimals as i32
-        + bond_mint_dec as i32
-        + bond.par_value_decimals as i32;
+    let positive_decs: i32 =
+        bond.interest_rate_decimals as i32 + bond_mint_dec as i32 + bond.par_value_decimals as i32;
     let net_power: i32 = payment_mint_dec as i32 - positive_decs;
 
     // Base numerator: interest_rate × holder_balance × par_value × elapsed_seconds.
@@ -142,7 +139,7 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
     let treasury_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::treasury_authority_seeds(&mint_key),
-        &ctx.bumps.treasury_authority
+        &ctx.bumps.treasury_authority,
     );
 
     token_interface::transfer_checked(

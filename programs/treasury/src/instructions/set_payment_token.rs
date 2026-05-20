@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
-use common::program_ids as constants;
 use crate::state::TreasuryConfig;
+use common::program_ids as constants;
 
 /// Stores `payment_mint`'s pubkey and decimals in `treasury_config` (creating
 /// the PDA on the first call). The payment mint may be owned by either

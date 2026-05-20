@@ -2,14 +2,12 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::AccountMeta;
 use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token_2022::Token2022;
-use spl_token_2022::{
-    extension::StateWithExtensions,
-    instruction::transfer_checked,
-    state::Mint as MintState,
-};
-use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use common::{pda_utils, pda_seeds};
 use common::program_ids as constants;
+use common::{pda_seeds, pda_utils};
+use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
+use spl_token_2022::{
+    extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
+};
 
 /// Transfers `amount` tokens from `source` to `destination`.
 ///
@@ -25,8 +23,8 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     // ── Read mint decimals ───────────────────────────────────────────────────
     let decimals = {
         let mint_data = ctx.accounts.mint.try_borrow_data()?;
-        let mint_state = StateWithExtensions::<MintState>::unpack(&mint_data)
-            .map_err(Error::from)?;
+        let mint_state =
+            StateWithExtensions::<MintState>::unpack(&mint_data).map_err(Error::from)?;
         mint_state.base.decimals
     };
 
@@ -35,37 +33,33 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
 
     let transfer_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::transfer_seeds(&mint_key),
-        &ctx.bumps.transfer_authority
+        &ctx.bumps.transfer_authority,
     );
 
     // ── 1. Unblock source and destination (CPI to freeze) ─────────────
-    freeze::cpi::unblock_account(
-        CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            UnblockAccount {
-                calling_authority: ctx.accounts.transfer_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: ctx.accounts.source.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[transfer_authority_signer_seeds.as_slice()],
-        ),
-    )?;
+    freeze::cpi::unblock_account(CpiContext::new_with_signer(
+        constants::FREEZE_PROGRAM_ID,
+        UnblockAccount {
+            calling_authority: ctx.accounts.transfer_authority.to_account_info(),
+            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            token_account: ctx.accounts.source.to_account_info(),
+            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
+        },
+        &[transfer_authority_signer_seeds.as_slice()],
+    ))?;
 
-    freeze::cpi::unblock_account(
-        CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            UnblockAccount {
-                calling_authority: ctx.accounts.transfer_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: ctx.accounts.destination.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[transfer_authority_signer_seeds.as_slice()],
-        ),
-    )?;
+    freeze::cpi::unblock_account(CpiContext::new_with_signer(
+        constants::FREEZE_PROGRAM_ID,
+        UnblockAccount {
+            calling_authority: ctx.accounts.transfer_authority.to_account_info(),
+            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            token_account: ctx.accounts.destination.to_account_info(),
+            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
+        },
+        &[transfer_authority_signer_seeds.as_slice()],
+    ))?;
 
     // ── 2. Transfer ─────────────────────────────────────────────────────────
     //
@@ -95,13 +89,33 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         false,
     ));
     // Extras from the ExtraAccountMetaList (hook indices 5..=11).
-    transfer_ix.accounts.push(AccountMeta::new_readonly(ctx.accounts.snapshot_program.key(), false));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(ctx.accounts.snapshot_counter_pda.key(), false));
-    transfer_ix.accounts.push(AccountMeta::new(ctx.accounts.sender_snapshot.key(), false));
-    transfer_ix.accounts.push(AccountMeta::new(ctx.accounts.receiver_snapshot.key(), false));
-    transfer_ix.accounts.push(AccountMeta::new(ctx.accounts.transfer_hook_authority.key(), false));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(ctx.accounts.system_program.key(), false));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(ctx.accounts.instructions_sysvar.key(), false));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(
+        ctx.accounts.snapshot_program.key(),
+        false,
+    ));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(
+        ctx.accounts.snapshot_counter_pda.key(),
+        false,
+    ));
+    transfer_ix
+        .accounts
+        .push(AccountMeta::new(ctx.accounts.sender_snapshot.key(), false));
+    transfer_ix.accounts.push(AccountMeta::new(
+        ctx.accounts.receiver_snapshot.key(),
+        false,
+    ));
+    transfer_ix.accounts.push(AccountMeta::new(
+        ctx.accounts.transfer_hook_authority.key(),
+        false,
+    ));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(
+        ctx.accounts.system_program.key(),
+        false,
+    ));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(
+        ctx.accounts.instructions_sysvar.key(),
+        false,
+    ));
 
     invoke(
         &transfer_ix,
@@ -123,33 +137,29 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     )?;
 
     // ── 3. Re-block source and destination (CPI to freeze) ────────────
-    freeze::cpi::block_account(
-        CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            BlockAccount {
-                calling_authority: ctx.accounts.transfer_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: ctx.accounts.source.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[transfer_authority_signer_seeds.as_slice()],
-        ),
-    )?;
+    freeze::cpi::block_account(CpiContext::new_with_signer(
+        constants::FREEZE_PROGRAM_ID,
+        BlockAccount {
+            calling_authority: ctx.accounts.transfer_authority.to_account_info(),
+            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            token_account: ctx.accounts.source.to_account_info(),
+            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
+        },
+        &[transfer_authority_signer_seeds.as_slice()],
+    ))?;
 
-    freeze::cpi::block_account(
-        CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            BlockAccount {
-                calling_authority: ctx.accounts.transfer_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: ctx.accounts.destination.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[transfer_authority_signer_seeds.as_slice()],
-        ),
-    )?;
+    freeze::cpi::block_account(CpiContext::new_with_signer(
+        constants::FREEZE_PROGRAM_ID,
+        BlockAccount {
+            calling_authority: ctx.accounts.transfer_authority.to_account_info(),
+            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            token_account: ctx.accounts.destination.to_account_info(),
+            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
+        },
+        &[transfer_authority_signer_seeds.as_slice()],
+    ))?;
 
     Ok(())
 }

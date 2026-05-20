@@ -3,24 +3,28 @@ import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { Mint } from "../target/types/mint";
 import { Keypair, PublicKey, SendTransactionError, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import {
-  TOKEN_2022_PROGRAM_ID,
-  createAccount,
-  getAccount,
-} from "@solana/spl-token";
+import { TOKEN_2022_PROGRAM_ID, createAccount, getAccount } from "@solana/spl-token";
 import { assert } from "chai";
 import { TransferControl } from "../target/types/transfer_control";
+import { MetadataUpdate } from "../target/types/metadata_update";
+import { Freeze } from "../target/types/freeze";
+import { Operations } from "../target/types/operations";
+import { Pause } from "../target/types/pause";
+import { Deactivate } from "../target/types/deactivate";
+import { TransferHook } from "../target/types/transfer_hook";
+import { Snapshot } from "../target/types/snapshot";
+import { Coupon } from "../target/types/coupon";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
-const MINT_NAME     = "CMTAT Test Token";
-const MINT_SYMBOL   = "CMTAT";
-const MINT_URI      = "https://example.com/metadata.json";
+const MINT_NAME = "CMTAT Test Token";
+const MINT_SYMBOL = "CMTAT";
+const MINT_URI = "https://example.com/metadata.json";
 
 const MINT_AMOUNT = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
 
-const operationsProgram             = anchor.workspace.Operations as Program<any>;
-const pauseProgram                  = anchor.workspace.Pause      as Program<any>;
+const operationsProgram = anchor.workspace.Operations as Program<Operations>;
+const pauseProgram = anchor.workspace.Pause as Program<Pause>;
 const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
 const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
 
@@ -30,33 +34,33 @@ describe("mint", () => {
 
   // All programs cast to `any` to avoid Anchor 0.32's strict ResolvedAccounts
   // type excluding seeded/auto-derivable accounts from the explicit accounts map.
-  const deployProgram          = anchor.workspace.Deploy          as Program<Deploy>;
-  const mintProgram            = anchor.workspace.Mint            as Program<Mint>;
-  const metadataUpdateProgram  = anchor.workspace.MetadataUpdate  as Program<any>;
-  const freezeProgram          = anchor.workspace.Freeze          as Program<any>;
-  const deactivateProgram      = anchor.workspace.Deactivate      as Program<any>;
+  const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
+  const mintProgram = anchor.workspace.Mint as Program<Mint>;
+  const metadataUpdateProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
+  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
+  const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
   const transferControlProgram = anchor.workspace.TransferControl as Program<TransferControl>;
-  const transferHookProgram    = anchor.workspace.TransferHook    as Program<any>;
-  const snapshotProgram        = anchor.workspace.Snapshot        as Program<any>;
-  const couponProgram          = anchor.workspace.Coupon          as Program<any>;
-  const connection  = provider.connection;
-  const deployer    = provider.wallet.publicKey;
+  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
+  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
+  const couponProgram = anchor.workspace.Coupon as Program<Coupon>;
+  const connection = provider.connection;
+  const deployer = provider.wallet.publicKey;
 
-  const MINT_AUTHORITY_PROGRAM_ID            = mintProgram.programId;
+  const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
   const METADATA_UPDATE_AUTHORITY_PROGRAM_ID = metadataUpdateProgram.programId;
-  const FREEZE_AUTHORITY_PROGRAM_ID          = freezeProgram.programId;
+  const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
   const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
   // ── Helper: deploy a fresh mint ────────────────────────────────────────────
   async function deployMint(): Promise<{
-    mint:              PublicKey;
-    mintOwnerPda:      PublicKey;
-    mintAuthority:     PublicKey;
-    freezeAuthority:   PublicKey;
+    mint: PublicKey;
+    mintOwnerPda: PublicKey;
+    mintAuthority: PublicKey;
+    freezeAuthority: PublicKey;
     pausableAuthority: PublicKey;
   }> {
     const mintKeypair = Keypair.generate();
-    const mint        = mintKeypair.publicKey;
+    const mint = mintKeypair.publicKey;
 
     const [mintOwnerPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("mint_owner"), mint.toBuffer()],
@@ -95,16 +99,16 @@ describe("mint", () => {
       transferHookProgram.programId
     );
 
-    const tx = await (deployProgram as any).methods
+    const tx = await deployProgram.methods
       .deployMint({
-        decimals:           MINT_DECIMALS,
-        name:               MINT_NAME,
-        symbol:             MINT_SYMBOL,
-        uri:                MINT_URI,
+        decimals: MINT_DECIMALS,
+        name: MINT_NAME,
+        symbol: MINT_SYMBOL,
+        uri: MINT_URI,
         additionalMetadata: [],
       })
-      .accounts({
-        payer:                      deployer,
+      .accountsStrict({
+        payer: deployer,
         deployer,
         mintOwnerPda,
         mint,
@@ -116,10 +120,10 @@ describe("mint", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram:   transferHookProgram.programId,
-        token2022Program:           TOKEN_2022_PROGRAM_ID,
-        systemProgram:              anchor.web3.SystemProgram.programId,
-        rent:                       SYSVAR_RENT_PUBKEY,
+        transferHookProgram: transferHookProgram.programId,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
       .rpc({ commitment: "confirmed" });
@@ -130,11 +134,14 @@ describe("mint", () => {
 
   // ── Helper: all snapshot-related PDAs for a given mint ─────────────────────
   // Returns bumps too so assertions can verify them.
-  function snapshotAccounts(mint: PublicKey, holderTokenAccount: PublicKey): {
-    snapshotCounterPda:        PublicKey;
-    totalSupplySnapshot:       PublicKey;
-    totalSupplySnapshotBump:   number;
-    holderBalanceSnapshot:     PublicKey;
+  function snapshotAccounts(
+    mint: PublicKey,
+    holderTokenAccount: PublicKey
+  ): {
+    snapshotCounterPda: PublicKey;
+    totalSupplySnapshot: PublicKey;
+    totalSupplySnapshotBump: number;
+    holderBalanceSnapshot: PublicKey;
     holderBalanceSnapshotBump: number;
   } {
     const [snapshotCounterPda] = PublicKey.findProgramAddressSync(
@@ -149,13 +156,22 @@ describe("mint", () => {
       [Buffer.from("snapshot_holderbalance"), mint.toBuffer(), holderTokenAccount.toBuffer()],
       snapshotProgram.programId
     );
-    return { snapshotCounterPda, totalSupplySnapshot, totalSupplySnapshotBump, holderBalanceSnapshot, holderBalanceSnapshotBump };
+    return {
+      snapshotCounterPda,
+      totalSupplySnapshot,
+      totalSupplySnapshotBump,
+      holderBalanceSnapshot,
+      holderBalanceSnapshotBump,
+    };
   }
 
   // ── Helper: deterministic non-snapshot PDAs for a mint + destination pair ──
-  function mintPdas(mint: PublicKey, destination: PublicKey): {
-    deactivatePda:           PublicKey;
-    transferControlModePda:  PublicKey;
+  function mintPdas(
+    mint: PublicKey,
+    destination: PublicKey
+  ): {
+    deactivatePda: PublicKey;
+    transferControlModePda: PublicKey;
     destinationWhitelistPda: PublicKey;
   } {
     const [deactivatePda] = PublicKey.findProgramAddressSync(
@@ -178,8 +194,16 @@ describe("mint", () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority } = await deployMint();
 
     const destinationKeypair = Keypair.generate();
-    const payerKeypair       = (provider.wallet as any).payer as Keypair;
-    await createAccount(connection, payerKeypair, mint, deployer, destinationKeypair, { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID);
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      deployer,
+      destinationKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
     const destination = destinationKeypair.publicKey;
 
     const accountBefore = await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID);
@@ -195,11 +219,11 @@ describe("mint", () => {
     console.log("──────────────────────────────────────────────────────────\n");
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, destination);
 
-    const tx = await (mintProgram as any).methods
+    const tx = await mintProgram.methods
       .mint(MINT_AMOUNT)
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         deactivatePda,
@@ -212,17 +236,17 @@ describe("mint", () => {
         snapshotCounterPda,
         totalSupplySnapshot,
         holderBalanceSnapshot,
-        freezeProgram:    freezeProgram.programId,
-        snapshotProgram:  snapshotProgram.programId,
+        freezeProgram: freezeProgram.programId,
+        snapshotProgram: snapshotProgram.programId,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("  mint tx:", tx);
 
-    const accountAfter  = await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID);
-    const balanceAfter  = accountAfter.amount;
+    const accountAfter = await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID);
+    const balanceAfter = accountAfter.amount;
     const humanReadable = (Number(balanceAfter) / 10 ** MINT_DECIMALS).toFixed(MINT_DECIMALS);
 
     console.log("\n──────────────────────────────────────────────────────────");
@@ -232,9 +256,9 @@ describe("mint", () => {
     console.log("  Expected:           ", MINT_AMOUNT.toString(), "(raw units)");
     console.log("──────────────────────────────────────────────────────────\n");
 
-    assert.equal(balanceBefore.toString(), "0",                    "destination balance should be zero before minting");
-    assert.equal(balanceAfter.toString(),  MINT_AMOUNT.toString(), "destination balance should equal the minted amount");
-    assert.isTrue(accountAfter.isFrozen,                           "destination account should be re-frozen after minting");
+    assert.equal(balanceBefore.toString(), "0", "destination balance should be zero before minting");
+    assert.equal(balanceAfter.toString(), MINT_AMOUNT.toString(), "destination balance should equal the minted amount");
+    assert.isTrue(accountAfter.isFrozen, "destination account should be re-frozen after minting");
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -242,15 +266,25 @@ describe("mint", () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority, pausableAuthority } = await deployMint();
 
     const destinationKeypair = Keypair.generate();
-    const payerKeypair       = (provider.wallet as any).payer as Keypair;
-    await createAccount(connection, payerKeypair, mint, deployer, destinationKeypair, { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID);
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      deployer,
+      destinationKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
     const destination = destinationKeypair.publicKey;
+    const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
 
-    const pauseTx: string = await (pauseProgram as any).methods
+    const pauseTx: string = await pauseProgram.methods
       .pause()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
+        deactivatePda,
         mint,
         pausableAuthority,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -262,13 +296,12 @@ describe("mint", () => {
     console.log("  pause tx: ", pauseTx);
     console.log("══════════════════════════════════════════════════════════\n");
 
-    const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, destination);
 
     try {
-      await (mintProgram as any).methods
+      await mintProgram.methods
         .mint(MINT_AMOUNT)
-        .accounts({
+        .accountsStrict({
           deployer,
           mintOwnerPda,
           deactivatePda,
@@ -281,10 +314,10 @@ describe("mint", () => {
           snapshotCounterPda,
           totalSupplySnapshot,
           holderBalanceSnapshot,
-          freezeProgram:    freezeProgram.programId,
-          snapshotProgram:  snapshotProgram.programId,
+          freezeProgram: freezeProgram.programId,
+          snapshotProgram: snapshotProgram.programId,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -293,8 +326,11 @@ describe("mint", () => {
       assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
       const logs = (err as SendTransactionError).logs ?? [];
       console.log("  caught error:", (err as SendTransactionError).message);
-      logs.forEach(log => console.log("    ", log));
-      assert.isTrue(logs.some(log => log.includes("paused")), "logs should mention paused");
+      logs.forEach((log) => console.log("    ", log));
+      assert.isTrue(
+        logs.some((log) => log.includes("paused")),
+        "logs should mention paused"
+      );
     }
   });
 
@@ -303,16 +339,24 @@ describe("mint", () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority } = await deployMint();
 
     const destinationKeypair = Keypair.generate();
-    const payerKeypair       = (provider.wallet as any).payer as Keypair;
-    await createAccount(connection, payerKeypair, mint, deployer, destinationKeypair, { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID);
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      deployer,
+      destinationKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
     const destination = destinationKeypair.publicKey;
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, destination);
 
-    const deactivateTx = await (deactivateProgram as any).methods
+    const deactivateTx = await deactivateProgram.methods
       .deactivate()
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         mint,
@@ -328,9 +372,9 @@ describe("mint", () => {
     console.log("══════════════════════════════════════════════════════════\n");
 
     try {
-      await (mintProgram as any).methods
+      await mintProgram.methods
         .mint(MINT_AMOUNT)
-        .accounts({
+        .accountsStrict({
           deployer,
           mintOwnerPda,
           deactivatePda,
@@ -343,10 +387,10 @@ describe("mint", () => {
           snapshotCounterPda,
           totalSupplySnapshot,
           holderBalanceSnapshot,
-          freezeProgram:    freezeProgram.programId,
-          snapshotProgram:  snapshotProgram.programId,
+          freezeProgram: freezeProgram.programId,
+          snapshotProgram: snapshotProgram.programId,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -364,12 +408,20 @@ describe("mint", () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority } = await deployMint();
 
     const destinationKeypair = Keypair.generate();
-    const payerKeypair       = (provider.wallet as any).payer as Keypair;
-    await createAccount(connection, payerKeypair, mint, deployer, destinationKeypair, { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID);
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      deployer,
+      destinationKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
     const destination = destinationKeypair.publicKey;
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, destination);
 
     const rogueKeypair = Keypair.generate();
 
@@ -380,10 +432,10 @@ describe("mint", () => {
     console.log("══════════════════════════════════════════════════════════\n");
 
     try {
-      await (mintProgram as any).methods
+      await mintProgram.methods
         .mint(MINT_AMOUNT)
-        .accounts({
-          deployer:               rogueKeypair.publicKey,
+        .accountsStrict({
+          deployer: rogueKeypair.publicKey,
           mintOwnerPda,
           deactivatePda,
           mint,
@@ -395,10 +447,10 @@ describe("mint", () => {
           snapshotCounterPda,
           totalSupplySnapshot,
           holderBalanceSnapshot,
-          freezeProgram:    freezeProgram.programId,
-          snapshotProgram:  snapshotProgram.programId,
+          freezeProgram: freezeProgram.programId,
+          snapshotProgram: snapshotProgram.programId,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([rogueKeypair])
         .rpc({ commitment: "confirmed" });
@@ -417,12 +469,20 @@ describe("mint", () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority } = await deployMint();
 
     const destinationKeypair = Keypair.generate();
-    const payerKeypair       = (provider.wallet as any).payer as Keypair;
-    await createAccount(connection, payerKeypair, mint, deployer, destinationKeypair, { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID);
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      deployer,
+      destinationKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
     const destination = destinationKeypair.publicKey;
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot }  = snapshotAccounts(mint, destination);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, destination);
 
     const setModeTx = await transferControlProgram.methods
       .setModes([{ whitelist: {} }])
@@ -445,9 +505,9 @@ describe("mint", () => {
     console.log("══════════════════════════════════════════════════════════\n");
 
     try {
-      await (mintProgram as any).methods
+      await mintProgram.methods
         .mint(MINT_AMOUNT)
-        .accounts({
+        .accountsStrict({
           deployer,
           mintOwnerPda,
           deactivatePda,
@@ -460,10 +520,10 @@ describe("mint", () => {
           snapshotCounterPda,
           totalSupplySnapshot,
           holderBalanceSnapshot,
-          freezeProgram:    freezeProgram.programId,
-          snapshotProgram:  snapshotProgram.programId,
+          freezeProgram: freezeProgram.programId,
+          snapshotProgram: snapshotProgram.programId,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram:    anchor.web3.SystemProgram.programId,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -482,16 +542,20 @@ describe("mint", () => {
     const { mint, mintOwnerPda, mintAuthority, freezeAuthority } = await deployMint();
 
     const destinationKeypair = Keypair.generate();
-    const payerKeypair       = (provider.wallet as any).payer as Keypair;
-    await createAccount(connection, payerKeypair, mint, deployer, destinationKeypair, { commitment: "confirmed" }, TOKEN_2022_PROGRAM_ID);
+    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      deployer,
+      destinationKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
     const destination = destinationKeypair.publicKey;
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
-    const {
-      snapshotCounterPda,
-      totalSupplySnapshot,
-      holderBalanceSnapshot,
-    } = snapshotAccounts(mint, destination);
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, destination);
 
     // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
     const couponId = new anchor.BN(1);
@@ -507,9 +571,9 @@ describe("mint", () => {
       [Buffer.from("coupon"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8)],
       couponProgram.programId
     );
-    const snapshotTx = await (couponProgram as any).methods
+    const snapshotTx = await couponProgram.methods
       .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), couponId)
-      .accounts({
+      .accountsStrict({
         payer: deployer,
         deployer,
         mintOwnerPda,
@@ -518,9 +582,9 @@ describe("mint", () => {
         couponAuthority,
         couponCounter,
         coupon,
-        snapshotCounter:  snapshotCounterPda,
-        snapshotProgram:  snapshotProgram.programId,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        snapshotCounter: snapshotCounterPda,
+        snapshotProgram: snapshotProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -533,9 +597,9 @@ describe("mint", () => {
     console.log("──────────────────────────────────────────────────────────\n");
 
     // ── Mint tokens — snapshot CPIs fire and record pre-mint balance (= 0) ───
-    const mintTx = await (mintProgram as any).methods
+    const mintTx = await mintProgram.methods
       .mint(MINT_AMOUNT)
-      .accounts({
+      .accountsStrict({
         deployer,
         mintOwnerPda,
         deactivatePda,
@@ -548,26 +612,26 @@ describe("mint", () => {
         snapshotCounterPda,
         totalSupplySnapshot,
         holderBalanceSnapshot,
-        freezeProgram:    freezeProgram.programId,
-        snapshotProgram:  snapshotProgram.programId,
+        freezeProgram: freezeProgram.programId,
+        snapshotProgram: snapshotProgram.programId,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram:    anchor.web3.SystemProgram.programId,
+        systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("  mint tx:", mintTx);
 
     // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
-    const totalSupplyValue: anchor.BN = await (snapshotProgram as any).methods
+    const totalSupplyValue: anchor.BN = await snapshotProgram.methods
       .getTotalsupplySnapshotAt(new anchor.BN(1))
-      .accounts({
+      .accountsStrict({
         mint,
         totalSupplySnapshot,
       })
       .view();
-    const holderValue: anchor.BN = await (snapshotProgram as any).methods
+    const holderValue: anchor.BN = await snapshotProgram.methods
       .getHolderbalanceSnapshotAt(new anchor.BN(1))
-      .accounts({
+      .accountsStrict({
         mint,
         holderBalanceSnapshot,
         holderTokenAccount: destination,
@@ -580,11 +644,7 @@ describe("mint", () => {
     console.log("  expected value:                 ", "0");
     console.log("──────────────────────────────────────────────────────────\n");
 
-    assert.equal(
-      holderValue.toString(),
-      "0",
-      "holder snapshot should record the balance before minting, which is 0"
-    );
+    assert.equal(holderValue.toString(), "0", "holder snapshot should record the balance before minting, which is 0");
     assert.equal(
       totalSupplyValue.toString(),
       "0",
