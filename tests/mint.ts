@@ -3,7 +3,7 @@ import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { Mint } from "../target/types/mint";
 import { Keypair, PublicKey, SendTransactionError, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID, createAccount, getAccount } from "@solana/spl-token";
+import { TOKEN_2022_PROGRAM_ID, createAccount, getAccount, getMint } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdas from "./utils/pda_utils";
 import { TransferControl } from "../target/types/transfer_control";
@@ -158,6 +158,8 @@ describe("mint", () => {
 
     const accountBefore = await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID);
     const balanceBefore = accountBefore.amount;
+    const mintInfoBefore = await getMint(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
+    const supplyBefore = mintInfoBefore.supply;
 
     console.log("\n──────────────────────────────────────────────────────────");
     console.log("  Deployer:           ", deployer.toBase58());
@@ -166,6 +168,7 @@ describe("mint", () => {
     console.log("  Mint owner PDA:     ", mintOwnerPda.toBase58());
     console.log("  Destination:        ", destination.toBase58());
     console.log("  Balance BEFORE:     ", balanceBefore.toString(), "(raw units)");
+    console.log("  Supply BEFORE:      ", supplyBefore.toString(), "(raw units)");
     console.log("──────────────────────────────────────────────────────────\n");
 
     const { deactivatePda, transferControlModePda, destinationWhitelistPda } = mintPdas(mint, destination);
@@ -197,17 +200,23 @@ describe("mint", () => {
 
     const accountAfter = await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID);
     const balanceAfter = accountAfter.amount;
+    const mintInfoAfter = await getMint(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
+    const supplyAfter = mintInfoAfter.supply;
     const humanReadable = (Number(balanceAfter) / 10 ** MINT_DECIMALS).toFixed(MINT_DECIMALS);
 
     console.log("\n──────────────────────────────────────────────────────────");
     console.log("  Balance BEFORE:     ", balanceBefore.toString(), "(raw units)");
     console.log("  Balance AFTER:      ", balanceAfter.toString(), "(raw units)");
+    console.log("  Supply BEFORE:      ", supplyBefore.toString(), "(raw units)");
+    console.log("  Supply AFTER:       ", supplyAfter.toString(), "(raw units)");
     console.log("  Human-readable:     ", humanReadable, MINT_SYMBOL);
     console.log("  Expected:           ", MINT_AMOUNT.toString(), "(raw units)");
     console.log("──────────────────────────────────────────────────────────\n");
 
     assert.equal(balanceBefore.toString(), "0", "destination balance should be zero before minting");
     assert.equal(balanceAfter.toString(), MINT_AMOUNT.toString(), "destination balance should equal the minted amount");
+    assert.equal(supplyBefore.toString(), "0", "total supply should be zero before minting");
+    assert.equal(supplyAfter.toString(), MINT_AMOUNT.toString(), "total supply should equal the minted amount");
     assert.isTrue(accountAfter.isFrozen, "destination account should be re-frozen after minting");
   });
 
