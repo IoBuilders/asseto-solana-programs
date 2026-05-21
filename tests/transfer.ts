@@ -10,7 +10,7 @@ import { Deactivate } from "../target/types/deactivate";
 import { Snapshot } from "../target/types/snapshot";
 import { Coupon } from "../target/types/coupon";
 import { AccountMeta, Keypair, PublicKey, SYSVAR_RENT_PUBKEY, SendTransactionError } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID, createAccount, getAccount } from "@solana/spl-token";
+import { TOKEN_2022_PROGRAM_ID, createAccount, getAccount, getMint } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import {
@@ -265,6 +265,7 @@ describe("transfer", () => {
 
     const sourceBefore = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
     const destBefore = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const supplyBefore = (await getMint(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID)).supply;
 
     console.log("\n──────────────────────────────────────────────────────────");
     console.log("  Mint:                  ", mint.toBase58());
@@ -273,6 +274,7 @@ describe("transfer", () => {
     console.log("  Destination:           ", destination.toBase58());
     console.log("  Source balance BEFORE: ", sourceBefore.toString(), "(raw)");
     console.log("  Dest   balance BEFORE: ", destBefore.toString(), "(raw)");
+    console.log("  Supply BEFORE:         ", supplyBefore.toString(), "(raw)");
     console.log("──────────────────────────────────────────────────────────\n");
 
     // Fund transferHookAuthority PDA so it can pay for accounts if needed
@@ -316,10 +318,12 @@ describe("transfer", () => {
 
     const sourceAfter = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
     const destAfter = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const supplyAfter = (await getMint(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID)).supply;
 
     console.log("\n──────────────────────────────────────────────────────────");
     console.log("  Source balance AFTER:  ", sourceAfter.toString(), "(raw)");
     console.log("  Dest   balance AFTER:  ", destAfter.toString(), "(raw)");
+    console.log("  Supply AFTER:          ", supplyAfter.toString(), "(raw)");
     console.log("──────────────────────────────────────────────────────────\n");
 
     assert.equal(
@@ -332,6 +336,7 @@ describe("transfer", () => {
       TRANSFER_AMOUNT.toString(),
       "destination balance should equal the transfer amount"
     );
+    assert.equal(supplyAfter.toString(), supplyBefore.toString(), "total supply should be unchanged after a transfer");
   });
 
   // ────────────────────────────────────────────────────────────────────────────
