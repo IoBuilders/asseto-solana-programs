@@ -1,17 +1,14 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
-import { Mint } from "../target/types/mint";
-import { MetadataUpdate } from "../target/types/metadata_update";
-import { Freeze } from "../target/types/freeze";
-import { Operations } from "../target/types/operations";
 import { Pause } from "../target/types/pause";
 import { Deactivate } from "../target/types/deactivate";
-import { TransferHook } from "../target/types/transfer_hook";
 import { Bond } from "../target/types/bond";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
+import * as pdas from "./utils/pda_utils";
+import { SYSTEM_PROGRAM_ID, BOND_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "./utils/address_utils";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -24,13 +21,8 @@ describe("bond", () => {
   anchor.setProvider(provider);
 
   const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
-  const mintProgram = anchor.workspace.Mint as Program<Mint>;
-  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
-  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
-  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
   const pauseProgram = anchor.workspace.Pause as Program<Pause>;
   const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
-  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
   const bondProgram = anchor.workspace.Bond as Program<Bond>;
 
   const connection = provider.connection;
@@ -45,42 +37,15 @@ describe("bond", () => {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [tempMintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("temp_mint_authority"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [mintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), mint.toBuffer()],
-      mintProgram.programId
-    );
-    const [permanentDelegateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("permanent_delegate"), mint.toBuffer()],
-      operationsProgram.programId
-    );
-    const [metadataUpdateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata_update_authority"), mint.toBuffer()],
-      metadataProgram.programId
-    );
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      pauseProgram.programId
-    );
-    const [freezeAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("freeze_authority"), mint.toBuffer()],
-      freezeProgram.programId
-    );
-    const [transferHookAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_hook_authority"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
-    const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
-      [Buffer.from("extra-account-metas"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
+    const mintOwnerPda = pdas.mintOwnerPda(mint);
+    const tempMintAuthority = pdas.tempMintAuthorityPda(mint);
+    const mintAuthority = pdas.mintAuthorityPda(mint);
+    const permanentDelegateAuthority = pdas.permanentDelegatePda(mint);
+    const metadataUpdateAuthority = pdas.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdas.pausableAuthorityPda(mint);
+    const freezeAuthority = pdas.freezeAuthorityPda(mint);
+    const transferHookAuthority = pdas.transferHookAuthorityPda(mint);
+    const extraAccountMetaList = pdas.extraAccountMetaListPda(mint);
 
     const tx = await deployProgram.methods
       .deployMint({
@@ -103,9 +68,9 @@ describe("bond", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
@@ -117,14 +82,8 @@ describe("bond", () => {
 
   // ── Helper: derive bond_terms PDA + deactivate PDA for a mint ──────────────
   function bondPdas(mint: PublicKey): { bondTerms: PublicKey; deactivatePda: PublicKey } {
-    const [bondTerms] = PublicKey.findProgramAddressSync(
-      [Buffer.from("bond_terms"), mint.toBuffer()],
-      bondProgram.programId
-    );
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const bondTerms = pdas.bondTermsPda(mint);
+    const deactivatePda = pdas.deactivatePda(mint);
     return { bondTerms, deactivatePda };
   }
 
@@ -159,7 +118,7 @@ describe("bond", () => {
         deactivatePda,
         mint,
         bondTerms,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -168,11 +127,11 @@ describe("bond", () => {
     // PDA must now exist and be owned by bond
     const after = await connection.getAccountInfo(bondTerms, "confirmed");
     assert.isNotNull(after, "bond_terms PDA should be created by update_bond_terms");
-    assert.equal(after!.owner.toBase58(), bondProgram.programId.toBase58(), "bond_terms PDA should be owned by bond");
+    assert.equal(after!.owner.toBase58(), BOND_PROGRAM_ID.toBase58(), "bond_terms PDA should be owned by bond");
 
     // Read the PDA directly via Anchor's IDL-driven account decoder — same
     // path other on-chain programs would use through Account<'info, BondTerms>.
-    const stored = await (bondProgram as any).account.bondTerms.fetch(bondTerms);
+    const stored = await bondProgram.account.bondTerms.fetch(bondTerms);
 
     console.log(
       "  stored bond_terms:",
@@ -226,7 +185,7 @@ describe("bond", () => {
           deactivatePda,
           mint,
           bondTerms,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -252,7 +211,7 @@ describe("bond", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -272,7 +231,7 @@ describe("bond", () => {
           deactivatePda,
           mint,
           bondTerms,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -310,7 +269,7 @@ describe("bond", () => {
           deactivatePda,
           mint,
           bondTerms,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .signers([rogueKeypair])
         .rpc({ commitment: "confirmed" });

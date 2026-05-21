@@ -2,13 +2,8 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { Mint } from "../target/types/mint";
-import { MetadataUpdate } from "../target/types/metadata_update";
-import { Freeze } from "../target/types/freeze";
-import { Operations } from "../target/types/operations";
 import { Pause } from "../target/types/pause";
 import { Deactivate } from "../target/types/deactivate";
-import { TransferControl } from "../target/types/transfer_control";
-import { TransferHook } from "../target/types/transfer_hook";
 import { Snapshot } from "../target/types/snapshot";
 import { Bond } from "../target/types/bond";
 import { Coupon } from "../target/types/coupon";
@@ -16,6 +11,13 @@ import { Treasury } from "../target/types/treasury";
 import { Keypair, PublicKey, SendTransactionError, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, createAccount, createMint, getAccount, mintTo } from "@solana/spl-token";
 import { assert } from "chai";
+import * as pdaUtils from "./utils/pda_utils";
+import {
+  SYSTEM_PROGRAM_ID,
+  FREEZE_PROGRAM_ID,
+  SNAPSHOT_PROGRAM_ID,
+  TRANSFER_HOOK_PROGRAM_ID,
+} from "./utils/address_utils";
 
 // ── Bond mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -56,13 +58,8 @@ describe("treasury", () => {
   // strict ResolvedAccounts typing in Anchor 0.32 (see write-tests SKILL.md).
   const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
   const mintProgram = anchor.workspace.Mint as Program<Mint>;
-  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
-  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
-  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
   const pauseProgram = anchor.workspace.Pause as Program<Pause>;
   const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
-  const transferControlProgram = anchor.workspace.TransferControl as Program<TransferControl>;
-  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
   const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
   const bondProgram = anchor.workspace.Bond as Program<Bond>;
   const couponProgram = anchor.workspace.Coupon as Program<Coupon>;
@@ -70,7 +67,7 @@ describe("treasury", () => {
 
   const connection = provider.connection;
   const deployer = provider.wallet.publicKey;
-  const payerKeypair = (provider.wallet as any).payer as Keypair;
+  const payerKeypair = provider.wallet.payer!;
 
   // ── Helper: deploy a fresh bond mint ───────────────────────────────────────
   async function deployMint(): Promise<{
@@ -83,42 +80,15 @@ describe("treasury", () => {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [tempMintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("temp_mint_authority"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [mintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), mint.toBuffer()],
-      mintProgram.programId
-    );
-    const [permanentDelegateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("permanent_delegate"), mint.toBuffer()],
-      operationsProgram.programId
-    );
-    const [metadataUpdateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata_update_authority"), mint.toBuffer()],
-      metadataProgram.programId
-    );
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      pauseProgram.programId
-    );
-    const [freezeAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("freeze_authority"), mint.toBuffer()],
-      freezeProgram.programId
-    );
-    const [transferHookAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_hook_authority"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
-    const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
-      [Buffer.from("extra-account-metas"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
+    const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+    const tempMintAuthority = pdaUtils.tempMintAuthorityPda(mint);
+    const mintAuthority = pdaUtils.mintAuthorityPda(mint);
+    const permanentDelegateAuthority = pdaUtils.permanentDelegatePda(mint);
+    const metadataUpdateAuthority = pdaUtils.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdaUtils.pausableAuthorityPda(mint);
+    const freezeAuthority = pdaUtils.freezeAuthorityPda(mint);
+    const transferHookAuthority = pdaUtils.transferHookAuthorityPda(mint);
+    const extraAccountMetaList = pdaUtils.extraAccountMetaListPda(mint);
 
     const tx = await deployProgram.methods
       .deployMint({
@@ -141,9 +111,9 @@ describe("treasury", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
@@ -155,55 +125,17 @@ describe("treasury", () => {
 
   // ── Helper: derive every treasury / pay_coupon PDA the tests need ──────────
   function treasuryPdas(mint: PublicKey, couponId: anchor.BN, holderTokenAccount: PublicKey) {
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [treasuryConfig] = PublicKey.findProgramAddressSync(
-      [Buffer.from("treasury_config"), mint.toBuffer()],
-      treasuryProgram.programId
-    );
-    const [treasuryAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("treasury_authority"), mint.toBuffer()],
-      treasuryProgram.programId
-    );
-    const [bondTerms] = PublicKey.findProgramAddressSync(
-      [Buffer.from("bond_terms"), mint.toBuffer()],
-      bondProgram.programId
-    );
-    const [couponAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon_authority"), mint.toBuffer()],
-      couponProgram.programId
-    );
-    const [couponCounter] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon_counter"), mint.toBuffer()],
-      couponProgram.programId
-    );
-    const [coupon] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8)],
-      couponProgram.programId
-    );
-    const [snapshotCounter] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_counter"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [holderBalanceSnapshot] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_holderbalance"), mint.toBuffer(), holderTokenAccount.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [totalSupplySnapshot] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_totalsupply"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [couponPaid] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("coupon_paid"),
-        mint.toBuffer(),
-        couponId.toArrayLike(Buffer, "le", 8),
-        holderTokenAccount.toBuffer(),
-      ],
-      treasuryProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const treasuryConfig = pdaUtils.treasuryConfigPda(mint);
+    const treasuryAuthority = pdaUtils.treasuryAuthorityPda(mint);
+    const bondTerms = pdaUtils.bondTermsPda(mint);
+    const couponAuthority = pdaUtils.couponAuthorityPda(mint);
+    const couponCounter = pdaUtils.couponCounterPda(mint);
+    const coupon = pdaUtils.couponPda(mint, couponId);
+    const snapshotCounter = pdaUtils.snapshotCounterPda(mint);
+    const holderBalanceSnapshot = pdaUtils.snapshotHolderBalancePda(mint, holderTokenAccount);
+    const totalSupplySnapshot = pdaUtils.snapshotTotalSupplyPda(mint);
+    const couponPaid = pdaUtils.couponPaidPda(mint, couponId, holderTokenAccount);
     return {
       deactivatePda,
       treasuryConfig,
@@ -239,30 +171,12 @@ describe("treasury", () => {
     );
     const destination = destinationKeypair.publicKey;
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [transferControlModePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_control_mode"), mint.toBuffer()],
-      transferControlProgram.programId
-    );
-    const [destinationWhitelistPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("whitelist"), mint.toBuffer(), destination.toBuffer()],
-      transferControlProgram.programId
-    );
-    const [snapshotCounterPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_counter"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [totalSupplySnapshot] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_totalsupply"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [holderBalanceSnapshot] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_holderbalance"), mint.toBuffer(), destination.toBuffer()],
-      snapshotProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+    const destinationWhitelistPda = pdaUtils.whitelistPda(mint, destination);
+    const snapshotCounterPda = pdaUtils.snapshotCounterPda(mint);
+    const totalSupplySnapshot = pdaUtils.snapshotTotalSupplyPda(mint);
+    const holderBalanceSnapshot = pdaUtils.snapshotHolderBalancePda(mint, destination);
 
     await mintProgram.methods
       .mint(amount)
@@ -279,10 +193,10 @@ describe("treasury", () => {
         snapshotCounterPda,
         totalSupplySnapshot,
         holderBalanceSnapshot,
-        freezeProgram: freezeProgram.programId,
-        snapshotProgram: snapshotProgram.programId,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -394,7 +308,7 @@ describe("treasury", () => {
         deactivatePda: pdas.deactivatePda,
         mint,
         bondTerms: pdas.bondTerms,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -411,8 +325,8 @@ describe("treasury", () => {
         couponCounter: pdas.couponCounter,
         coupon: pdas.coupon,
         snapshotCounter: pdas.snapshotCounter,
-        snapshotProgram: snapshotProgram.programId,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -434,7 +348,7 @@ describe("treasury", () => {
         mint,
         treasuryConfig: pdas.treasuryConfig,
         paymentMint,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -480,8 +394,8 @@ describe("treasury", () => {
       holderBalanceSnapshot: base.pdas.holderBalanceSnapshot,
       couponPaid: base.pdas.couponPaid,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
-      snapshotProgram: snapshotProgram.programId,
-      systemProgram: anchor.web3.SystemProgram.programId,
+      snapshotProgram: SNAPSHOT_PROGRAM_ID,
+      systemProgram: SYSTEM_PROGRAM_ID,
     };
   }
 
@@ -545,13 +459,13 @@ describe("treasury", () => {
         mint,
         treasuryConfig: pdas.treasuryConfig,
         paymentMint,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("  set_payment_token tx:", tx);
 
-    const cfg = await (treasuryProgram as any).account.treasuryConfig.fetch(pdas.treasuryConfig);
+    const cfg = await treasuryProgram.account.treasuryConfig.fetch(pdas.treasuryConfig);
     assert.equal(cfg.paymentMint.toBase58(), paymentMint.toBase58(), "payment_mint should be cached");
     assert.equal(cfg.paymentMintDecimals, paymentDecimals, "payment_mint_decimals should match");
   });
@@ -577,11 +491,11 @@ describe("treasury", () => {
         mint,
         treasuryConfig: pdas.treasuryConfig,
         paymentMint: firstMint,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
-    let cfg = await (treasuryProgram as any).account.treasuryConfig.fetch(pdas.treasuryConfig);
+    let cfg = await treasuryProgram.account.treasuryConfig.fetch(pdas.treasuryConfig);
     assert.equal(cfg.paymentMint.toBase58(), firstMint.toBase58());
     assert.equal(cfg.paymentMintDecimals, 6);
 
@@ -596,11 +510,11 @@ describe("treasury", () => {
         mint,
         treasuryConfig: pdas.treasuryConfig,
         paymentMint: secondMint,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
-    cfg = await (treasuryProgram as any).account.treasuryConfig.fetch(pdas.treasuryConfig);
+    cfg = await treasuryProgram.account.treasuryConfig.fetch(pdas.treasuryConfig);
     assert.equal(cfg.paymentMint.toBase58(), secondMint.toBase58(), "payment_mint should be overwritten");
     assert.equal(cfg.paymentMintDecimals, 9, "decimals should be overwritten");
   });
@@ -608,27 +522,22 @@ describe("treasury", () => {
   // ────────────────────────────────────────────────────────────────────────────
   it("set_payment_token: fails with MintPaused when mint is paused", async () => {
     const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const couponId = new anchor.BN(1);
+    const dummyHolderTA = Keypair.generate().publicKey;
+    const pdas = treasuryPdas(mint, couponId, dummyHolderTA);
+    const paymentMint = await createPaymentMint(6);
 
     await pauseProgram.methods
       .pause()
       .accountsStrict({
         deployer,
         mintOwnerPda,
-        deactivatePda,
+        deactivatePda: pdas.deactivatePda,
         mint,
         pausableAuthority,
         token2022Program: TOKEN_2022_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
-
-    const couponId = new anchor.BN(1);
-    const dummyHolderTA = Keypair.generate().publicKey;
-    const pdas = treasuryPdas(mint, couponId, dummyHolderTA);
-    const paymentMint = await createPaymentMint(6);
 
     try {
       await treasuryProgram.methods
@@ -641,7 +550,7 @@ describe("treasury", () => {
           mint,
           treasuryConfig: pdas.treasuryConfig,
           paymentMint,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected MintPaused error but instruction succeeded");
@@ -667,7 +576,7 @@ describe("treasury", () => {
         mintOwnerPda,
         mint,
         deactivatePda: pdas.deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -678,11 +587,11 @@ describe("treasury", () => {
           payer: deployer,
           deployer,
           mintOwnerPda,
-          deactivatePda: pdas.deactivatePda,
+          deactivatePda: pdaUtils.deactivatePda(mint),
           mint,
           treasuryConfig: pdas.treasuryConfig,
           paymentMint,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected Deactivated error but instruction succeeded");
@@ -714,7 +623,7 @@ describe("treasury", () => {
           mint,
           treasuryConfig: pdas.treasuryConfig,
           paymentMint,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .signers([rogue])
         .rpc({ commitment: "confirmed" });
@@ -808,7 +717,7 @@ describe("treasury", () => {
       "treasury TA should be debited by the computed coupon amount"
     );
 
-    const marker = await (treasuryProgram as any).account.couponPaidMarker.fetch(ctx.pdas.couponPaid);
+    const marker = await treasuryProgram.account.couponPaidMarker.fetch(ctx.pdas.couponPaid);
     assert.equal(
       marker.amount.toString(),
       expectedAmount.toString(),
@@ -883,7 +792,7 @@ describe("treasury", () => {
       "treasury TA should be debited by the computed coupon amount"
     );
 
-    const marker = await (treasuryProgram as any).account.couponPaidMarker.fetch(ctx.pdas.couponPaid);
+    const marker = await treasuryProgram.account.couponPaidMarker.fetch(ctx.pdas.couponPaid);
     assert.equal(
       marker.amount.toString(),
       expectedAmount.toString(),
@@ -1027,10 +936,7 @@ describe("treasury", () => {
   // ────────────────────────────────────────────────────────────────────────────
   it("pay_coupon: fails with MintPaused when the bond mint is paused", async () => {
     const ctx = await deployBondAndCoupon();
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), ctx.mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(ctx.mint);
 
     await pauseProgram.methods
       .pause()
@@ -1067,7 +973,7 @@ describe("treasury", () => {
         mintOwnerPda: ctx.mintOwnerPda,
         mint: ctx.mint,
         deactivatePda: ctx.pdas.deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 

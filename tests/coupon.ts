@@ -1,18 +1,20 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
-import { Mint } from "../target/types/mint";
-import { MetadataUpdate } from "../target/types/metadata_update";
-import { Freeze } from "../target/types/freeze";
-import { Operations } from "../target/types/operations";
 import { Pause } from "../target/types/pause";
 import { Deactivate } from "../target/types/deactivate";
-import { TransferHook } from "../target/types/transfer_hook";
 import { Snapshot } from "../target/types/snapshot";
 import { Coupon } from "../target/types/coupon";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
+import * as pdaUtils from "./utils/pda_utils";
+import {
+  SYSTEM_PROGRAM_ID,
+  COUPON_PROGRAM_ID,
+  SNAPSHOT_PROGRAM_ID,
+  TRANSFER_HOOK_PROGRAM_ID,
+} from "./utils/address_utils";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -25,13 +27,8 @@ describe("coupon", () => {
   anchor.setProvider(provider);
 
   const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
-  const mintProgram = anchor.workspace.Mint as Program<Mint>;
-  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
-  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
-  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
   const pauseProgram = anchor.workspace.Pause as Program<Pause>;
   const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
-  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
   const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
   const couponProgram = anchor.workspace.Coupon as Program<Coupon>;
 
@@ -47,42 +44,15 @@ describe("coupon", () => {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [tempMintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("temp_mint_authority"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [mintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), mint.toBuffer()],
-      mintProgram.programId
-    );
-    const [permanentDelegateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("permanent_delegate"), mint.toBuffer()],
-      operationsProgram.programId
-    );
-    const [metadataUpdateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata_update_authority"), mint.toBuffer()],
-      metadataProgram.programId
-    );
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      pauseProgram.programId
-    );
-    const [freezeAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("freeze_authority"), mint.toBuffer()],
-      freezeProgram.programId
-    );
-    const [transferHookAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_hook_authority"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
-    const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
-      [Buffer.from("extra-account-metas"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
+    const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+    const tempMintAuthority = pdaUtils.tempMintAuthorityPda(mint);
+    const mintAuthority = pdaUtils.mintAuthorityPda(mint);
+    const permanentDelegateAuthority = pdaUtils.permanentDelegatePda(mint);
+    const metadataUpdateAuthority = pdaUtils.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdaUtils.pausableAuthorityPda(mint);
+    const freezeAuthority = pdaUtils.freezeAuthorityPda(mint);
+    const transferHookAuthority = pdaUtils.transferHookAuthorityPda(mint);
+    const extraAccountMetaList = pdaUtils.extraAccountMetaListPda(mint);
 
     const tx = await deployProgram.methods
       .deployMint({
@@ -105,9 +75,9 @@ describe("coupon", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
@@ -128,26 +98,11 @@ describe("coupon", () => {
     snapshotCounter: PublicKey;
     deactivatePda: PublicKey;
   } {
-    const [couponAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon_authority"), mint.toBuffer()],
-      couponProgram.programId
-    );
-    const [couponCounter] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon_counter"), mint.toBuffer()],
-      couponProgram.programId
-    );
-    const [coupon] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8)],
-      couponProgram.programId
-    );
-    const [snapshotCounter] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_counter"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const couponAuthority = pdaUtils.couponAuthorityPda(mint);
+    const couponCounter = pdaUtils.couponCounterPda(mint);
+    const coupon = pdaUtils.couponPda(mint, couponId);
+    const snapshotCounter = pdaUtils.snapshotCounterPda(mint);
+    const deactivatePda = pdaUtils.deactivatePda(mint);
     return { couponAuthority, couponCounter, coupon, snapshotCounter, deactivatePda };
   }
 
@@ -169,8 +124,8 @@ describe("coupon", () => {
       couponCounter: pdas.couponCounter,
       coupon: pdas.coupon,
       snapshotCounter: pdas.snapshotCounter,
-      snapshotProgram: snapshotProgram.programId,
-      systemProgram: anchor.web3.SystemProgram.programId,
+      snapshotProgram: SNAPSHOT_PROGRAM_ID,
+      systemProgram: SYSTEM_PROGRAM_ID,
     };
   }
 
@@ -196,15 +151,15 @@ describe("coupon", () => {
     console.log("  create_coupon tx:", tx);
 
     // ── coupon_counter exists with count = 1 ─────────────────────────────────
-    const counter = await (couponProgram as any).account.couponCounter.fetch(pdas.couponCounter);
+    const counter = await couponProgram.account.couponCounter.fetch(pdas.couponCounter);
     assert.equal(counter.count.toString(), "1", "coupon_counter.count should be 1");
 
     // ── snapshot_counter exists with count = 1 ───────────────────────────────
-    const snapshotCounter = await (snapshotProgram as any).account.snapshotCounter.fetch(pdas.snapshotCounter);
+    const snapshotCounter = await snapshotProgram.account.snapshotCounter.fetch(pdas.snapshotCounter);
     assert.equal(snapshotCounter.count.toString(), "1", "snapshot_counter.count should be 1");
 
     // ── coupon PDA holds the right data ──────────────────────────────────────
-    const coupon = await (couponProgram as any).account.coupon.fetch(pdas.coupon);
+    const coupon = await couponProgram.account.coupon.fetch(pdas.coupon);
     assert.equal(coupon.snapshotId.toString(), "1", "coupon.snapshot_id should match the just-taken snapshot");
     assert.equal(
       coupon.periodStartDate.toString(),
@@ -221,7 +176,7 @@ describe("coupon", () => {
     const couponAccountInfo = await connection.getAccountInfo(pdas.coupon, "confirmed");
     assert.equal(
       couponAccountInfo!.owner.toBase58(),
-      couponProgram.programId.toBase58(),
+      COUPON_PROGRAM_ID.toBase58(),
       "coupon PDA should be owned by coupon"
     );
   });
@@ -252,13 +207,13 @@ describe("coupon", () => {
       .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas2))
       .rpc({ commitment: "confirmed" });
 
-    const counter = await (couponProgram as any).account.couponCounter.fetch(pdas2.couponCounter);
+    const counter = await couponProgram.account.couponCounter.fetch(pdas2.couponCounter);
     assert.equal(counter.count.toString(), "2", "coupon_counter.count should be 2");
 
-    const snapshotCounter = await (snapshotProgram as any).account.snapshotCounter.fetch(pdas2.snapshotCounter);
+    const snapshotCounter = await snapshotProgram.account.snapshotCounter.fetch(pdas2.snapshotCounter);
     assert.equal(snapshotCounter.count.toString(), "2", "snapshot_counter.count should be 2");
 
-    const coupon2 = await (couponProgram as any).account.coupon.fetch(pdas2.coupon);
+    const coupon2 = await couponProgram.account.coupon.fetch(pdas2.coupon);
     assert.equal(coupon2.snapshotId.toString(), "2");
     assert.equal(coupon2.periodStartDate.toString(), start2.toString());
     assert.equal(coupon2.periodEndDate.toString(), end2.toString());
@@ -335,7 +290,7 @@ describe("coupon", () => {
         mintOwnerPda,
         mint,
         deactivatePda: pdas.deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 

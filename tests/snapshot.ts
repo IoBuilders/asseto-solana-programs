@@ -1,8 +1,10 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Snapshot } from "../target/types/snapshot";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import { assert } from "chai";
+import * as pdas from "./utils/pda_utils";
+import { SYSTEM_PROGRAM_ID } from "./utils/address_utils";
 
 describe("snapshot", () => {
   const provider = anchor.AnchorProvider.env();
@@ -17,10 +19,7 @@ describe("snapshot", () => {
   // wallet must fail the authorised-caller check inside the handler.
   it("take_snapshot: rejects direct invocation with Unauthorized (auxiliary, only callable via coupon CPI)", async () => {
     const mint = Keypair.generate().publicKey;
-    const [snapshotCounter] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_counter"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
+    const snapshotCounter = pdas.snapshotCounterPda(mint);
 
     try {
       await snapshotProgram.methods
@@ -30,7 +29,7 @@ describe("snapshot", () => {
           payer: deployer,
           mint,
           snapshotCounter,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 

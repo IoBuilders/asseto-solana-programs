@@ -1,17 +1,14 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
-import { Mint } from "../target/types/mint";
-import { MetadataUpdate } from "../target/types/metadata_update";
 import { Freeze } from "../target/types/freeze";
-import { Operations } from "../target/types/operations";
 import { Pause } from "../target/types/pause";
 import { Deactivate } from "../target/types/deactivate";
-import { TransferHook } from "../target/types/transfer_hook";
-import { Snapshot } from "../target/types/snapshot";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, createAccount } from "@solana/spl-token";
 import { assert } from "chai";
+import * as pdas from "./utils/pda_utils";
+import { SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "./utils/address_utils";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -24,24 +21,12 @@ describe("freeze", () => {
   anchor.setProvider(provider);
 
   const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
-  const mintProgram = anchor.workspace.Mint as Program<Mint>;
-  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
   const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
-  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
   const pauseProgram = anchor.workspace.Pause as Program<Pause>;
   const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
-  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
-  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
 
   const connection = provider.connection;
   const deployer = provider.wallet.publicKey;
-
-  const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
-  const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
-  const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
-  const METADATA_UPDATE_PROGRAM_ID = metadataProgram.programId;
-  const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
-  const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{
@@ -51,43 +36,15 @@ describe("freeze", () => {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [tempMintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("temp_mint_authority"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [mintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), mint.toBuffer()],
-      MINT_AUTHORITY_PROGRAM_ID
-    );
-    const [operationsAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("permanent_delegate"), mint.toBuffer()],
-      PERMANENT_DELEGATE_PROGRAM_ID
-    );
-    const [metadataUpdateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata_update_authority"), mint.toBuffer()],
-      METADATA_UPDATE_PROGRAM_ID
-    );
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [freezeAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("freeze_authority"), mint.toBuffer()],
-      FREEZE_AUTHORITY_PROGRAM_ID
-    );
-
-    const [transferHookAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_hook_authority"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
-    const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
-      [Buffer.from("extra-account-metas"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
+    const mintOwnerPda = pdas.mintOwnerPda(mint);
+    const tempMintAuthority = pdas.tempMintAuthorityPda(mint);
+    const mintAuthority = pdas.mintAuthorityPda(mint);
+    const operationsAuthority = pdas.permanentDelegatePda(mint);
+    const metadataUpdateAuthority = pdas.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdas.pausableAuthorityPda(mint);
+    const freezeAuthority = pdas.freezeAuthorityPda(mint);
+    const transferHookAuthority = pdas.transferHookAuthorityPda(mint);
+    const extraAccountMetaList = pdas.extraAccountMetaListPda(mint);
 
     const tx = await deployProgram.methods
       .deployMint({
@@ -110,9 +67,9 @@ describe("freeze", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
@@ -127,7 +84,7 @@ describe("freeze", () => {
     const { mint, mintOwnerPda } = await deployMint();
 
     // ── Create a token account to use as the freeze target ──────────────────
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -139,17 +96,11 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenAccountPda, expectedBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const [frozenAccountPda, expectedBump] = pdas.frozenAccountPdaWithBump(mint, tokenAccount);
 
     // ── Verify the PDA does not exist before the instruction ────────────────
-    const statusBefore = await (freezeProgram as any).account.frozenAccountStatus.fetchNullable(frozenAccountPda);
+    const statusBefore = await freezeProgram.account.frozenAccountStatus.fetchNullable(frozenAccountPda);
 
     // ── Call freeze_account ──────────────────────────────────────────────────
     const tx = await freezeProgram.methods
@@ -161,14 +112,14 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenAccountPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("  freeze_account tx:", tx);
 
     // ── Verify the frozen_account PDA was created with the correct bump ──────
-    const statusAfter = await (freezeProgram as any).account.frozenAccountStatus.fetch(frozenAccountPda);
+    const statusAfter = await freezeProgram.account.frozenAccountStatus.fetch(frozenAccountPda);
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:              ", mint.toBase58());
@@ -187,7 +138,7 @@ describe("freeze", () => {
     const { mint, mintOwnerPda } = await deployMint();
 
     // ── Create a token account to use as the freeze target ──────────────────
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer as Keypair;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -199,14 +150,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenAccountPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenAccountPda = pdas.frozenAccountPda(mint, tokenAccount);
 
     // ── First: freeze the account ────────────────────────────────────────────
     const freezeTx = await freezeProgram.methods
@@ -218,13 +163,13 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenAccountPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("  freeze_account tx: ", freezeTx);
 
-    const statusAfterFreeze = await (freezeProgram as any).account.frozenAccountStatus.fetch(frozenAccountPda);
+    const statusAfterFreeze = await freezeProgram.account.frozenAccountStatus.fetch(frozenAccountPda);
     assert.isNotNull(statusAfterFreeze, "frozen_account PDA should exist after freeze_account");
 
     // ── Then: unfreeze the account ───────────────────────────────────────────
@@ -243,9 +188,7 @@ describe("freeze", () => {
     console.log("  unfreeze_account tx:", unfreezeTx);
 
     // ── Verify the frozen_account PDA has been closed ────────────────────────
-    const statusAfterUnfreeze = await (freezeProgram as any).account.frozenAccountStatus.fetchNullable(
-      frozenAccountPda
-    );
+    const statusAfterUnfreeze = await freezeProgram.account.frozenAccountStatus.fetchNullable(frozenAccountPda);
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:              ", mint.toBase58());
@@ -261,7 +204,7 @@ describe("freeze", () => {
   it("freeze_account: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -273,14 +216,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenAccountPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenAccountPda = pdas.frozenAccountPda(mint, tokenAccount);
 
     const rogueKeypair = Keypair.generate();
     const airdropSig = await connection.requestAirdrop(rogueKeypair.publicKey, anchor.web3.LAMPORTS_PER_SOL);
@@ -303,7 +240,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenAccountPda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .signers([rogueKeypair])
         .rpc({ commitment: "confirmed" });
@@ -322,7 +259,7 @@ describe("freeze", () => {
   it("freeze_account: fails with MintPaused when mint is paused", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -334,18 +271,9 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenAccountPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const pausableAuthority = pdas.pausableAuthorityPda(mint);
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenAccountPda = pdas.frozenAccountPda(mint, tokenAccount);
 
     // ── Pause the mint ────────────────────────────────────────────────────────
     const pauseTx: string = await pauseProgram.methods
@@ -375,7 +303,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenAccountPda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -393,7 +321,7 @@ describe("freeze", () => {
   it("freeze_account: fails with Deactivated when mint has been deactivated", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -405,14 +333,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenAccountPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenAccountPda = pdas.frozenAccountPda(mint, tokenAccount);
 
     // ── Deactivate the mint ───────────────────────────────────────────────────
     const deactivateTx = await deactivateProgram.methods
@@ -422,7 +344,7 @@ describe("freeze", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -442,7 +364,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenAccountPda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -460,7 +382,7 @@ describe("freeze", () => {
   it("unfreeze_account: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -472,14 +394,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenAccountPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenAccountPda = pdas.frozenAccountPda(mint, tokenAccount);
 
     // ── Freeze the account first ──────────────────────────────────────────────
     await freezeProgram.methods
@@ -491,7 +407,7 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenAccountPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -531,7 +447,7 @@ describe("freeze", () => {
   it("unfreeze_account: fails with MintPaused when mint is paused", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -543,18 +459,9 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenAccountPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const pausableAuthority = pdas.pausableAuthorityPda(mint);
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenAccountPda = pdas.frozenAccountPda(mint, tokenAccount);
 
     // ── Freeze the account first ──────────────────────────────────────────────
     await freezeProgram.methods
@@ -566,7 +473,7 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenAccountPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -615,7 +522,7 @@ describe("freeze", () => {
   it("unfreeze_account: fails with Deactivated when mint has been deactivated", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -627,14 +534,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenAccountPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenAccountPda = pdas.frozenAccountPda(mint, tokenAccount);
 
     // ── Freeze the account first ──────────────────────────────────────────────
     await freezeProgram.methods
@@ -646,7 +547,7 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenAccountPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -658,7 +559,7 @@ describe("freeze", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -695,7 +596,7 @@ describe("freeze", () => {
   it("partially_freeze_account: creates the frozen_balance PDA with the given balance", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -707,19 +608,13 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda, expectedBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const [frozenBalancePda, expectedBump] = pdas.frozenBalancePdaWithBump(mint, tokenAccount);
 
     const FROZEN_BALANCE = new anchor.BN(500_000_000);
 
     // ── Verify the PDA does not exist before the instruction ─────────────────
-    const statusBefore = await (freezeProgram as any).account.frozenBalance.fetchNullable(frozenBalancePda);
+    const statusBefore = await freezeProgram.account.frozenBalance.fetchNullable(frozenBalancePda);
 
     // ── Call partially_freeze_account ─────────────────────────────────────────
     const tx = await freezeProgram.methods
@@ -731,14 +626,14 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenBalancePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("  partially_freeze_account tx:", tx);
 
     // ── Verify the frozen_balance PDA was created with the correct fields ─────
-    const statusAfter = await (freezeProgram as any).account.frozenBalance.fetch(frozenBalancePda);
+    const statusAfter = await freezeProgram.account.frozenBalance.fetch(frozenBalancePda);
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:                 ", mint.toBase58());
@@ -762,7 +657,7 @@ describe("freeze", () => {
   it("partially_freeze_account: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -774,14 +669,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenBalancePda = pdas.frozenBalancePda(mint, tokenAccount);
 
     const rogueKeypair = Keypair.generate();
     const airdropSig = await connection.requestAirdrop(rogueKeypair.publicKey, anchor.web3.LAMPORTS_PER_SOL);
@@ -804,7 +693,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenBalancePda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .signers([rogueKeypair])
         .rpc({ commitment: "confirmed" });
@@ -823,7 +712,7 @@ describe("freeze", () => {
   it("partially_freeze_account: fails with MintPaused when mint is paused", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -835,18 +724,9 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const pausableAuthority = pdas.pausableAuthorityPda(mint);
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenBalancePda = pdas.frozenBalancePda(mint, tokenAccount);
 
     // ── Pause the mint ────────────────────────────────────────────────────────
     const pauseTx: string = await pauseProgram.methods
@@ -876,7 +756,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenBalancePda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -894,7 +774,7 @@ describe("freeze", () => {
   it("remove_partial_freeze: closes the frozen_balance PDA for a token account", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -906,14 +786,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenBalancePda = pdas.frozenBalancePda(mint, tokenAccount);
 
     const FROZEN_BALANCE = new anchor.BN(500_000_000);
 
@@ -927,13 +801,13 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenBalancePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("  partially_freeze_account tx:", partialFreezeTx);
 
-    const statusAfterFreeze = await (freezeProgram as any).account.frozenBalance.fetch(frozenBalancePda);
+    const statusAfterFreeze = await freezeProgram.account.frozenBalance.fetch(frozenBalancePda);
     assert.isNotNull(statusAfterFreeze, "frozen_balance PDA should exist after partially_freeze_account");
 
     // ── Then: remove the partial freeze ──────────────────────────────────────
@@ -946,14 +820,14 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenBalancePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
     console.log("  remove_partial_freeze tx:   ", removeFreezeTx);
 
     // ── Verify the frozen_balance PDA has been closed ────────────────────────
-    const statusAfterRemove = await (freezeProgram as any).account.frozenBalance.fetchNullable(frozenBalancePda);
+    const statusAfterRemove = await freezeProgram.account.frozenBalance.fetchNullable(frozenBalancePda);
 
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:                 ", mint.toBase58());
@@ -969,7 +843,7 @@ describe("freeze", () => {
   it("remove_partial_freeze: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -981,14 +855,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenBalancePda = pdas.frozenBalancePda(mint, tokenAccount);
 
     // ── Partially freeze the account so frozen_balance_pda exists ────────────
     await freezeProgram.methods
@@ -1000,7 +868,7 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenBalancePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1025,7 +893,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenBalancePda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .signers([rogueKeypair])
         .rpc({ commitment: "confirmed" });
@@ -1044,7 +912,7 @@ describe("freeze", () => {
   it("remove_partial_freeze: fails with MintPaused when mint is paused", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -1056,18 +924,9 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const pausableAuthority = pdas.pausableAuthorityPda(mint);
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenBalancePda = pdas.frozenBalancePda(mint, tokenAccount);
 
     // ── Partially freeze the account so frozen_balance_pda exists ────────────
     await freezeProgram.methods
@@ -1079,7 +938,7 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenBalancePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1111,7 +970,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenBalancePda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -1129,7 +988,7 @@ describe("freeze", () => {
   it("partially_freeze_account: fails with Deactivated when mint has been deactivated", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -1141,14 +1000,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenBalancePda = pdas.frozenBalancePda(mint, tokenAccount);
 
     // ── Deactivate the mint ───────────────────────────────────────────────────
     const deactivateTx = await deactivateProgram.methods
@@ -1158,7 +1011,7 @@ describe("freeze", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1178,7 +1031,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenBalancePda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -1196,7 +1049,7 @@ describe("freeze", () => {
   it("remove_partial_freeze: fails with Deactivated when mint has been deactivated", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
-    const payerKeypair = (provider.wallet as any).payer as Keypair;
+    const payerKeypair = provider.wallet.payer!;
     const accountKeypair = Keypair.generate();
     const tokenAccount = await createAccount(
       connection,
@@ -1208,14 +1061,8 @@ describe("freeze", () => {
       TOKEN_2022_PROGRAM_ID
     );
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), tokenAccount.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
+    const frozenBalancePda = pdas.frozenBalancePda(mint, tokenAccount);
 
     // ── Partially freeze the account so frozen_balance_pda exists ────────────
     await freezeProgram.methods
@@ -1227,7 +1074,7 @@ describe("freeze", () => {
         account: tokenAccount,
         deactivatePda,
         frozenBalancePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1239,7 +1086,7 @@ describe("freeze", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1259,7 +1106,7 @@ describe("freeze", () => {
           account: tokenAccount,
           deactivatePda,
           frozenBalancePda,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 

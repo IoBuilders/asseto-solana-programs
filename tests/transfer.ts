@@ -3,18 +3,22 @@ import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { Mint } from "../target/types/mint";
 import { TransferControl } from "../target/types/transfer_control";
-import { MetadataUpdate } from "../target/types/metadata_update";
 import { Freeze } from "../target/types/freeze";
-import { Operations } from "../target/types/operations";
 import { Pause } from "../target/types/pause";
 import { Transfer } from "../target/types/transfer";
 import { Deactivate } from "../target/types/deactivate";
-import { TransferHook } from "../target/types/transfer_hook";
 import { Snapshot } from "../target/types/snapshot";
 import { Coupon } from "../target/types/coupon";
 import { AccountMeta, Keypair, PublicKey, SYSVAR_RENT_PUBKEY, SendTransactionError } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, createAccount, getAccount } from "@solana/spl-token";
 import { assert } from "chai";
+import * as pdaUtils from "./utils/pda_utils";
+import {
+  SYSTEM_PROGRAM_ID,
+  FREEZE_PROGRAM_ID,
+  SNAPSHOT_PROGRAM_ID,
+  TRANSFER_HOOK_PROGRAM_ID,
+} from "./utils/address_utils";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -34,78 +38,35 @@ describe("transfer", () => {
 
   const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
   const mintProgram = anchor.workspace.Mint as Program<Mint>;
-  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
   const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
-  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
   const pauseProgram = anchor.workspace.Pause as Program<Pause>;
   const transferProgram = anchor.workspace.Transfer as Program<Transfer>;
   const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
   const transferControlProgram = anchor.workspace.TransferControl as Program<TransferControl>;
-  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
   const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
   const couponProgram = anchor.workspace.Coupon as Program<Coupon>;
   const connection = provider.connection;
   const deployer = provider.wallet.publicKey;
   const sourceOwner = sourceOwnerKeypair.publicKey;
   const destinationOwner = destinationOwnerKeypair.publicKey;
-  const payerKeypair = (provider.wallet as any).payer as Keypair;
-
-  const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
-  const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
-  const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
-  const TRANSFER_AUTHORITY_PROGRAM_ID = transferProgram.programId;
-  const METADATA_UPDATE_PROGRAM_ID = metadataProgram.programId;
-  const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
+  const payerKeypair = provider.wallet.payer!;
 
   // ── Helper: derive snapshot-related PDAs for mint/burn operations ──────────
-  // PDAs are keyed only by mint (+ token account for holder balance); the full
-  // snapshot history is stored in a single account per key.
-  function snapshotAccounts(
-    mint: PublicKey,
-    holderTokenAccount: PublicKey
-  ): {
-    snapshotCounterPda: PublicKey;
-    totalSupplySnapshot: PublicKey;
-    holderBalanceSnapshot: PublicKey;
-  } {
-    const [snapshotCounterPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_counter"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [totalSupplySnapshot] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_totalsupply"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [holderBalanceSnapshot] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_holderbalance"), mint.toBuffer(), holderTokenAccount.toBuffer()],
-      snapshotProgram.programId
-    );
-    return { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot };
+  function snapshotAccounts(mint: PublicKey, holderTokenAccount: PublicKey) {
+    return {
+      snapshotCounterPda: pdaUtils.snapshotCounterPda(mint),
+      totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(mint),
+      holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(mint, holderTokenAccount),
+    };
   }
 
   // ── Helper: derive snapshot PDAs required by the transfer instruction ───────
-  function transferSnapshotAccounts(
-    mint: PublicKey,
-    source: PublicKey,
-    destination: PublicKey
-  ): {
-    snapshotCounterPda: PublicKey;
-    senderSnapshot: PublicKey;
-    receiverSnapshot: PublicKey;
-  } {
-    const [snapshotCounterPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_counter"), mint.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [senderSnapshot] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_holderbalance"), mint.toBuffer(), source.toBuffer()],
-      snapshotProgram.programId
-    );
-    const [receiverSnapshot] = PublicKey.findProgramAddressSync(
-      [Buffer.from("snapshot_holderbalance"), mint.toBuffer(), destination.toBuffer()],
-      snapshotProgram.programId
-    );
-    return { snapshotCounterPda, senderSnapshot, receiverSnapshot };
+  function transferSnapshotAccounts(mint: PublicKey, source: PublicKey, destination: PublicKey) {
+    return {
+      snapshotCounterPda: pdaUtils.snapshotCounterPda(mint),
+      senderSnapshot: pdaUtils.snapshotHolderBalancePda(mint, source),
+      receiverSnapshot: pdaUtils.snapshotHolderBalancePda(mint, destination),
+    };
   }
 
   // ── Helper: fund the transfer hook authority PDA ────────────────────────────
@@ -134,47 +95,16 @@ describe("transfer", () => {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [tempMintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("temp_mint_authority"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [mintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), mint.toBuffer()],
-      MINT_AUTHORITY_PROGRAM_ID
-    );
-    const [operationsAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("permanent_delegate"), mint.toBuffer()],
-      PERMANENT_DELEGATE_PROGRAM_ID
-    );
-    const [transferAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer"), mint.toBuffer()],
-      TRANSFER_AUTHORITY_PROGRAM_ID
-    );
-    const [metadataUpdateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata_update_authority"), mint.toBuffer()],
-      METADATA_UPDATE_PROGRAM_ID
-    );
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [freezeAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("freeze_authority"), mint.toBuffer()],
-      FREEZE_AUTHORITY_PROGRAM_ID
-    );
-
-    const [transferHookAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_hook_authority"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
-    const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
-      [Buffer.from("extra-account-metas"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
+    const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+    const tempMintAuthority = pdaUtils.tempMintAuthorityPda(mint);
+    const mintAuthority = pdaUtils.mintAuthorityPda(mint);
+    const operationsAuthority = pdaUtils.permanentDelegatePda(mint);
+    const transferAuthority = pdaUtils.transferAuthorityPda(mint);
+    const metadataUpdateAuthority = pdaUtils.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdaUtils.pausableAuthorityPda(mint);
+    const freezeAuthority = pdaUtils.freezeAuthorityPda(mint);
+    const transferHookAuthority = pdaUtils.transferHookAuthorityPda(mint);
+    const extraAccountMetaList = pdaUtils.extraAccountMetaListPda(mint);
 
     const tx = await deployProgram.methods
       .deployMint({
@@ -197,9 +127,9 @@ describe("transfer", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
@@ -239,18 +169,9 @@ describe("transfer", () => {
     const destination = destinationKeypair.publicKey;
 
     const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, destination);
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [transferControlModePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_control_mode"), mint.toBuffer()],
-      transferControlProgram.programId
-    );
-    const [destinationWhitelistPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("whitelist"), mint.toBuffer(), destination.toBuffer()],
-      transferControlProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+    const destinationWhitelistPda = pdaUtils.whitelistPda(mint, destination);
 
     const tx = await mintProgram.methods
       .mint(amount)
@@ -267,10 +188,10 @@ describe("transfer", () => {
         snapshotCounterPda,
         totalSupplySnapshot,
         holderBalanceSnapshot,
-        freezeProgram: freezeProgram.programId,
-        snapshotProgram: snapshotProgram.programId,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -279,69 +200,19 @@ describe("transfer", () => {
   }
 
   // ── Helper: derive the PDAs verify_transfer needs ──────────────────────────
-  // The transfer hook now requires every `transfer_checked` to be preceded by a
-  // matching `verify_transfer` top-level instruction; that instruction needs the
-  // full set of compliance PDAs (deactivate, mint_owner, transfer-control mode,
-  // whitelist for source+destination, frozen-account marker for source, frozen
-  // balance for source) so it can run the rules against the pre-debit state.
-  function verifyTransferPdas(
-    mint: PublicKey,
-    source: PublicKey,
-    destination: PublicKey
-  ): {
-    mintOwnerPda: PublicKey;
-    deactivatePda: PublicKey;
-    transferControlModePda: PublicKey;
-    sourceWhitelistPda: PublicKey;
-    destinationWhitelistPda: PublicKey;
-    sourceFrozenPda: PublicKey;
-    sourceFrozenBalancePda: PublicKey;
-  } {
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [transferControlModePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_control_mode"), mint.toBuffer()],
-      transferControlProgram.programId
-    );
-    const [sourceWhitelistPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("whitelist"), mint.toBuffer(), source.toBuffer()],
-      transferControlProgram.programId
-    );
-    const [destinationWhitelistPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("whitelist"), mint.toBuffer(), destination.toBuffer()],
-      transferControlProgram.programId
-    );
-    const [sourceFrozenPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), source.toBuffer()],
-      freezeProgram.programId
-    );
-    const [sourceFrozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), source.toBuffer()],
-      freezeProgram.programId
-    );
+  function verifyTransferPdas(mint: PublicKey, source: PublicKey, destination: PublicKey) {
     return {
-      mintOwnerPda,
-      deactivatePda,
-      transferControlModePda,
-      sourceWhitelistPda,
-      destinationWhitelistPda,
-      sourceFrozenPda,
-      sourceFrozenBalancePda,
+      mintOwnerPda: pdaUtils.mintOwnerPda(mint),
+      deactivatePda: pdaUtils.deactivatePda(mint),
+      transferControlModePda: pdaUtils.transferControlModePda(mint),
+      sourceWhitelistPda: pdaUtils.whitelistPda(mint, source),
+      destinationWhitelistPda: pdaUtils.whitelistPda(mint, destination),
+      sourceFrozenPda: pdaUtils.frozenAccountPda(mint, source),
+      sourceFrozenBalancePda: pdaUtils.frozenBalancePda(mint, source),
     };
   }
 
   // ── Helper: build a verify_transfer instruction for the given transfer ─────
-  // Returns a TransactionInstruction so callers can drop it into
-  // `.preInstructions([...])` ahead of `.transfer(...)`. The default signers
-  // (sourceOwner / deployer) cover the non-clearing-mode tests; pass overrides
-  // when a test needs a different source_owner (e.g. rogue signer) or a
-  // different deployer (e.g. clearing-mode unauthorised-deployer test).
   async function buildVerifyTransferIx(
     source: PublicKey,
     destination: PublicKey,
@@ -427,15 +298,15 @@ describe("transfer", () => {
         transferHookAuthority,
         freezeAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
-        freezeProgram: freezeProgram.programId,
-        snapshotProgram: snapshotProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
         snapshotCounterPda,
         senderSnapshot,
         receiverSnapshot,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
       .signers([sourceOwnerKeypair])
@@ -489,10 +360,7 @@ describe("transfer", () => {
     );
     const destination = destKeypair.publicKey;
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
     const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
       mint,
       source,
@@ -501,18 +369,10 @@ describe("transfer", () => {
 
     // ── Take snapshot via create_coupon (counter: 0 → 1) ─────────────────────
     const couponId = new anchor.BN(1);
-    const [couponAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon_authority"), mint.toBuffer()],
-      couponProgram.programId
-    );
-    const [couponCounter] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon_counter"), mint.toBuffer()],
-      couponProgram.programId
-    );
-    const [coupon] = PublicKey.findProgramAddressSync(
-      [Buffer.from("coupon"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8)],
-      couponProgram.programId
-    );
+    const couponAuthority = pdaUtils.couponAuthorityPda(mint);
+    const couponCounter = pdaUtils.couponCounterPda(mint);
+    const coupon = pdaUtils.couponPda(mint, couponId);
+
     const snapshotTx = await couponProgram.methods
       .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), couponId)
       .accountsStrict({
@@ -525,8 +385,8 @@ describe("transfer", () => {
         couponCounter,
         coupon,
         snapshotCounter: snapshotCounterPda,
-        snapshotProgram: snapshotProgram.programId,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -556,15 +416,15 @@ describe("transfer", () => {
         transferHookAuthority,
         freezeAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
-        freezeProgram: freezeProgram.programId,
-        snapshotProgram: snapshotProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
         snapshotCounterPda,
         senderSnapshot,
         receiverSnapshot,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
       .signers([sourceOwnerKeypair])
@@ -657,15 +517,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda: snapshotCounterPda,
           senderSnapshot: senderSnapshot,
           receiverSnapshot: receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .signers([sourceOwnerKeypair])
         .rpc({ commitment: "confirmed" });
@@ -735,15 +595,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda: snapshotCounterPda,
           senderSnapshot: senderSnapshot,
           receiverSnapshot: receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([verifyIx, anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
         .signers([sourceOwnerKeypair])
@@ -814,15 +674,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda: snapshotCounterPda,
           senderSnapshot: senderSnapshot,
           receiverSnapshot: receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
@@ -903,15 +763,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda: sc1,
           senderSnapshot: ss1,
           receiverSnapshot: rs1,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([rogueKeypair])
@@ -963,10 +823,7 @@ describe("transfer", () => {
       TOKEN_2022_PROGRAM_ID
     );
     const destination = destKeypair.publicKey;
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
 
     // Pause the mint via pause
     const pauseTx: string = await pauseProgram.methods
@@ -1011,15 +868,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda: sc2,
           senderSnapshot: ss2,
           receiverSnapshot: rs2,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
@@ -1069,14 +926,8 @@ describe("transfer", () => {
     );
     const destination = destKeypair.publicKey;
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [sourceFrozenPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_account"), mint.toBuffer(), source.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const sourceFrozenPda = pdaUtils.frozenAccountPda(mint, source);
 
     // ── Freeze the source account via freeze ─────────────────────────
     const freezeTx = await freezeProgram.methods
@@ -1088,7 +939,7 @@ describe("transfer", () => {
         account: source,
         deactivatePda,
         frozenAccountPda: sourceFrozenPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1123,15 +974,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda: sc3,
           senderSnapshot: ss3,
           receiverSnapshot: rs3,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
@@ -1174,10 +1025,7 @@ describe("transfer", () => {
     );
     const destination = destKeypair.publicKey;
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
 
     // ── Deactivate the mint ────────────────────────────────────────────────
     const deactivateTx = await deactivateProgram.methods
@@ -1187,7 +1035,7 @@ describe("transfer", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1220,15 +1068,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda: sc4,
           senderSnapshot: ss4,
           receiverSnapshot: rs4,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
@@ -1278,14 +1126,8 @@ describe("transfer", () => {
     const destination = destKeypair.publicKey;
 
     // ── Derive PDAs ───────────────────────────────────────────────────────────
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [frozenBalancePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("frozen_balance"), mint.toBuffer(), source.toBuffer()],
-      freezeProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const frozenBalancePda = pdaUtils.frozenBalancePda(mint, source);
 
     // ── Partially freeze 50 tokens ────────────────────────────────────────────
     const partialFreezeTx = await freezeProgram.methods
@@ -1297,7 +1139,7 @@ describe("transfer", () => {
         account: source,
         deactivatePda,
         frozenBalancePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1328,15 +1170,15 @@ describe("transfer", () => {
         transferHookAuthority,
         freezeAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
-        freezeProgram: freezeProgram.programId,
-        snapshotProgram: snapshotProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
         snapshotCounterPda: sc5,
         senderSnapshot: ss5,
         receiverSnapshot: rs5,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx5])
       .signers([sourceOwnerKeypair])
@@ -1381,15 +1223,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda: sc5,
           senderSnapshot: ss5,
           receiverSnapshot: rs5,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
@@ -1438,18 +1280,9 @@ describe("transfer", () => {
     const destination = destKeypair.publicKey;
 
     // Derive PDAs
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [transferControlModePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_control_mode"), mint.toBuffer()],
-      transferControlProgram.programId
-    );
-    const [sourceWhitelistPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("whitelist"), mint.toBuffer(), source.toBuffer()],
-      transferControlProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+    const sourceWhitelistPda = pdaUtils.whitelistPda(mint, source);
     const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
       mint,
       source,
@@ -1465,7 +1298,7 @@ describe("transfer", () => {
         mint,
         deactivatePda,
         transferControlModePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1479,7 +1312,7 @@ describe("transfer", () => {
         account: source,
         deactivatePda,
         whitelistPda: sourceWhitelistPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1507,15 +1340,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda,
           senderSnapshot,
           receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
@@ -1564,18 +1397,9 @@ describe("transfer", () => {
     const destination = destKeypair.publicKey;
 
     // Derive PDAs
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [transferControlModePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_control_mode"), mint.toBuffer()],
-      transferControlProgram.programId
-    );
-    const [destinationWhitelistPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("whitelist"), mint.toBuffer(), destination.toBuffer()],
-      transferControlProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+    const destinationWhitelistPda = pdaUtils.whitelistPda(mint, destination);
     const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
       mint,
       source,
@@ -1591,7 +1415,7 @@ describe("transfer", () => {
         mint,
         deactivatePda,
         transferControlModePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1605,7 +1429,7 @@ describe("transfer", () => {
         account: destination,
         deactivatePda,
         whitelistPda: destinationWhitelistPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1633,15 +1457,15 @@ describe("transfer", () => {
           transferHookAuthority,
           freezeAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
-          freezeProgram: freezeProgram.programId,
-          snapshotProgram: snapshotProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
           snapshotCounterPda,
           senderSnapshot,
           receiverSnapshot,
           instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
         .signers([sourceOwnerKeypair])
@@ -1690,14 +1514,8 @@ describe("transfer", () => {
     const destination = destKeypair.publicKey;
 
     // Derive PDAs
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
-    const [transferControlModePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_control_mode"), mint.toBuffer()],
-      transferControlProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
 
     const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
       mint,
@@ -1714,7 +1532,7 @@ describe("transfer", () => {
         mint,
         deactivatePda,
         transferControlModePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -1761,15 +1579,15 @@ describe("transfer", () => {
         transferHookAuthority,
         freezeAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
-        freezeProgram: freezeProgram.programId,
-        snapshotProgram: snapshotProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
         snapshotCounterPda,
         senderSnapshot,
         receiverSnapshot,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .instruction();
 

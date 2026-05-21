@@ -2,13 +2,6 @@ import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { SendTransactionError } from "@solana/web3.js";
 import { Deploy } from "../target/types/deploy";
-import { MetadataUpdate } from "../target/types/metadata_update";
-import { Mint } from "../target/types/mint";
-import { Freeze } from "../target/types/freeze";
-import { Operations } from "../target/types/operations";
-import { Pause } from "../target/types/pause";
-import { TransferHook } from "../target/types/transfer_hook";
-import { Snapshot } from "../target/types/snapshot";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
@@ -21,6 +14,8 @@ import {
   getPausableConfig,
 } from "@solana/spl-token";
 import { assert } from "chai";
+import * as pdas from "./utils/pda_utils";
+import { SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "./utils/address_utils";
 
 // ── Test mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -29,22 +24,6 @@ const MINT_SYMBOL = "CMTAT";
 const MINT_URI = "https://example.com/metadata.json";
 const MINT_ISIN_KEY = "isin";
 const MINT_ISIN_VALUE = "CH0012221716";
-
-// ── Program IDs sourced from workspace (mirrors constants.rs in deploy) ──
-const mintProgram = anchor.workspace.Mint as Program<Mint>;
-const metadataUpdateProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
-const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
-const operationsProgram = anchor.workspace.Operations as Program<Operations>;
-const pauseProgram = anchor.workspace.Pause as Program<Pause>;
-const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
-const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
-
-const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
-const METADATA_UPDATE_AUTHORITY_PROGRAM_ID = metadataUpdateProgram.programId;
-const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
-const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
-const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
-const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
 describe("deploy", () => {
   const provider = anchor.AnchorProvider.env();
@@ -73,42 +52,15 @@ describe("deploy", () => {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      program.programId
-    );
-    const [tempMintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("temp_mint_authority"), mint.toBuffer()],
-      program.programId
-    );
-    const [mintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), mint.toBuffer()],
-      MINT_AUTHORITY_PROGRAM_ID
-    );
-    const [permanentDelegateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("permanent_delegate"), mint.toBuffer()],
-      PERMANENT_DELEGATE_PROGRAM_ID
-    );
-    const [metadataUpdateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata_update_authority"), mint.toBuffer()],
-      METADATA_UPDATE_AUTHORITY_PROGRAM_ID
-    );
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [freezeAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("freeze_authority"), mint.toBuffer()],
-      FREEZE_AUTHORITY_PROGRAM_ID
-    );
-    const [transferHookAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_hook_authority"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
-    const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
-      [Buffer.from("extra-account-metas"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
+    const mintOwnerPda = pdas.mintOwnerPda(mint);
+    const tempMintAuthority = pdas.tempMintAuthorityPda(mint);
+    const mintAuthority = pdas.mintAuthorityPda(mint);
+    const permanentDelegateAuthority = pdas.permanentDelegatePda(mint);
+    const metadataUpdateAuthority = pdas.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdas.pausableAuthorityPda(mint);
+    const freezeAuthority = pdas.freezeAuthorityPda(mint);
+    const transferHookAuthority = pdas.transferHookAuthorityPda(mint);
+    const extraAccountMetaList = pdas.extraAccountMetaListPda(mint);
 
     await program.methods
       .deployMint({
@@ -131,9 +83,9 @@ describe("deploy", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
@@ -164,8 +116,6 @@ describe("deploy", () => {
       metadataUpdateAuthority,
       pausableAuthority,
       freezeAuthority,
-      transferHookAuthority,
-      extraAccountMetaList,
     } = await deployMint();
 
     // ── Print PDAs ─────────────────────────────────────────────────────────────
@@ -296,10 +246,7 @@ describe("deploy", () => {
       "mint owner PDA should record the deployer"
     );
     // Verify the stored bump is consistent with the derived PDA address.
-    const [, expectedBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      program.programId
-    );
+    const [, expectedBump] = pdas.mintOwnerPdaWithBump(mint);
     assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
   });
 
@@ -342,9 +289,9 @@ describe("deploy", () => {
           freezeAuthority,
           transferHookAuthority,
           extraAccountMetaList,
-          transferHookProgram: transferHookProgram.programId,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([mintKeypair])

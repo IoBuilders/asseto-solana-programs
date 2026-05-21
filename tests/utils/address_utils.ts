@@ -1,0 +1,34 @@
+import { PublicKey } from "@solana/web3.js";
+
+import deployIdl from "../../target/idl/deploy.json";
+import mintIdl from "../../target/idl/mint.json";
+import metadataUpdateIdl from "../../target/idl/metadata_update.json";
+import freezeIdl from "../../target/idl/freeze.json";
+import operationsIdl from "../../target/idl/operations.json";
+import pauseIdl from "../../target/idl/pause.json";
+import deactivateIdl from "../../target/idl/deactivate.json";
+import transferControlIdl from "../../target/idl/transfer_control.json";
+import transferIdl from "../../target/idl/transfer.json";
+import transferHookIdl from "../../target/idl/transfer_hook.json";
+import snapshotIdl from "../../target/idl/snapshot.json";
+import bondIdl from "../../target/idl/bond.json";
+import couponIdl from "../../target/idl/coupon.json";
+import treasuryIdl from "../../target/idl/treasury.json";
+import * as anchor from "@anchor-lang/core";
+
+export const SYSTEM_PROGRAM_ID = anchor.web3.SystemProgram.programId;
+
+export const DEPLOY_PROGRAM_ID = new PublicKey(deployIdl.address);
+export const MINT_PROGRAM_ID = new PublicKey(mintIdl.address);
+export const METADATA_UPDATE_PROGRAM_ID = new PublicKey(metadataUpdateIdl.address);
+export const FREEZE_PROGRAM_ID = new PublicKey(freezeIdl.address);
+export const OPERATIONS_PROGRAM_ID = new PublicKey(operationsIdl.address);
+export const PAUSE_PROGRAM_ID = new PublicKey(pauseIdl.address);
+export const DEACTIVATE_PROGRAM_ID = new PublicKey(deactivateIdl.address);
+export const TRANSFER_CONTROL_PROGRAM_ID = new PublicKey(transferControlIdl.address);
+export const TRANSFER_PROGRAM_ID = new PublicKey(transferIdl.address);
+export const TRANSFER_HOOK_PROGRAM_ID = new PublicKey(transferHookIdl.address);
+export const SNAPSHOT_PROGRAM_ID = new PublicKey(snapshotIdl.address);
+export const BOND_PROGRAM_ID = new PublicKey(bondIdl.address);
+export const COUPON_PROGRAM_ID = new PublicKey(couponIdl.address);
+export const TREASURY_PROGRAM_ID = new PublicKey(treasuryIdl.address);

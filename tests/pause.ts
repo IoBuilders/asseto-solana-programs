@@ -1,17 +1,13 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
-import { Mint } from "../target/types/mint";
-import { MetadataUpdate } from "../target/types/metadata_update";
-import { Freeze } from "../target/types/freeze";
-import { Operations } from "../target/types/operations";
 import { Pause } from "../target/types/pause";
 import { Deactivate } from "../target/types/deactivate";
-import { TransferHook } from "../target/types/transfer_hook";
-import { Snapshot } from "../target/types/snapshot";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, getMint, getPausableConfig } from "@solana/spl-token";
 import { assert } from "chai";
+import * as pdaUtils from "./utils/pda_utils";
+import { SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "./utils/address_utils";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -24,24 +20,11 @@ describe("pause", () => {
   anchor.setProvider(provider);
 
   const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
-  const mintProgram = anchor.workspace.Mint as Program<Mint>;
-  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
-  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
-  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
   const pauseProgram = anchor.workspace.Pause as Program<Pause>;
   const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
-  const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
-  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
 
   const connection = provider.connection;
   const deployer = provider.wallet.publicKey;
-
-  const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
-  const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
-  const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
-  const METADATA_UPDATE_PROGRAM_ID = metadataProgram.programId;
-  const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
-  const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{
@@ -54,43 +37,15 @@ describe("pause", () => {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [tempMintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("temp_mint_authority"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [mintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), mint.toBuffer()],
-      MINT_AUTHORITY_PROGRAM_ID
-    );
-    const [operationsAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("permanent_delegate"), mint.toBuffer()],
-      PERMANENT_DELEGATE_PROGRAM_ID
-    );
-    const [metadataUpdateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata_update_authority"), mint.toBuffer()],
-      METADATA_UPDATE_PROGRAM_ID
-    );
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [freezeAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("freeze_authority"), mint.toBuffer()],
-      FREEZE_AUTHORITY_PROGRAM_ID
-    );
-
-    const [transferHookAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_hook_authority"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
-    const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
-      [Buffer.from("extra-account-metas"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
+    const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+    const tempMintAuthority = pdaUtils.tempMintAuthorityPda(mint);
+    const mintAuthority = pdaUtils.mintAuthorityPda(mint);
+    const operationsAuthority = pdaUtils.permanentDelegatePda(mint);
+    const metadataUpdateAuthority = pdaUtils.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdaUtils.pausableAuthorityPda(mint);
+    const freezeAuthority = pdaUtils.freezeAuthorityPda(mint);
+    const transferHookAuthority = pdaUtils.transferHookAuthorityPda(mint);
+    const extraAccountMetaList = pdaUtils.extraAccountMetaListPda(mint);
 
     const tx = await deployProgram.methods
       .deployMint({
@@ -113,9 +68,9 @@ describe("pause", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
@@ -128,10 +83,7 @@ describe("pause", () => {
   // ── Happy-path test ──────────────────────────────────────────────────────────
   it("pause → unpause: correctly toggles mint pause state", async () => {
     const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
 
     // ── Baseline: mint should NOT be paused after deployment ──────────────────
     const mintInfoInitial = await getMint(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
@@ -205,10 +157,7 @@ describe("pause", () => {
   it("pause: fails with Deactivated when mint has been deactivated", async () => {
     const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdaUtils.deactivatePda(mint);
 
     // ── Deactivate the mint ────────────────────────────────────────────────
     const deactivateTx = await deactivateProgram.methods
@@ -218,7 +167,7 @@ describe("pause", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 

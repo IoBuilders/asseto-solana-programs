@@ -2,16 +2,13 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError, Program } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { MetadataUpdate } from "../target/types/metadata_update";
-import { Mint } from "../target/types/mint";
-import { Freeze } from "../target/types/freeze";
-import { Operations } from "../target/types/operations";
 import { Pause } from "../target/types/pause";
 import { Deactivate } from "../target/types/deactivate";
-import { TransferHook } from "../target/types/transfer_hook";
-import { Snapshot } from "../target/types/snapshot";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, getTokenMetadata } from "@solana/spl-token";
 import { assert } from "chai";
+import * as pdas from "./utils/pda_utils";
+import { SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "./utils/address_utils";
 
 // ── Initial mint parameters ────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -20,19 +17,8 @@ const MINT_SYMBOL = "CMTAT";
 const MINT_URI = "https://example.com/metadata.json";
 
 // ── Program IDs sourced from workspace (mirrors constants.rs in deploy) ──
-const mintProgram = anchor.workspace.Mint as Program<Mint>;
-const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
 const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
-const operationsProgram = anchor.workspace.Operations as Program<Operations>;
 const pauseProgram = anchor.workspace.Pause as Program<Pause>;
-const transferHookProgram = anchor.workspace.TransferHook as Program<TransferHook>;
-const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
-
-const MINT_AUTHORITY_PROGRAM_ID = mintProgram.programId;
-const FREEZE_AUTHORITY_PROGRAM_ID = freezeProgram.programId;
-const PERMANENT_DELEGATE_PROGRAM_ID = operationsProgram.programId;
-const PAUSABLE_AUTHORITY_PROGRAM_ID = pauseProgram.programId;
-const SNAPSHOT_PROGRAM_ID = snapshotProgram.programId;
 
 describe("metadata-update", () => {
   const provider = anchor.AnchorProvider.env();
@@ -54,43 +40,15 @@ describe("metadata-update", () => {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const [mintOwnerPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_owner"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [tempMintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("temp_mint_authority"), mint.toBuffer()],
-      deployProgram.programId
-    );
-    const [mintAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), mint.toBuffer()],
-      MINT_AUTHORITY_PROGRAM_ID
-    );
-    const [permanentDelegateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("permanent_delegate"), mint.toBuffer()],
-      PERMANENT_DELEGATE_PROGRAM_ID
-    );
-    const [metadataUpdateAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("metadata_update_authority"), mint.toBuffer()],
-      metadataProgram.programId
-    );
-    const [pausableAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("pausable_authority"), mint.toBuffer()],
-      PAUSABLE_AUTHORITY_PROGRAM_ID
-    );
-    const [freezeAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("freeze_authority"), mint.toBuffer()],
-      FREEZE_AUTHORITY_PROGRAM_ID
-    );
-
-    const [transferHookAuthority] = PublicKey.findProgramAddressSync(
-      [Buffer.from("transfer_hook_authority"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
-    const [extraAccountMetaList] = PublicKey.findProgramAddressSync(
-      [Buffer.from("extra-account-metas"), mint.toBuffer()],
-      transferHookProgram.programId
-    );
+    const mintOwnerPda = pdas.mintOwnerPda(mint);
+    const tempMintAuthority = pdas.tempMintAuthorityPda(mint);
+    const mintAuthority = pdas.mintAuthorityPda(mint);
+    const permanentDelegateAuthority = pdas.permanentDelegatePda(mint);
+    const metadataUpdateAuthority = pdas.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdas.pausableAuthorityPda(mint);
+    const freezeAuthority = pdas.freezeAuthorityPda(mint);
+    const transferHookAuthority = pdas.transferHookAuthorityPda(mint);
+    const extraAccountMetaList = pdas.extraAccountMetaListPda(mint);
 
     const tx = await deployProgram.methods
       .deployMint({ decimals: MINT_DECIMALS, name: MINT_NAME, symbol: MINT_SYMBOL, uri: MINT_URI, additionalMetadata })
@@ -107,9 +65,9 @@ describe("metadata-update", () => {
         freezeAuthority,
         transferHookAuthority,
         extraAccountMetaList,
-        transferHookProgram: transferHookProgram.programId,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .signers([mintKeypair])
@@ -120,23 +78,14 @@ describe("metadata-update", () => {
   }
 
   // ── Helper: call update_metadata_field ────────────────────────────────────────
-  // growBy: bytes the mint account must grow by (null = no growth, pass None to program).
   async function updateField(
     mint: PublicKey,
     mintOwnerPda: PublicKey,
     metadataUpdateAuthority: PublicKey,
     key: string,
-    value: string,
-    growBy: number | null
+    value: string
   ): Promise<void> {
-    if (growBy !== null) {
-      const accountInfo = await connection.getAccountInfo(mint, "confirmed");
-    }
-
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
 
     await metadataProgram.methods
       .updateMetadataField(key, value)
@@ -148,7 +97,7 @@ describe("metadata-update", () => {
         metadataUpdateAuthority,
         deactivatePda,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
   }
@@ -160,10 +109,7 @@ describe("metadata-update", () => {
     metadataUpdateAuthority: PublicKey,
     key: string
   ): Promise<void> {
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
 
     await metadataProgram.methods
       .removeMetadataField(key, false)
@@ -175,7 +121,7 @@ describe("metadata-update", () => {
         metadataUpdateAuthority,
         deactivatePda,
         token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc({ commitment: "confirmed" });
@@ -210,27 +156,13 @@ describe("metadata-update", () => {
     const CTRY_VALUE = "CH";
 
     // Update core fields (shorter → no growth, pass null)
-    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "name", NEW_NAME, null);
-    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "symbol", NEW_SYMBOL, null);
-    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "uri", NEW_URI, null);
+    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "name", NEW_NAME);
+    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "symbol", NEW_SYMBOL);
+    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "uri", NEW_URI);
 
     // Add new custom fields — each grows the account by 4+key.len+4+value.len bytes
-    await updateField(
-      mint,
-      mintOwnerPda,
-      metadataUpdateAuthority,
-      ISIN_KEY,
-      ISIN_VALUE,
-      4 + ISIN_KEY.length + 4 + ISIN_VALUE.length
-    );
-    await updateField(
-      mint,
-      mintOwnerPda,
-      metadataUpdateAuthority,
-      CTRY_KEY,
-      CTRY_VALUE,
-      4 + CTRY_KEY.length + 4 + CTRY_VALUE.length
-    );
+    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, ISIN_KEY, ISIN_VALUE);
+    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, CTRY_KEY, CTRY_VALUE);
 
     await printMetadata("AFTER update", mint);
 
@@ -302,10 +234,7 @@ describe("metadata-update", () => {
   // ────────────────────────────────────────────────────────────────────────────
   it("update_metadata_field: fails with MintPaused when mint is paused", async () => {
     const { mint, mintOwnerPda, metadataUpdateAuthority, pausableAuthority } = await deployMint();
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
 
     // Pause the mint via pause
     const pauseTx: string = await pauseProgram.methods
@@ -337,7 +266,7 @@ describe("metadata-update", () => {
           metadataUpdateAuthority,
           deactivatePda,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -360,10 +289,7 @@ describe("metadata-update", () => {
     const { mint, mintOwnerPda, metadataUpdateAuthority, pausableAuthority } = await deployMint([
       { key: ISIN_KEY, value: ISIN_VALUE },
     ]);
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
 
     // Pause the mint via pause
     const pauseTx: string = await pauseProgram.methods
@@ -395,7 +321,7 @@ describe("metadata-update", () => {
           metadataUpdateAuthority,
           deactivatePda,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .rpc({ commitment: "confirmed" });
@@ -415,10 +341,7 @@ describe("metadata-update", () => {
     // ── Deploy a fresh mint ────────────────────────────────────────────────
     const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint();
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
 
     // ── Deactivate the mint ────────────────────────────────────────────────
     const deactivateTx = await deactivateProgram.methods
@@ -428,7 +351,7 @@ describe("metadata-update", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -449,7 +372,7 @@ describe("metadata-update", () => {
           deactivatePda,
           metadataUpdateAuthority,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
@@ -470,10 +393,7 @@ describe("metadata-update", () => {
     // ── Deploy a fresh mint ────────────────────────────────────────────────
     const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint();
 
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
 
     // ── Deactivate the mint ────────────────────────────────────────────────
     const deactivateTx = await deactivateProgram.methods
@@ -483,7 +403,7 @@ describe("metadata-update", () => {
         mintOwnerPda,
         mint,
         deactivatePda,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        systemProgram: SYSTEM_PROGRAM_ID,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -504,7 +424,7 @@ describe("metadata-update", () => {
           deactivatePda,
           metadataUpdateAuthority,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .rpc({ commitment: "confirmed" });
@@ -522,10 +442,7 @@ describe("metadata-update", () => {
   // ────────────────────────────────────────────────────────────────────────────
   it("update_metadata_field: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint();
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
 
     // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
     const rogueKeypair = Keypair.generate();
@@ -547,7 +464,7 @@ describe("metadata-update", () => {
           metadataUpdateAuthority,
           deactivatePda,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
         })
         .signers([rogueKeypair])
         .rpc({ commitment: "confirmed" });
@@ -569,10 +486,7 @@ describe("metadata-update", () => {
 
     // Deploy with a custom field present so there is something to remove.
     const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint([{ key: ISIN_KEY, value: ISIN_VALUE }]);
-    const [deactivatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("deactivate"), mint.toBuffer()],
-      deactivateProgram.programId
-    );
+    const deactivatePda = pdas.deactivatePda(mint);
 
     // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
     const rogueKeypair = Keypair.generate();
@@ -594,7 +508,7 @@ describe("metadata-update", () => {
           metadataUpdateAuthority,
           deactivatePda,
           token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SYSTEM_PROGRAM_ID,
           rent: SYSVAR_RENT_PUBKEY,
         })
         .signers([rogueKeypair])

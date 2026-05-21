@@ -74,7 +74,7 @@ These are passed through to the instruction's account map as `snapshotCounterPda
 To assert snapshot values, prefer the `get_*_snapshot_at(snapshot_id)` views via `.view()`:
 
 ```ts
-const value: anchor.BN = await (snapshotProgram as any).methods
+const value: anchor.BN = await snapshotProgram.methods
   .getHolderbalanceSnapshotAt(new anchor.BN(1))
   .accounts({ mint, holderBalanceSnapshot, holderTokenAccount })
   .view();
