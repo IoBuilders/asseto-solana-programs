@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
 import * as anchor from "@anchor-lang/core";
 import { MintContext, MintWriteWithPayerContext } from "./base_helper";
@@ -60,6 +60,60 @@ export async function getHolderBalanceSnapshotAt(
       holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
     })
     .view();
+}
+
+export async function updateTotalSupplySnapshot(ctx: MintWriteWithPayerContext): Promise<void> {
+  const callingAuthority = ctx.deployer;
+
+  await getSnapshotProgram()
+    .methods.updateTotalsupplySnapshot()
+    .accountsStrict({
+      callingAuthority: callingAuthority,
+      payer: ctx.payer ?? ctx.deployer,
+      mint: ctx.mint,
+      snapshotCounter: pdaUtils.snapshotCounterPda(ctx.mint),
+      totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(ctx.mint),
+      systemProgram: SYSTEM_PROGRAM_ID,
+    })
+    .rpc({ commitment: "confirmed" });
+}
+
+type UpdateHolderBalanceSnapshotArgs = {
+  delta: anchor.BN;
+  increase: boolean;
+};
+
+function getUpdateHolderBalanceSnapshotArgs(): Required<UpdateHolderBalanceSnapshotArgs> {
+  return {
+    delta: new anchor.BN(0),
+    increase: true,
+  };
+}
+
+export async function updateHolderBalanceSnapshot(
+  ctx: MintWriteWithPayerContext,
+  args?: { delta: anchor.BN; increase: boolean }
+): Promise<void> {
+  const effectiveArgs: Required<UpdateHolderBalanceSnapshotArgs> = {
+    ...getUpdateHolderBalanceSnapshotArgs(),
+    ...args,
+  };
+
+  const callingAuthority = ctx.deployer;
+  const holderTokenAccount = Keypair.generate().publicKey;
+
+  await getSnapshotProgram()
+    .methods.updateHolderbalanceSnapshot(effectiveArgs.delta, effectiveArgs.increase)
+    .accountsStrict({
+      callingAuthority: callingAuthority,
+      payer: ctx.payer ?? ctx.deployer,
+      mint: ctx.mint,
+      snapshotCounter: pdaUtils.snapshotCounterPda(ctx.mint),
+      holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(ctx.mint, holderTokenAccount),
+      holderTokenAccount: holderTokenAccount,
+      systemProgram: SYSTEM_PROGRAM_ID,
+    })
+    .rpc({ commitment: "confirmed" });
 }
 
 export async function getSnapshotCounter(mint: PublicKey) {

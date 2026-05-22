@@ -93,7 +93,7 @@ describe("transfer", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("transfer: snapshot 1 captures post-transfer balances (source = minted - transferred, destination = transferred)", async () => {
+  it("transfer: snapshot captures pre-transfer balances (source = minted - transferred, destination = transferred)", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
 
     const source = await createTokenAccount({ mint, owner: sourceOwner });
@@ -123,21 +123,14 @@ describe("transfer", () => {
     );
 
     assert.equal(
-      receiverValue.toString(),
-      "0",
-      "receiver snapshot should be 0: Token-2022 credits destination after the hook returns"
-    );
-    assert.equal(
       senderValue.toString(),
       MINT_AMOUNT.toNumber().toString(),
-      "sender snapshot should equal post-debit balance: Token-2022 debits source before invoking the hook"
+      "sender snapshot should equal pre-transfer balance"
     );
+    assert.equal(receiverValue.toString(), "0", "receiver snapshot should equal pre-transfer balance");
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // TODO: skipped until update_holderbalance_snapshot idempotency check is implemented
-  // (the PDA-exists branch unconditionally appends, overwriting the first snapshot entry)
-  it.skip("transfer: multiple sequential post-snapshot transfers do not corrupt snapshot data", async () => {
+  it("transfer: multiple sequential post-snapshot transfers do not corrupt snapshot data", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
 
     const FIRST_TRANSFER = new anchor.BN(300 * 10 ** MINT_DECIMALS);

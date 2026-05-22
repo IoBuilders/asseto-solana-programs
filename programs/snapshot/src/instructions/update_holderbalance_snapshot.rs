@@ -19,8 +19,7 @@ use crate::state::{SnapshotCounter, SnapshotEntry, SnapshotHistory};
 /// The PDA `["snapshot_holderbalance", mint, token_account]` holds a `SnapshotHistory`
 /// containing all (snapshotId, balance) pairs recorded so far for that holder.
 /// On the first call the account is created; on subsequent calls it is grown by one
-/// entry.  Each new entry's key (snapshotId) must be strictly greater than the last
-/// recorded key.  Silently succeeds when no snapshot has been taken yet or the entry
+/// entry. Silently succeeds when no snapshot has been taken yet or the entry
 /// for the current snapshot already exists (idempotent).
 ///
 /// Auxiliary instruction — only callable via CPI by one of the authorised PDAs:
@@ -107,14 +106,15 @@ pub fn update_holderbalance_snapshot(
     }
 
     // ── PDA exists — deserialize and append the new entry ─────────────────────
-    // Callers are responsible for ensuring each key is strictly greater than the
-    // previously recorded one; no idempotency or ordering check is done here.
     let mut history =
         SnapshotHistory::load(&ctx.accounts.holder_balance_snapshot.to_account_info())?;
-    history.entries.push(SnapshotEntry {
+
+    if !history.push_entry(SnapshotEntry {
         key: current_snapshot,
         value: holder_balance,
-    });
+    }) {
+        return Ok(());
+    }
 
     // ── Grow the account to fit the new entry ─────────────────────────────────
     let new_space = SnapshotHistory::len_for(history.entries.len());

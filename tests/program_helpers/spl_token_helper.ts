@@ -29,7 +29,7 @@ export async function createTokenAccount(args: CreateTokenAccountArgs): Promise<
   const provider = getProvider();
   const destination = args.destination ?? Keypair.generate();
 
-  await createAccount(
+  return createAccount(
     provider.connection,
     args.payer ?? provider.wallet.payer,
     args.mint,
@@ -38,8 +38,6 @@ export async function createTokenAccount(args: CreateTokenAccountArgs): Promise<
     { commitment: "confirmed" },
     TOKEN_2022_PROGRAM_ID
   );
-
-  return destination.publicKey;
 }
 
 export async function getTokenAccount(address: PublicKey): Promise<Account> {

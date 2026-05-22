@@ -12,14 +12,12 @@ import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_
 import { setTransferControlModes, TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control_helper";
 
 const MINT_DECIMALS = 6;
-const MINT_AMOUNT = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
 
-  // ────────────────────────────────────────────────────────────────────────────
   it("mint: mints tokens to a destination account and updates balance correctly", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
@@ -27,8 +25,9 @@ describe("mint", () => {
     const balanceBefore = accountBefore.amount;
     const mintInfoBefore = await getMint(mint);
     const supplyBefore = mintInfoBefore.supply;
+    const mintAmount = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
 
-    await mintTokens({ deployer, mint, destination }, { amount: MINT_AMOUNT });
+    await mintTokens({ deployer, mint, destination }, { amount: mintAmount });
 
     const accountAfter = await getTokenAccount(destination);
     const balanceAfter = accountAfter.amount;
@@ -36,13 +35,47 @@ describe("mint", () => {
     const supplyAfter = mintInfoAfter.supply;
 
     assert.equal(balanceBefore.toString(), "0", "destination balance should be zero before minting");
-    assert.equal(balanceAfter.toString(), MINT_AMOUNT.toString(), "destination balance should equal the minted amount");
+    assert.equal(balanceAfter.toString(), mintAmount.toString(), "destination balance should equal the minted amount");
     assert.equal(supplyBefore.toString(), "0", "total supply should be zero before minting");
-    assert.equal(supplyAfter.toString(), MINT_AMOUNT.toString(), "total supply should equal the minted amount");
+    assert.equal(supplyAfter.toString(), mintAmount.toString(), "total supply should equal the minted amount");
     assert.isTrue(accountAfter.isFrozen, "destination account should be re-frozen after minting");
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: snapshot taken before mint records the destination balance previous to the mint and is never overwritten", async () => {
+    // ── Deploy mint + create destination token account + mint an initial balance ────────────────────────
+    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
+    const destination = await createTokenAccount({ mint, owner: deployer });
+    const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
+    await mintTokens({ deployer, mint, destination }, { amount: balanceBeforeSnapshot });
+
+    // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
+    const couponId = new anchor.BN(1);
+    await createCoupon({ deployer, mint }, { couponId });
+
+    // ── First mint under the snapshot period — snapshot CPIs fire and record pre-mint balance ──────────
+    await mintTokens({ deployer, mint, destination });
+
+    // ── Second mint under the snapshot period — snapshot CPIs must be no-ops
+    await mintTokens({ deployer, mint, destination });
+
+    // ── Assert snapshot values ──────────────────────────
+    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
+    const holderValue = await getHolderBalanceSnapshotAt(
+      { mint, holderTokenAccount: destination },
+      { snapshotId: couponId }
+    );
+    assert.equal(
+      totalSupplyValue.toString(),
+      balanceBeforeSnapshot.toString(),
+      "total supply snapshot should reflect the pre-first-mint value"
+    );
+    assert.equal(
+      holderValue.toString(),
+      balanceBeforeSnapshot.toString(),
+      "holder balance snapshot should reflect the pre-first-mint value"
+    );
+  });
+
   it("mint: fails with MintPaused when mint is paused", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
@@ -61,7 +94,6 @@ describe("mint", () => {
     }
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
   it("mint: fails with Deactivated when mint has been deactivated", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
@@ -77,7 +109,6 @@ describe("mint", () => {
     }
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
   it("mint: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
@@ -93,7 +124,6 @@ describe("mint", () => {
     }
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
   it("mint: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
@@ -107,34 +137,5 @@ describe("mint", () => {
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "NotWhitelisted");
     }
-  });
-
-  // ────────────────────────────────────────────────────────────────────────────
-  it("mint: snapshot taken before mint records destination balance of 0", async () => {
-    // ── Deploy mint + create destination token account ────────────────────────
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
-    const destination = await createTokenAccount({ mint, owner: deployer });
-
-    // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
-    const couponId = new anchor.BN(1);
-    await createCoupon({ deployer, mint }, { couponId });
-
-    // ── Mint tokens — snapshot CPIs fire and record pre-mint balance (= 0) ───
-    await mintTokens({ deployer, mint, destination });
-
-    // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
-    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
-    const holderValue = await getHolderBalanceSnapshotAt(
-      { mint, holderTokenAccount: destination },
-      { snapshotId: couponId }
-    );
-
-    assert.equal(holderValue.toString(), "0", "holder snapshot should record the balance before minting, which is 0");
-    assert.equal(
-      totalSupplyValue.toString(),
-      "0",
-      "total supply snapshot should record the balance before minting, which is 0"
-    );
   });
 });

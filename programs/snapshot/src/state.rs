@@ -46,6 +46,21 @@ impl SnapshotHistory {
         Ok(())
     }
 
+    /// Appends `(key, value)`. Returns `false` (no-op) if the last entry already
+    /// has this key, enforcing the strictly-increasing-key invariant.
+    pub fn push_entry(&mut self, entry: SnapshotEntry) -> bool {
+        if self.has_entry_for(entry.key) {
+            return false;
+        }
+        self.entries.push(entry);
+        true
+    }
+
+    /// Returns `true` if an entry for `key` has already been recorded.
+    fn has_entry_for(&self, key: u64) -> bool {
+        self.entries.last().map(|e| e.key) == Some(key)
+    }
+
     /// Looks up the value recorded at `key`. If `key` is not present, returns the
     /// value of the entry with the smallest key strictly greater than `key`.
     /// Returns `None` if the history is empty or every recorded key is smaller

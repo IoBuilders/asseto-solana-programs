@@ -15,41 +15,119 @@ import { partiallyFreezeAccount } from "./program_helpers/freeze_helper";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
-const MINT_AMOUNT = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
-const BURN_AMOUNT = new anchor.BN(300 * 10 ** MINT_DECIMALS);
 
 describe("operations", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
 
-  // ────────────────────────────────────────────────────────────────────────────
-  it("burn: removes tokens from source via permanent delegate", async () => {
+  it("burn: removes tokens from the token account via permanent delegate", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+    const mintAmount = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
+    const burnAmount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
 
     // Mint 1 000 tokens to the source account (owned by deployer wallet).
     const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-    await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+    await mintTokens({ deployer, mint, destination: source }, { amount: mintAmount });
 
     // ── Call burn ──────────────────────────────────────────────────────
-    await burnTokens({ deployer, mint, tokenAccount: source }, { amount: BURN_AMOUNT });
+    await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
 
     const sourceAfter = (await getTokenAccount(source)).amount;
     assert.equal(
       sourceAfter.toString(),
-      (MINT_AMOUNT.toNumber() - BURN_AMOUNT.toNumber()).toString(),
+      (mintAmount.toNumber() - burnAmount.toNumber()).toString(),
       "source balance should be reduced by the transfer amount"
     );
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
+  it("burn: holder balance snapshot records full Token-2022 balance (ignoring partial-freeze PDA)", async () => {
+    const { mint } = await deployMint({ deployer });
+    const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+    const mintAmount = new anchor.BN(10 ** MINT_DECIMALS);
+    const burnAmount = new anchor.BN(3 ** MINT_DECIMALS);
+    const partialFrozenAmount = new anchor.BN(5 ** MINT_DECIMALS);
+
+    // ── Mint 1 000 tokens (no snapshot active yet → snapshot CPIs exit silently) ──
+    const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+    await mintTokens({ deployer, mint, destination: source }, { amount: mintAmount });
+
+    // ── Partially freeze 400 tokens on source ─────────────────────────────────
+    await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: partialFrozenAmount });
+
+    // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
+    const couponId = new anchor.BN(1);
+    await createCoupon({ deployer, mint }, { couponId });
+
+    // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 1 ──
+    await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
+
+    const holderValue = await getHolderBalanceSnapshotAt(
+      { mint, holderTokenAccount: source },
+      { snapshotId: couponId }
+    );
+    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
+
+    // (1) Snapshot recorded the FULL balance — not adjusted by frozen_balance_pda.
+    assert.equal(
+      holderValue.toString(),
+      mintAmount.toString(),
+      "holder snapshot at coupon-1 must record the full Token-2022 balance (frozen + unfrozen)"
+    );
+
+    // (2) Total supply snapshot is independent of partial-freeze PDAs by definition.
+    assert.equal(
+      totalSupplyValue.toString(),
+      mintAmount.toString(),
+      "total supply snapshot must record the full minted supply, unaffected by partial-freeze PDAs"
+    );
+  });
+
+  it("burn: snapshot taken before burn records holder balance at time of snapshot and is never overwritten", async () => {
+    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
+    const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+    const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
+    const burnAmount = new anchor.BN(1 ** MINT_DECIMALS);
+
+    // Mint tokens (no snapshot active yet → snapshot CPIs exit silently)
+    const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+    await mintTokens({ deployer, mint, destination: source }, { amount: balanceBeforeSnapshot });
+
+    // Take snapshot via create_coupon (counter 0 → 1); subsequent operations will record pre-op balances
+    const couponId = new anchor.BN(1);
+    await createCoupon({ deployer, mint }, { couponId });
+
+    // First burn — snapshot CPIs fire and record pre-burn balance (= balanceBeforeSnapshot)
+    await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
+
+    // Second burn in the same snapshot period — snapshot CPIs must be no-ops
+    await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
+
+    // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
+    const holderValue = await getHolderBalanceSnapshotAt(
+      { mint, holderTokenAccount: source },
+      { snapshotId: couponId }
+    );
+    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
+    assert.equal(
+      holderValue.toString(),
+      balanceBeforeSnapshot.toString(),
+      "holder snapshot should reflect the balance before burning"
+    );
+    assert.equal(
+      totalSupplyValue.toString(),
+      balanceBeforeSnapshot.toString(),
+      "total supply snapshot should v the total supply before burning"
+    );
+  });
+
   it("burn: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
 
     const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-    await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+    await mintTokens({ deployer, mint, destination: source });
 
     // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
     const rogueKeypair = Keypair.generate();
@@ -64,13 +142,12 @@ describe("operations", () => {
     }
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
   it("burn: fails when mint is paused", async () => {
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
 
     const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-    await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+    await mintTokens({ deployer, mint, destination: source });
     await pauseMint({ deployer, mint });
 
     // The burn CPI into Token-2022 is rejected because the mint is paused.
@@ -90,14 +167,13 @@ describe("operations", () => {
     }
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
   it("burn: fails with Deactivated when mint has been deactivated", async () => {
     // ── Deploy a fresh mint ────────────────────────────────────────────────
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
 
     const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-    await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+    await mintTokens({ deployer, mint, destination: source });
 
     // ── Deactivate the mint ────────────────────────────────────────────────
     await deactivateMint({ deployer, mint });
@@ -111,89 +187,5 @@ describe("operations", () => {
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
     }
-  });
-
-  // ────────────────────────────────────────────────────────────────────────────
-  it("burn: snapshot taken before burn records holder balance at time of snapshot", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-    const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
-
-    // Mint MINT_AMOUNT tokens (no snapshot active yet → snapshot CPIs exit silently)
-    const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-    await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
-
-    // Take snapshot via create_coupon (counter 0 → 1); subsequent operations will record pre-op balances
-    const couponId = new anchor.BN(1);
-    await createCoupon({ deployer, mint }, { couponId });
-
-    // Burn — snapshot CPI fires and records pre-burn balance (= MINT_AMOUNT)
-    await burnTokens({ deployer, mint, tokenAccount: source }, { amount: BURN_AMOUNT });
-
-    // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
-    const holderValue = await getHolderBalanceSnapshotAt(
-      { mint, holderTokenAccount: source },
-      { snapshotId: couponId }
-    );
-    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
-
-    assert.equal(
-      holderValue.toString(),
-      MINT_AMOUNT.toString(),
-      "holder snapshot should record the balance before burning, which equals MINT_AMOUNT"
-    );
-    assert.equal(
-      totalSupplyValue.toString(),
-      MINT_AMOUNT.toString(),
-      "total supply snapshot should record the total supply before burning, which equals MINT_AMOUNT"
-    );
-  });
-
-  // ── coupon snapshot captures full balance, ignoring partial-freeze PDA ──
-  it("burn: holder balance snapshot records full Token-2022 balance (ignoring partial-freeze PDA)", async () => {
-    const { mint } = await deployMint({ deployer });
-    const mintOwnerPda = pdaUtils.mintOwnerPda(mint);
-
-    const PARTIAL_FROZEN = new anchor.BN(400 * 10 ** MINT_DECIMALS); // 40 % locked
-    // Expected unfrozen amount at snapshot time — used only as a wrong-answer guard.
-    const UNFROZEN_AT_SNAPSHOT = MINT_AMOUNT.sub(PARTIAL_FROZEN); // 600 tokens
-
-    // ── Mint 1 000 tokens (no snapshot active yet → snapshot CPIs exit silently) ──
-    const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-    await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
-
-    // ── Partially freeze 400 tokens on source ─────────────────────────────────
-    await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: PARTIAL_FROZEN });
-
-    // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
-    const couponId = new anchor.BN(1);
-    await createCoupon({ deployer, mint }, { couponId });
-
-    // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 1 ──
-    await burnTokens({ deployer, mint, tokenAccount: source }, { amount: BURN_AMOUNT });
-
-    const holderValue = await getHolderBalanceSnapshotAt(
-      { mint, holderTokenAccount: source },
-      { snapshotId: couponId }
-    );
-    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
-
-    // (1) Snapshot recorded the FULL balance — not adjusted by frozen_balance_pda.
-    assert.equal(
-      holderValue.toString(),
-      MINT_AMOUNT.toString(),
-      "holder snapshot at coupon-1 must record the full Token-2022 balance (frozen + unfrozen)"
-    );
-    assert.notEqual(
-      holderValue.toString(),
-      UNFROZEN_AT_SNAPSHOT.toString(),
-      "holder snapshot must NOT be adjusted by frozen_balance_pda (would yield the unfrozen-only value)"
-    );
-
-    // (2) Total supply snapshot is independent of partial-freeze PDAs by definition.
-    assert.equal(
-      totalSupplyValue.toString(),
-      MINT_AMOUNT.toString(),
-      "total supply snapshot must record the full minted supply, unaffected by partial-freeze PDAs"
-    );
   });
 });
