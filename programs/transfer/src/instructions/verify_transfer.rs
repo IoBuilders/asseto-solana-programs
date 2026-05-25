@@ -26,15 +26,18 @@ pub fn verify_transfer(ctx: Context<VerifyTransfer>, amount: u64) -> Result<()> 
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
     // ── Transfer control mode check ──────────────────────────────────────
-    // At least one active mode must be satisfied; if all fail, deny the transfer.
+    // Additive evaluation: every active mode must be satisfied.
+    // - No active modes → no controls, transfer proceeds.
+    // - One active mode → that mode must pass.
+    // - Multiple active modes → all must pass (e.g. clearing co-sign AND whitelist).
     let transfer_modes =
         get_transfer_modes(&ctx.accounts.transfer_control_mode_pda.to_account_info())?;
     if !transfer_modes.is_empty() {
-        let any_passed = transfer_modes.iter().any(|mode| match mode {
+        let all_passed = transfer_modes.iter().all(|mode| match mode {
             TransferMode::Clearing => check_clearing_mode(&ctx.accounts),
             TransferMode::Whitelist => check_whitelist_mode(&ctx.accounts),
         });
-        require!(any_passed, TransferError::TransferControlDenied);
+        require!(all_passed, TransferError::TransferControlDenied);
     }
 
     // ── Verify source account has not been frozen at token level ─────────

@@ -2076,4 +2076,587 @@ describe("transfer", () => {
       "destination should be credited by the transfer amount"
     );
   });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("transfer: succeeds when both Clearing and Whitelist modes are active and both conditions are satisfied", async () => {
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
+
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
+
+    const destKeypair = Keypair.generate();
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const destination = destKeypair.publicKey;
+
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+    const sourceWhitelistPda = pdaUtils.whitelistPda(mint, source);
+    const destinationWhitelistPda = pdaUtils.whitelistPda(mint, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
+
+    // Activate [Clearing, Whitelist] and whitelist both ends.
+    await transferControlProgram.methods
+      .setModes([{ clearing: {} }, { whitelist: {} }])
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda,
+        transferControlModePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+    await transferControlProgram.methods
+      .addToWhitelist()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: source,
+        deactivatePda,
+        whitelistPda: sourceWhitelistPda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+    await transferControlProgram.methods
+      .addToWhitelist()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: destination,
+        deactivatePda,
+        whitelistPda: destinationWhitelistPda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    await fundTransferHookAuthority(transferHookAuthority);
+
+    const sourceBefore = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destBefore = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    // Flip deployer.isSigner so the clearing-mode check sees a co-signature.
+    const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
+    const deployerIdx = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(deployer));
+    verifyIx.keys[deployerIdx].isSigner = true;
+
+    const tx = await transferProgram.methods
+      .transfer(TRANSFER_AMOUNT)
+      .accountsStrict({
+        sourceOwner,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        snapshotCounterPda,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
+      .signers([sourceOwnerKeypair])
+      .rpc({ commitment: "confirmed" });
+
+    console.log("  transfer tx (clearing + whitelist, both satisfied):", tx);
+
+    const sourceAfter = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destAfter = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    assert.equal(
+      sourceAfter.toString(),
+      (sourceBefore - BigInt(TRANSFER_AMOUNT.toString())).toString(),
+      "source should be debited by TRANSFER_AMOUNT"
+    );
+    assert.equal(
+      destAfter.toString(),
+      (destBefore + BigInt(TRANSFER_AMOUNT.toString())).toString(),
+      "destination should be credited TRANSFER_AMOUNT"
+    );
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("transfer: fails with TransferControlDenied when both modes active and only whitelist passes (signer is not the deployer)", async () => {
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
+
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
+
+    const destKeypair = Keypair.generate();
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const destination = destKeypair.publicKey;
+
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+    const sourceWhitelistPda = pdaUtils.whitelistPda(mint, source);
+    const destinationWhitelistPda = pdaUtils.whitelistPda(mint, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
+
+    // Activate [Clearing, Whitelist] and whitelist BOTH ends so whitelist passes.
+    await transferControlProgram.methods
+      .setModes([{ clearing: {} }, { whitelist: {} }])
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda,
+        transferControlModePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+    await transferControlProgram.methods
+      .addToWhitelist()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: source,
+        deactivatePda,
+        whitelistPda: sourceWhitelistPda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+    await transferControlProgram.methods
+      .addToWhitelist()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: destination,
+        deactivatePda,
+        whitelistPda: destinationWhitelistPda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    // Rogue signer that is NOT the recorded deployer.
+    const rogueKeypair = Keypair.generate();
+    const airdropSig = await connection.requestAirdrop(rogueKeypair.publicKey, anchor.web3.LAMPORTS_PER_SOL);
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    await connection.confirmTransaction({ signature: airdropSig, blockhash, lastValidBlockHeight }, "confirmed");
+
+    await fundTransferHookAuthority(transferHookAuthority);
+
+    const verifyIx = await buildVerifyTransferIx(
+      source,
+      destination,
+      mint,
+      TRANSFER_AMOUNT,
+      undefined,
+      rogueKeypair.publicKey
+    );
+    const deployerIdx = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(rogueKeypair.publicKey));
+    verifyIx.keys[deployerIdx].isSigner = true;
+
+    const ix = await transferProgram.methods
+      .transfer(TRANSFER_AMOUNT)
+      .accountsStrict({
+        sourceOwner,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        snapshotCounterPda,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .instruction();
+
+    const { blockhash: txBlockhash } = await connection.getLatestBlockhash("confirmed");
+    const rawTx = new anchor.web3.Transaction();
+    rawTx.recentBlockhash = txBlockhash;
+    rawTx.feePayer = provider.wallet.publicKey;
+    rawTx.add(anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+    rawTx.add(verifyIx);
+    rawTx.add(ix);
+    await provider.wallet.signTransaction(rawTx);
+    rawTx.partialSign(sourceOwnerKeypair, rogueKeypair);
+
+    try {
+      await connection.sendRawTransaction(rawTx.serialize(), { preflightCommitment: "confirmed" });
+      assert.fail("Expected TransferControlDenied but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, SendTransactionError, "should fail as SendTransactionError");
+      const logs = (err as SendTransactionError).logs ?? [];
+      const anchorErr = AnchorError.parse(logs);
+      assert.isNotNull(anchorErr, "expected AnchorError in transaction logs");
+      console.log("  caught error code:  ", anchorErr!.error.errorCode.code);
+      assert.equal(
+        anchorErr!.error.errorCode.code,
+        "TransferControlDenied",
+        "error code should be TransferControlDenied (clearing fails, whitelist alone not enough)"
+      );
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("transfer: fails with TransferControlDenied when both modes active and only clearing passes (destination not whitelisted)", async () => {
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
+
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
+
+    const destKeypair = Keypair.generate();
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const destination = destKeypair.publicKey;
+
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+    const sourceWhitelistPda = pdaUtils.whitelistPda(mint, source);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
+
+    // Activate [Clearing, Whitelist] and whitelist ONLY source — destination check will fail.
+    await transferControlProgram.methods
+      .setModes([{ clearing: {} }, { whitelist: {} }])
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda,
+        transferControlModePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+    await transferControlProgram.methods
+      .addToWhitelist()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: source,
+        deactivatePda,
+        whitelistPda: sourceWhitelistPda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    await fundTransferHookAuthority(transferHookAuthority);
+
+    // Flip deployer.isSigner so clearing passes; whitelist still fails on destination.
+    const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
+    const deployerIdx = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(deployer));
+    verifyIx.keys[deployerIdx].isSigner = true;
+
+    try {
+      await transferProgram.methods
+        .transfer(TRANSFER_AMOUNT)
+        .accountsStrict({
+          sourceOwner,
+          source,
+          destination,
+          mint,
+          transferAuthority,
+          transferHookAuthority,
+          freezeAuthority,
+          extraAccountMetaList,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
+          snapshotCounterPda,
+          senderSnapshot,
+          receiverSnapshot,
+          instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SYSTEM_PROGRAM_ID,
+        })
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
+        .signers([sourceOwnerKeypair])
+        .rpc({ commitment: "confirmed" });
+
+      assert.fail("Expected TransferControlDenied but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "TransferControlDenied",
+        "error code should be TransferControlDenied (whitelist check fails, clearing alone is not enough)"
+      );
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("transfer: rule change between transactions takes effect immediately (hot-swap)", async () => {
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
+
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
+
+    const destKeypair = Keypair.generate();
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const destination = destKeypair.publicKey;
+
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+    const sourceWhitelistPda = pdaUtils.whitelistPda(mint, source);
+    const destinationWhitelistPda = pdaUtils.whitelistPda(mint, destination);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
+
+    // Rogue keypair occupies the deployer slot so the wallet's fee-payer
+    // signature does not propagate is_signer=true onto it. Unused in phase A
+    // (Whitelist only), critical in phase B (Clearing requires a co-signature).
+    const rogueKeypair = Keypair.generate();
+
+    // Whitelist both ends — PDAs persist across the mode swap.
+    await transferControlProgram.methods
+      .addToWhitelist()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: source,
+        deactivatePda,
+        whitelistPda: sourceWhitelistPda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+    await transferControlProgram.methods
+      .addToWhitelist()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: destination,
+        deactivatePda,
+        whitelistPda: destinationWhitelistPda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    await fundTransferHookAuthority(transferHookAuthority);
+
+    // ── Phase A: modes = [Whitelist] → transfer succeeds ────────────────────
+    await transferControlProgram.methods
+      .setModes([{ whitelist: {} }])
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda,
+        transferControlModePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    const sourceBefore = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destBefore = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    const verifyIxA = await buildVerifyTransferIx(
+      source,
+      destination,
+      mint,
+      TRANSFER_AMOUNT,
+      undefined,
+      rogueKeypair.publicKey
+    );
+
+    const txA = await transferProgram.methods
+      .transfer(TRANSFER_AMOUNT)
+      .accountsStrict({
+        sourceOwner,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        snapshotCounterPda,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIxA])
+      .signers([sourceOwnerKeypair])
+      .rpc({ commitment: "confirmed" });
+
+    console.log("  phase A tx (modes=[Whitelist]):", txA);
+
+    const sourceMid = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destMid = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    assert.equal(
+      sourceMid.toString(),
+      (sourceBefore - BigInt(TRANSFER_AMOUNT.toString())).toString(),
+      "phase A: source should be debited TRANSFER_AMOUNT under [Whitelist]"
+    );
+    assert.equal(
+      destMid.toString(),
+      (destBefore + BigInt(TRANSFER_AMOUNT.toString())).toString(),
+      "phase A: destination should be credited TRANSFER_AMOUNT under [Whitelist]"
+    );
+
+    // ── Hot-swap → modes = [Clearing, Whitelist] ────────────────────────────
+    await transferControlProgram.methods
+      .setModes([{ clearing: {} }, { whitelist: {} }])
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda,
+        transferControlModePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    // ── Phase B: same transfer params, now must fail under [Clearing, Whitelist] ──
+    const verifyIxB = await buildVerifyTransferIx(
+      source,
+      destination,
+      mint,
+      TRANSFER_AMOUNT,
+      undefined,
+      rogueKeypair.publicKey
+    );
+
+    try {
+      await transferProgram.methods
+        .transfer(TRANSFER_AMOUNT)
+        .accountsStrict({
+          sourceOwner,
+          source,
+          destination,
+          mint,
+          transferAuthority,
+          transferHookAuthority,
+          freezeAuthority,
+          extraAccountMetaList,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
+          snapshotCounterPda,
+          senderSnapshot,
+          receiverSnapshot,
+          instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SYSTEM_PROGRAM_ID,
+        })
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIxB])
+        .signers([sourceOwnerKeypair])
+        .rpc({ commitment: "confirmed" });
+
+      assert.fail("Expected TransferControlDenied after hot-swap to [Clearing, Whitelist]");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "phase B error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      console.log("  phase B caught:", anchorErr.error.errorCode.code);
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "TransferControlDenied",
+        "phase B: same transfer must now fail under [Clearing, Whitelist]"
+      );
+    }
+
+    // Rejected transfer must not move any tokens.
+    const sourceAfter = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destAfter = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    assert.equal(
+      sourceAfter.toString(),
+      sourceMid.toString(),
+      "phase B: rejected transfer must not change source balance"
+    );
+    assert.equal(
+      destAfter.toString(),
+      destMid.toString(),
+      "phase B: rejected transfer must not change destination balance"
+    );
+  });
 });

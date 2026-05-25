@@ -11,7 +11,7 @@ Governs who may transfer tokens for a given mint. Two modes are supported:
 
 If no mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
 
-If multiple modes are set, one of them must succeed.
+If multiple modes are set, all of them must succeed (additive evaluation — see `transfer::verify_transfer`).
 
 Also exports two helper functions (`verify_whitelist`, `get_transfer_modes`) used by `mint` and `transfer-hook` to enforce mode-specific rules.
 
