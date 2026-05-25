@@ -96,16 +96,26 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
     };
     const SECONDS_PER_DAY: u64 = 86_400;
 
+    // Coupon-level override takes precedence over the asset-level bond_terms rate.
+    let (effective_interest_rate, effective_interest_rate_decimals) = match (
+        coupon.interest_rate_override,
+        coupon.interest_rate_override_decimals,
+    ) {
+        (Some(rate), Some(dec)) => (rate, dec),
+        _ => (bond.interest_rate, bond.interest_rate_decimals),
+    };
+
     // Collapse all four 10^… factors into a single signed exponent.
     // i32 is wide enough: each input is u8, so the sum is bounded by 4·255 = 1020.
     let bond_mint_dec = ctx.accounts.mint.decimals;
     let payment_mint_dec = ctx.accounts.treasury_config.payment_mint_decimals;
-    let positive_decs: i32 =
-        bond.interest_rate_decimals as i32 + bond_mint_dec as i32 + bond.par_value_decimals as i32;
+    let positive_decs: i32 = effective_interest_rate_decimals as i32
+        + bond_mint_dec as i32
+        + bond.par_value_decimals as i32;
     let net_power: i32 = payment_mint_dec as i32 - positive_decs;
 
     // Base numerator: interest_rate × holder_balance × par_value × elapsed_seconds.
-    let mut num: u128 = (bond.interest_rate as u128)
+    let mut num: u128 = (effective_interest_rate as u128)
         .checked_mul(holder_balance as u128)
         .and_then(|v| v.checked_mul(bond.par_value as u128))
         .and_then(|v| v.checked_mul(elapsed_seconds as u128))

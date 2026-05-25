@@ -522,7 +522,14 @@ describe("mint", () => {
     const couponCounter = pdas.couponCounterPda(mint);
     const coupon = pdas.couponPda(mint, couponId);
     const snapshotTx = await couponProgram.methods
-      .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), couponId)
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        null,
+        null
+      )
       .accountsStrict({
         payer: deployer,
         deployer,

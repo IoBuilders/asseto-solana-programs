@@ -112,7 +112,7 @@ amount  =  ───────────────────────
               10^interest_dec × 10^bond_mint_dec × 10^par_value_dec × day_count × 86_400
 ```
 
-- `interest_rate`, `interest_dec`, `par_value`, `par_value_dec`, `issuance_date`, `day_count_convention` come from `bond_terms` (bond, seeds `["bond_terms", mint]`).
+- `interest_rate` and `interest_dec` are resolved as follows: if the coupon carries `interest_rate_override` and `interest_rate_override_decimals` (both `Some`), those values are used; otherwise the handler falls back to `bond_terms.interest_rate` / `bond_terms.interest_rate_decimals`. `par_value`, `par_value_dec`, `issuance_date`, and `day_count_convention` always come from `bond_terms` (bond, seeds `["bond_terms", mint]`).
 - `bond_mint_dec` is read directly from the bond `mint` (`InterfaceAccount<Mint>`).
 - `payment_mint_dec` is the cached value in `treasury_config` set by `set_payment_token`.
 - `coupon.snapshot_id`, `coupon.period_start_date`, `coupon.period_end_date`, and `coupon.payment_date` come from `coupon` (coupon, seeds `["coupon", mint, coupon_id]`).

@@ -11,21 +11,31 @@ use common::program_ids as constants;
 /// 1. Verifies the deployer signature, mint not paused, mint not deactivated.
 /// 2. Validates the date triple: `period_start_date < period_end_date < payment_date`
 ///    (strict, not enforcing chaining with previous coupons).
-/// 3. Increments `coupon_counter` (creating it on the first call).
-/// 4. CPIs `snapshot::take_snapshot` signed by the `coupon_authority` PDA.
-/// 5. Reads the resulting snapshot id from `snapshot_counter`.
-/// 6. Stores `(snapshot_id, period_start_date, period_end_date, payment_date)`
-///    in the new `coupon` PDA.
+/// 3. Validates that `interest_rate_override` and `interest_rate_override_decimals`
+///    are either both `Some` or both `None` (`InconsistentRateOverride` otherwise).
+/// 4. Increments `coupon_counter` (creating it on the first call).
+/// 5. CPIs `snapshot::take_snapshot` signed by the `coupon_authority` PDA.
+/// 6. Reads the resulting snapshot id from `snapshot_counter`.
+/// 7. Stores `(snapshot_id, period_start_date, period_end_date, payment_date,
+///    interest_rate_override, interest_rate_override_decimals)` in the new `coupon` PDA.
 ///
 /// `coupon_id` is supplied by the client (it's needed in the seeds for the
 /// `coupon` PDA address derivation) and the program re-checks it equals the
 /// expected new counter value before committing.
+///
+/// `interest_rate_override` / `interest_rate_override_decimals` are optional.
+/// When both are `Some`, `treasury::pay_coupon` uses them instead of the
+/// asset-level rate in `bond_terms`. Pass `None` for both to inherit the
+/// bond-level rate (the default). The rate can be updated later with
+/// `set_coupon_rate`.
 pub fn create_coupon(
     ctx: Context<CreateCoupon>,
     period_start_date: i64,
     period_end_date: i64,
     payment_date: i64,
     coupon_id: u64,
+    interest_rate_override: Option<u64>,
+    interest_rate_override_decimals: Option<u8>,
 ) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
     verify_deployer(
@@ -89,6 +99,7 @@ pub fn create_coupon(
     coupon.period_start_date = period_start_date;
     coupon.period_end_date = period_end_date;
     coupon.payment_date = payment_date;
+    coupon.set_interest_rate(interest_rate_override, interest_rate_override_decimals)?;
 
     Ok(())
 }

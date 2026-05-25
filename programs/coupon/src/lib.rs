@@ -32,6 +32,8 @@ pub mod coupon {
         period_end_date: i64,
         payment_date: i64,
         coupon_id: u64,
+        interest_rate_override: Option<u64>,
+        interest_rate_override_decimals: Option<u8>,
     ) -> Result<()> {
         create_coupon::create_coupon(
             ctx,
@@ -39,6 +41,29 @@ pub mod coupon {
             period_end_date,
             payment_date,
             coupon_id,
+            interest_rate_override,
+            interest_rate_override_decimals,
         )
+    }
+
+    /// Overrides the interest rate for a single already-issued coupon.
+    ///
+    /// Sets `coupon.interest_rate_override` and
+    /// `coupon.interest_rate_override_decimals` so that
+    /// `treasury::pay_coupon` uses this rate instead of the asset-level rate
+    /// stored in `bond_terms`. Follows the same scaling convention as
+    /// `BondTerms`: actual rate = `interest_rate / 10^interest_rate_decimals`.
+    ///
+    /// Calling this instruction again replaces the previous values.
+    ///
+    /// Management instruction — gated by `verify_deployer`, `require_not_paused`,
+    /// and `require_active`.
+    pub fn set_coupon_rate(
+        ctx: Context<SetCouponRate>,
+        coupon_id: u64,
+        interest_rate: Option<u64>,
+        interest_rate_decimals: Option<u8>,
+    ) -> Result<()> {
+        set_coupon_rate::set_coupon_rate(ctx, coupon_id, interest_rate, interest_rate_decimals)
     }
 }

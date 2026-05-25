@@ -8,4 +8,6 @@ pub enum ErrorCode {
     InvalidCouponPeriod,
     #[msg("payment_date must be strictly greater than period_end_date")]
     InvalidPaymentDate,
+    #[msg("interest_rate_override and interest_rate_override_decimals must both be Some or both be None")]
+    InconsistentRateOverride,
 }

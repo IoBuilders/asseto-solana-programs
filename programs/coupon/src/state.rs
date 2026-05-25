@@ -26,6 +26,12 @@ pub struct CouponCounter {
 /// `snapshot_id` records the snapshot index taken at creation time, used to
 /// recover holder balances and total supply at the coupon's record date.
 ///
+/// `interest_rate_override` / `interest_rate_override_decimals` are both
+/// `None` by default — `treasury::pay_coupon` then falls back to the
+/// asset-level rate in `bond_terms`. When set (via `set_coupon_rate`), they
+/// replace the bond-level rate **only for this coupon**, using the same
+/// scaling convention as `BondTerms`: actual rate = rate / 10^decimals.
+///
 /// Seeds: `["coupon", mint, coupon_id.to_le_bytes()]`.
 #[account]
 #[derive(InitSpace)]
@@ -35,4 +41,22 @@ pub struct Coupon {
     pub period_start_date: i64,
     pub period_end_date: i64,
     pub payment_date: i64,
+    pub interest_rate_override: Option<u64>,
+    pub interest_rate_override_decimals: Option<u8>,
+}
+
+impl Coupon {
+    /// Sets (or clears) the coupon-level interest rate override.
+    ///
+    /// Both `rate` and `decimals` must be either both `Some` or both `None`;
+    /// mixed values are rejected with `InconsistentRateOverride`.
+    pub fn set_interest_rate(&mut self, rate: Option<u64>, decimals: Option<u8>) -> Result<()> {
+        require!(
+            rate.is_some() == decimals.is_some(),
+            crate::errors::ErrorCode::InconsistentRateOverride
+        );
+        self.interest_rate_override = rate;
+        self.interest_rate_override_decimals = decimals;
+        Ok(())
+    }
 }

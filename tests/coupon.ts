@@ -129,6 +129,22 @@ describe("coupon", () => {
     };
   }
 
+  // ── Helper: build the accounts map for set_coupon_rate ────────────────────
+  function setCouponRateAccounts(
+    mint: PublicKey,
+    mintOwnerPda: PublicKey,
+    pdas: ReturnType<typeof couponPdas>,
+    deployerOverride?: PublicKey
+  ) {
+    return {
+      deployer: deployerOverride ?? deployer,
+      mintOwnerPda,
+      deactivatePda: pdas.deactivatePda,
+      mint,
+      coupon: pdas.coupon,
+    };
+  }
+
   // ────────────────────────────────────────────────────────────────────────────
   it("create_coupon: creates the first coupon, takes a snapshot, and stores both PDAs", async () => {
     const { mint, mintOwnerPda } = await deployMint();
@@ -144,7 +160,7 @@ describe("coupon", () => {
     assert.isNull(await connection.getAccountInfo(pdas.snapshotCounter, "confirmed"));
 
     const tx: string = await couponProgram.methods
-      .createCoupon(periodStartDate, periodEndDate, paymentDate, couponId)
+      .createCoupon(periodStartDate, periodEndDate, paymentDate, couponId, null, null)
       .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
       .rpc({ commitment: "confirmed" });
 
@@ -173,6 +189,13 @@ describe("coupon", () => {
     );
     assert.equal(coupon.paymentDate.toString(), paymentDate.toString(), "coupon.payment_date should match the arg");
 
+    // ── rate override is null by default ─────────────────────────────────────
+    assert.isNull(coupon.interestRateOverride, "interest_rate_override should be null when not provided");
+    assert.isNull(
+      coupon.interestRateOverrideDecimals,
+      "interest_rate_override_decimals should be null when not provided"
+    );
+
     const couponAccountInfo = await connection.getAccountInfo(pdas.coupon, "confirmed");
     assert.equal(
       couponAccountInfo!.owner.toBase58(),
@@ -192,7 +215,7 @@ describe("coupon", () => {
     const pay1 = new anchor.BN(1_800_000_000);
     const pdas1 = couponPdas(mint, id1);
     await couponProgram.methods
-      .createCoupon(start1, end1, pay1, id1)
+      .createCoupon(start1, end1, pay1, id1, null, null)
       .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas1))
       .rpc({ commitment: "confirmed" });
 
@@ -203,7 +226,7 @@ describe("coupon", () => {
     const pay2 = new anchor.BN(1_900_000_000);
     const pdas2 = couponPdas(mint, id2);
     await couponProgram.methods
-      .createCoupon(start2, end2, pay2, id2)
+      .createCoupon(start2, end2, pay2, id2, null, null)
       .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas2))
       .rpc({ commitment: "confirmed" });
 
@@ -221,6 +244,93 @@ describe("coupon", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
+  it("create_coupon: stores rate override when both fields are provided at creation", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    // 5.275 % → interest_rate = 5275, interest_rate_decimals = 5
+    const overrideRate = new anchor.BN(5275);
+    const overrideDecimals = 5;
+
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        overrideRate,
+        overrideDecimals
+      )
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    const coupon = await couponProgram.account.coupon.fetch(pdas.coupon);
+    assert.isNotNull(coupon.interestRateOverride, "interest_rate_override should be set");
+    assert.equal(
+      (coupon.interestRateOverride as anchor.BN).toString(),
+      overrideRate.toString(),
+      "interest_rate_override should match the arg"
+    );
+    assert.isNotNull(coupon.interestRateOverrideDecimals, "interest_rate_override_decimals should be set");
+    assert.equal(
+      coupon.interestRateOverrideDecimals,
+      overrideDecimals,
+      "interest_rate_override_decimals should match the arg"
+    );
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("create_coupon: fails with InconsistentRateOverride when only interest_rate_override is provided", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    try {
+      await couponProgram.methods
+        .createCoupon(
+          new anchor.BN(1_700_000_000),
+          new anchor.BN(1_750_000_000),
+          new anchor.BN(1_800_000_000),
+          couponId,
+          new anchor.BN(5275), // rate provided
+          null // decimals missing
+        )
+        .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+        .rpc({ commitment: "confirmed" });
+      assert.fail("Expected InconsistentRateOverride error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "InconsistentRateOverride");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("create_coupon: fails with InconsistentRateOverride when only interest_rate_override_decimals is provided", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    try {
+      await couponProgram.methods
+        .createCoupon(
+          new anchor.BN(1_700_000_000),
+          new anchor.BN(1_750_000_000),
+          new anchor.BN(1_800_000_000),
+          couponId,
+          null, // rate missing
+          5 // decimals provided
+        )
+        .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+        .rpc({ commitment: "confirmed" });
+      assert.fail("Expected InconsistentRateOverride error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "InconsistentRateOverride");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
   it("create_coupon: fails with InvalidCouponId when supplied id does not match counter+1", async () => {
     const { mint, mintOwnerPda } = await deployMint();
 
@@ -230,7 +340,14 @@ describe("coupon", () => {
 
     try {
       await couponProgram.methods
-        .createCoupon(new anchor.BN(1_700_000_000), new anchor.BN(1_750_000_000), new anchor.BN(1_800_000_000), wrongId)
+        .createCoupon(
+          new anchor.BN(1_700_000_000),
+          new anchor.BN(1_750_000_000),
+          new anchor.BN(1_800_000_000),
+          wrongId,
+          null,
+          null
+        )
         .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected InvalidCouponId error but instruction succeeded");
@@ -266,7 +383,9 @@ describe("coupon", () => {
           new anchor.BN(1_700_000_000),
           new anchor.BN(1_750_000_000),
           new anchor.BN(1_800_000_000),
-          couponId
+          couponId,
+          null,
+          null
         )
         .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
@@ -300,7 +419,9 @@ describe("coupon", () => {
           new anchor.BN(1_700_000_000),
           new anchor.BN(1_750_000_000),
           new anchor.BN(1_800_000_000),
-          couponId
+          couponId,
+          null,
+          null
         )
         .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
@@ -325,7 +446,9 @@ describe("coupon", () => {
           new anchor.BN(1_700_000_000),
           new anchor.BN(1_750_000_000),
           new anchor.BN(1_800_000_000),
-          couponId
+          couponId,
+          null,
+          null
         )
         .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas, deployer, rogue.publicKey))
         .signers([rogue])
@@ -347,7 +470,7 @@ describe("coupon", () => {
     const sameDate = new anchor.BN(1_700_000_000);
     try {
       await couponProgram.methods
-        .createCoupon(sameDate, sameDate, new anchor.BN(1_800_000_000), couponId)
+        .createCoupon(sameDate, sameDate, new anchor.BN(1_800_000_000), couponId, null, null)
         .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected InvalidCouponPeriod error but instruction succeeded");
@@ -368,13 +491,247 @@ describe("coupon", () => {
     const end = new anchor.BN(1_750_000_000);
     try {
       await couponProgram.methods
-        .createCoupon(start, end, end, couponId)
+        .createCoupon(start, end, end, couponId, null, null)
         .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
         .rpc({ commitment: "confirmed" });
       assert.fail("Expected InvalidPaymentDate error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
       assert.equal((err as AnchorError).error.errorCode.code, "InvalidPaymentDate");
+    }
+  });
+
+  // ── set_coupon_rate ──────────────────────────────────────────────────────────
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("set_coupon_rate: sets the rate override on an existing coupon that had none", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    // Create coupon without an override
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        null,
+        null
+      )
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    // Verify no override yet
+    const before = await couponProgram.account.coupon.fetch(pdas.coupon);
+    assert.isNull(before.interestRateOverride);
+    assert.isNull(before.interestRateOverrideDecimals);
+
+    // Set the override: 3.5 % → rate = 3500, decimals = 5
+    const overrideRate = new anchor.BN(3500);
+    const overrideDecimals = 5;
+
+    const tx = await couponProgram.methods
+      .setCouponRate(couponId, overrideRate, overrideDecimals)
+      .accountsStrict(setCouponRateAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    console.log("  set_coupon_rate tx:", tx);
+
+    const after = await couponProgram.account.coupon.fetch(pdas.coupon);
+    assert.isNotNull(after.interestRateOverride, "interest_rate_override should be set after call");
+    assert.equal(
+      (after.interestRateOverride as anchor.BN).toString(),
+      overrideRate.toString(),
+      "interest_rate_override should match the arg"
+    );
+    assert.equal(
+      after.interestRateOverrideDecimals,
+      overrideDecimals,
+      "interest_rate_override_decimals should match the arg"
+    );
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("set_coupon_rate: replaces an existing override with a new one", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    // Create coupon with an initial override: 5 %
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        new anchor.BN(5000),
+        5
+      )
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    // Replace with a lower rate: 2.5 %
+    const newRate = new anchor.BN(2500);
+    const newDecimals = 5;
+
+    await couponProgram.methods
+      .setCouponRate(couponId, newRate, newDecimals)
+      .accountsStrict(setCouponRateAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    const coupon = await couponProgram.account.coupon.fetch(pdas.coupon);
+    assert.equal(
+      (coupon.interestRateOverride as anchor.BN).toString(),
+      newRate.toString(),
+      "interest_rate_override should reflect the replacement"
+    );
+    assert.equal(coupon.interestRateOverrideDecimals, newDecimals);
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("set_coupon_rate: clears an existing override when both args are null", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    // Create coupon with an initial override: 5 %
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        new anchor.BN(5000),
+        5
+      )
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    // Clear the override — coupon reverts to the asset-level rate
+    await couponProgram.methods
+      .setCouponRate(couponId, null, null)
+      .accountsStrict(setCouponRateAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    const coupon = await couponProgram.account.coupon.fetch(pdas.coupon);
+    assert.isNull(coupon.interestRateOverride, "interest_rate_override should be cleared");
+    assert.isNull(coupon.interestRateOverrideDecimals, "interest_rate_override_decimals should be cleared");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("set_coupon_rate: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        null,
+        null
+      )
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    const rogue = Keypair.generate();
+
+    try {
+      await couponProgram.methods
+        .setCouponRate(couponId, new anchor.BN(5000), 5)
+        .accountsStrict(setCouponRateAccounts(mint, mintOwnerPda, pdas, rogue.publicKey))
+        .signers([rogue])
+        .rpc({ commitment: "confirmed" });
+      assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("set_coupon_rate: fails with MintPaused when mint is paused", async () => {
+    const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        null,
+        null
+      )
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    await pauseProgram.methods
+      .pause()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        deactivatePda: pdas.deactivatePda,
+        mint,
+        pausableAuthority,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    try {
+      await couponProgram.methods
+        .setCouponRate(couponId, new anchor.BN(5000), 5)
+        .accountsStrict(setCouponRateAccounts(mint, mintOwnerPda, pdas))
+        .rpc({ commitment: "confirmed" });
+      assert.fail("Expected MintPaused error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "MintPaused");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("set_coupon_rate: fails with Deactivated when mint has been deactivated", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+    const couponId = new anchor.BN(1);
+    const pdas = couponPdas(mint, couponId);
+
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        null,
+        null
+      )
+      .accountsStrict(couponAccounts(mint, mintOwnerPda, pdas))
+      .rpc({ commitment: "confirmed" });
+
+    await deactivateProgram.methods
+      .deactivate()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda: pdas.deactivatePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    try {
+      await couponProgram.methods
+        .setCouponRate(couponId, new anchor.BN(5000), 5)
+        .accountsStrict(setCouponRateAccounts(mint, mintOwnerPda, pdas))
+        .rpc({ commitment: "confirmed" });
+      assert.fail("Expected Deactivated error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "Deactivated");
     }
   });
 });

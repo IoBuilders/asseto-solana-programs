@@ -314,7 +314,7 @@ describe("treasury", () => {
 
     // 3. create_coupon (also CPIs take_snapshot → snapshot_id = 1).
     await couponProgram.methods
-      .createCoupon(periodStartDate, periodEndDate, paymentDate, couponId)
+      .createCoupon(periodStartDate, periodEndDate, paymentDate, couponId, null, null)
       .accountsStrict({
         payer: deployer,
         deployer,
