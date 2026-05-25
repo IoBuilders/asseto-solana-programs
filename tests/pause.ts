@@ -154,6 +154,44 @@ describe("pause", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
+  it("pause: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+
+    // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
+    const rogueKeypair = Keypair.generate();
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Mint:               ", mint.toBase58());
+    console.log("  Real deployer:      ", deployer.toBase58());
+    console.log("  Rogue signer:       ", rogueKeypair.publicKey.toBase58());
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    try {
+      await pauseProgram.methods
+        .pause()
+        .accountsStrict({
+          deployer: rogueKeypair.publicKey,
+          mintOwnerPda,
+          deactivatePda,
+          mint,
+          pausableAuthority,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        })
+        .signers([rogueKeypair])
+        .rpc({ commitment: "confirmed" });
+
+      assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
+      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
+      assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer", "error code should be UnauthorizedDeployer");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
   it("pause: fails with Deactivated when mint has been deactivated", async () => {
     const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
 
@@ -181,6 +219,91 @@ describe("pause", () => {
     try {
       await pauseProgram.methods
         .pause()
+        .accountsStrict({
+          deployer,
+          mintOwnerPda,
+          deactivatePda,
+          mint,
+          pausableAuthority,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        })
+        .rpc({ commitment: "confirmed" });
+
+      assert.fail("Expected Deactivated error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
+      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
+      assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("unpause: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+
+    // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
+    const rogueKeypair = Keypair.generate();
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Mint:               ", mint.toBase58());
+    console.log("  Real deployer:      ", deployer.toBase58());
+    console.log("  Rogue signer:       ", rogueKeypair.publicKey.toBase58());
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    try {
+      await pauseProgram.methods
+        .unpause()
+        .accountsStrict({
+          deployer: rogueKeypair.publicKey,
+          mintOwnerPda,
+          deactivatePda,
+          mint,
+          pausableAuthority,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+        })
+        .signers([rogueKeypair])
+        .rpc({ commitment: "confirmed" });
+
+      assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
+      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
+      assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer", "error code should be UnauthorizedDeployer");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("unpause: fails with Deactivated when mint has been deactivated", async () => {
+    const { mint, mintOwnerPda, pausableAuthority } = await deployMint();
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+
+    // ── Deactivate the mint ────────────────────────────────────────────────
+    const deactivateTx = await deactivateProgram.methods
+      .deactivate()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Mint:               ", mint.toBase58());
+    console.log("  Deactivate PDA:     ", deactivatePda.toBase58());
+    console.log("  deactivate tx:      ", deactivateTx);
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    // ── Unpause must now be rejected with Deactivated ──────────────────────
+    try {
+      await pauseProgram.methods
+        .unpause()
         .accountsStrict({
           deployer,
           mintOwnerPda,
