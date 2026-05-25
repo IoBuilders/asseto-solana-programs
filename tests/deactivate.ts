@@ -1,5 +1,5 @@
 import * as anchor from "@anchor-lang/core";
-import { Program } from "@anchor-lang/core";
+import { Program, AnchorError } from "@anchor-lang/core";
 import { Deploy } from "../target/types/deploy";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
@@ -21,6 +21,8 @@ describe("deactivate", () => {
   const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
   const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
   const deployer = provider.wallet.publicKey;
+
+  const connection = provider.connection;
 
   // ── Helper: deploy a fresh mint ─────────────────────────────────────────────
   async function deployMint(): Promise<{
@@ -108,5 +110,40 @@ describe("deactivate", () => {
     assert.isNull(deactivateStatusBefore, "deactivate PDA should not exist before calling deactivate");
     assert.isNotNull(deactivateStatusAfter, "deactivate PDA should exist after calling deactivate");
     assert.equal(deactivateStatusAfter.bump, expectedBump, "deactivate PDA bump should match the canonical bump");
+  });
+
+  // ── Error case: deactivate — UnauthorizedDeployer ──
+  it("deactivate: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+
+    const [deactivatePda] = pdas.deactivatePdaWithBump(mint);
+
+    const rogueKeypair = Keypair.generate();
+    const airdropSig = await connection.requestAirdrop(rogueKeypair.publicKey, anchor.web3.LAMPORTS_PER_SOL);
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    await connection.confirmTransaction({ signature: airdropSig, blockhash, lastValidBlockHeight }, "confirmed");
+
+    // ── Call the deactivate instruction ───────────────────────────────────────
+    try {
+      const tx = await deactivateProgram.methods
+        .deactivate()
+        .accountsStrict({
+          deployer: rogueKeypair.publicKey,
+          mintOwnerPda,
+          mint,
+          deactivatePda,
+          systemProgram: SYSTEM_PROGRAM_ID,
+        })
+        .signers([rogueKeypair])
+        .rpc({ commitment: "confirmed" });
+
+      assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
+      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
+      assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer");
+    }
   });
 });
