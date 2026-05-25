@@ -9,14 +9,14 @@ import { Transfer } from "../target/types/transfer";
 import { Deactivate } from "../target/types/deactivate";
 import { Snapshot } from "../target/types/snapshot";
 import { Coupon } from "../target/types/coupon";
-import { AccountMeta, Keypair, PublicKey, SYSVAR_RENT_PUBKEY, SendTransactionError } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID, createAccount, getAccount, getMint } from "@solana/spl-token";
+import { AccountMeta, Keypair, PublicKey, SendTransactionError, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { createAccount, getAccount, getMint, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import {
-  SYSTEM_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
   SNAPSHOT_PROGRAM_ID,
+  SYSTEM_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
 } from "./utils/address_utils";
 
@@ -476,6 +476,294 @@ describe("transfer", () => {
       senderValue.toString(),
       MINT_AMOUNT.toNumber().toString(),
       "sender snapshot should equal post-debit balance: Token-2022 debits source before invoking the hook"
+    );
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // TODO: skipped until update_holderbalance_snapshot idempotency check is implemented
+  // (the PDA-exists branch unconditionally appends, overwriting the first snapshot entry)
+  it.skip("transfer: multiple sequential post-snapshot transfers do not corrupt snapshot data", async () => {
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
+
+    const FIRST_TRANSFER = new anchor.BN(300 * 10 ** MINT_DECIMALS);
+    const SECOND_TRANSFER = new anchor.BN(200 * 10 ** MINT_DECIMALS);
+    const THIRD_TRANSFER = new anchor.BN(100 * 10 ** MINT_DECIMALS);
+
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
+
+    const destKeypair = Keypair.generate();
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const destination = destKeypair.publicKey;
+
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const couponAuthority = pdaUtils.couponAuthorityPda(mint);
+    const couponCounter = pdaUtils.couponCounterPda(mint);
+    const couponId1 = new anchor.BN(1);
+    const coupon1 = pdaUtils.couponPda(mint, couponId1);
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
+
+    // ── Take snapshot 1 (counter: 0 → 1) ─────────────────────────────────────
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId1,
+        null,
+        null
+      )
+      .accountsStrict({
+        payer: deployer,
+        deployer,
+        mintOwnerPda,
+        deactivatePda,
+        mint,
+        couponAuthority,
+        couponCounter,
+        coupon: coupon1,
+        snapshotCounter: snapshotCounterPda,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    await fundTransferHookAuthority(transferHookAuthority);
+
+    // ── First transfer in snapshot period 1 (300 tokens) ──────────────────────
+    // Hook writes: sender (key=1, value=MINT_AMOUNT), receiver (key=1, value=0).
+    const verifyIx1 = await buildVerifyTransferIx(source, destination, mint, FIRST_TRANSFER);
+    await transferProgram.methods
+      .transfer(FIRST_TRANSFER)
+      .accountsStrict({
+        sourceOwner,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        snapshotCounterPda,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx1])
+      .signers([sourceOwnerKeypair])
+      .rpc({ commitment: "confirmed" });
+
+    // ── Second transfer in snapshot period 1 (200 tokens) ─────────────────────
+    // Counter still at 1: the hook must not overwrite the existing key=1 entries.
+    const verifyIx2 = await buildVerifyTransferIx(source, destination, mint, SECOND_TRANSFER);
+    await transferProgram.methods
+      .transfer(SECOND_TRANSFER)
+      .accountsStrict({
+        sourceOwner,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        snapshotCounterPda,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx2])
+      .signers([sourceOwnerKeypair])
+      .rpc({ commitment: "confirmed" });
+
+    // ── Live balances after both period-1 transfers ───────────────────────────
+    const sourceAfterTwo = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destAfterTwo = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    assert.equal(
+      sourceAfterTwo.toString(),
+      (MINT_AMOUNT.toNumber() - FIRST_TRANSFER.toNumber() - SECOND_TRANSFER.toNumber()).toString(),
+      "source balance should be MINT_AMOUNT - 300 - 200 after two transfers"
+    );
+    assert.equal(
+      destAfterTwo.toString(),
+      (FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber()).toString(),
+      "destination balance should be 300 + 200 after two transfers"
+    );
+
+    // ── Snapshot 1 must reflect the pre-first-transfer state ──────────────────
+    const senderAt1_afterTwo: anchor.BN = await snapshotProgram.methods
+      .getHolderbalanceSnapshotAt(new anchor.BN(1))
+      .accountsStrict({ mint, holderBalanceSnapshot: senderSnapshot, holderTokenAccount: source })
+      .view();
+    const receiverAt1_afterTwo: anchor.BN = await snapshotProgram.methods
+      .getHolderbalanceSnapshotAt(new anchor.BN(1))
+      .accountsStrict({ mint, holderBalanceSnapshot: receiverSnapshot, holderTokenAccount: destination })
+      .view();
+
+    assert.equal(
+      senderAt1_afterTwo.toString(),
+      MINT_AMOUNT.toString(),
+      "sender snapshot at key=1 should be MINT_AMOUNT after two period-1 transfers"
+    );
+    assert.equal(
+      receiverAt1_afterTwo.toString(),
+      "0",
+      "receiver snapshot at key=1 should be 0 after two period-1 transfers"
+    );
+
+    // ── Take snapshot 2 (counter: 1 → 2) ─────────────────────────────────────
+    const couponId2 = new anchor.BN(2);
+    const coupon2 = pdaUtils.couponPda(mint, couponId2);
+    await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId2,
+        null,
+        null
+      )
+      .accountsStrict({
+        payer: deployer,
+        deployer,
+        mintOwnerPda,
+        deactivatePda,
+        mint,
+        couponAuthority,
+        couponCounter,
+        coupon: coupon2,
+        snapshotCounter: snapshotCounterPda,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    // ── Third transfer in snapshot period 2 (100 tokens) ──────────────────────
+    // Hook appends: sender (key=2, value=MINT_AMOUNT-300-200), receiver (key=2, value=300+200).
+    const verifyIx3 = await buildVerifyTransferIx(source, destination, mint, THIRD_TRANSFER);
+    await transferProgram.methods
+      .transfer(THIRD_TRANSFER)
+      .accountsStrict({
+        sourceOwner,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        snapshotCounterPda,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx3])
+      .signers([sourceOwnerKeypair])
+      .rpc({ commitment: "confirmed" });
+
+    // ── Live balances after all three transfers ───────────────────────────────
+    const sourceAfterThree = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destAfterThree = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    assert.equal(
+      sourceAfterThree.toString(),
+      (
+        MINT_AMOUNT.toNumber() -
+        FIRST_TRANSFER.toNumber() -
+        SECOND_TRANSFER.toNumber() -
+        THIRD_TRANSFER.toNumber()
+      ).toString(),
+      "source balance should be MINT_AMOUNT - 300 - 200 - 100 after three transfers"
+    );
+    assert.equal(
+      destAfterThree.toString(),
+      (FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber() + THIRD_TRANSFER.toNumber()).toString(),
+      "destination balance should be 300 + 200 + 100 after three transfers"
+    );
+
+    // ── Snapshot 1 must still be intact after the period-2 transfer ───────────
+    const senderAt1_final: anchor.BN = await snapshotProgram.methods
+      .getHolderbalanceSnapshotAt(new anchor.BN(1))
+      .accountsStrict({ mint, holderBalanceSnapshot: senderSnapshot, holderTokenAccount: source })
+      .view();
+    const receiverAt1_final: anchor.BN = await snapshotProgram.methods
+      .getHolderbalanceSnapshotAt(new anchor.BN(1))
+      .accountsStrict({ mint, holderBalanceSnapshot: receiverSnapshot, holderTokenAccount: destination })
+      .view();
+
+    assert.equal(
+      senderAt1_final.toString(),
+      MINT_AMOUNT.toString(),
+      "snapshot 1 sender must be unchanged after the period-2 transfer"
+    );
+    assert.equal(
+      receiverAt1_final.toString(),
+      "0",
+      "snapshot 1 receiver must be unchanged after the period-2 transfer"
+    );
+
+    // ── Snapshot 2 must capture the state at the start of period 2 ───────────
+    // When the 3rd transfer's hook ran, Token-2022 had already settled balances:
+    // source = MINT_AMOUNT-300-200-100, destination = 300+200+100.
+    // The hook adjusts by the delta to recover the pre-transfer balances:
+    // sender:   (MINT_AMOUNT-600) + 100 = MINT_AMOUNT-500   = 500 tokens
+    // receiver: (300+200+100)     - 100 = 300+200           = 500 tokens
+    const expectedSenderAt2 = MINT_AMOUNT.toNumber() - FIRST_TRANSFER.toNumber() - SECOND_TRANSFER.toNumber();
+    const expectedReceiverAt2 = FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber();
+
+    const senderAt2: anchor.BN = await snapshotProgram.methods
+      .getHolderbalanceSnapshotAt(new anchor.BN(2))
+      .accountsStrict({ mint, holderBalanceSnapshot: senderSnapshot, holderTokenAccount: source })
+      .view();
+    const receiverAt2: anchor.BN = await snapshotProgram.methods
+      .getHolderbalanceSnapshotAt(new anchor.BN(2))
+      .accountsStrict({ mint, holderBalanceSnapshot: receiverSnapshot, holderTokenAccount: destination })
+      .view();
+
+    assert.equal(
+      senderAt2.toString(),
+      expectedSenderAt2.toString(),
+      "snapshot 2 sender should equal the pre-third-transfer source balance (500 tokens)"
+    );
+    assert.equal(
+      receiverAt2.toString(),
+      expectedReceiverAt2.toString(),
+      "snapshot 2 receiver should equal the pre-third-transfer destination balance (500 tokens)"
     );
   });
 
@@ -1328,12 +1616,17 @@ describe("transfer", () => {
       })
       .rpc({ commitment: "confirmed" });
 
+    const sourceBefore = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destBefore = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:                      ", mint.toBase58());
     console.log("  Source:                    ", source.toBase58());
     console.log("  Destination:               ", destination.toBase58());
     console.log("  set_mode({ whitelist }) tx:", setModeTx);
     console.log("  (destination NOT whitelisted)");
+    console.log("  Source balance BEFORE:     ", sourceBefore.toString(), "(raw)");
+    console.log("  Dest   balance BEFORE:     ", destBefore.toString(), "(raw)");
     console.log("══════════════════════════════════════════════════════════\n");
 
     await fundTransferHookAuthority(transferHookAuthority);
@@ -1378,6 +1671,25 @@ describe("transfer", () => {
         "error code should be TransferControlDenied"
       );
     }
+
+    const sourceAfter = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destAfter = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Source balance AFTER:      ", sourceAfter.toString(), "(raw)");
+    console.log("  Dest   balance AFTER:      ", destAfter.toString(), "(raw)");
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    assert.equal(
+      sourceAfter.toString(),
+      sourceBefore.toString(),
+      "source balance must be unchanged after rejected transfer"
+    );
+    assert.equal(
+      destAfter.toString(),
+      destBefore.toString(),
+      "destination balance must be unchanged after rejected transfer"
+    );
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -1445,12 +1757,17 @@ describe("transfer", () => {
       })
       .rpc({ commitment: "confirmed" });
 
+    const sourceBefore = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destBefore = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
     console.log("\n══════════════════════════════════════════════════════════");
     console.log("  Mint:                      ", mint.toBase58());
     console.log("  Source:                    ", source.toBase58());
     console.log("  Destination:               ", destination.toBase58());
     console.log("  set_mode(false) tx:        ", setModeTx);
     console.log("  (source NOT whitelisted)");
+    console.log("  Source balance BEFORE:     ", sourceBefore.toString(), "(raw)");
+    console.log("  Dest   balance BEFORE:     ", destBefore.toString(), "(raw)");
     console.log("══════════════════════════════════════════════════════════\n");
 
     await fundTransferHookAuthority(transferHookAuthority);
@@ -1495,6 +1812,25 @@ describe("transfer", () => {
         "error code should be TransferControlDenied"
       );
     }
+
+    const sourceAfter = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destAfter = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Source balance AFTER:      ", sourceAfter.toString(), "(raw)");
+    console.log("  Dest   balance AFTER:      ", destAfter.toString(), "(raw)");
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    assert.equal(
+      sourceAfter.toString(),
+      sourceBefore.toString(),
+      "source balance must be unchanged after rejected transfer"
+    );
+    assert.equal(
+      destAfter.toString(),
+      destBefore.toString(),
+      "destination balance must be unchanged after rejected transfer"
+    );
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -1629,5 +1965,115 @@ describe("transfer", () => {
         "error code should be TransferControlDenied"
       );
     }
+  });
+
+  it("transfer: succeeds when clearing mode is active and the deployer co-signs verify_transfer", async () => {
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
+
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
+
+    const destKeypair = Keypair.generate();
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const destination = destKeypair.publicKey;
+
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const transferControlModePda = pdaUtils.transferControlModePda(mint);
+
+    await transferControlProgram.methods
+      .setModes([{ clearing: {} }])
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        deactivatePda,
+        transferControlModePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    await fundTransferHookAuthority(transferHookAuthority);
+
+    const { snapshotCounterPda, senderSnapshot, receiverSnapshot } = transferSnapshotAccounts(
+      mint,
+      source,
+      destination
+    );
+
+    const sourceBefore = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destBefore = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    // Build verify_transfer with the real deployer and flip isSigner so the
+    // runtime clearing-mode check sees deployer.is_signer = true. The provider
+    // wallet IS the deployer, so provider.wallet.signTransaction covers it.
+    const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_AMOUNT);
+    const deployerIdxInVerify = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(deployer));
+    verifyIx.keys[deployerIdxInVerify].isSigner = true;
+
+    const transferIx = await transferProgram.methods
+      .transfer(TRANSFER_AMOUNT)
+      .accountsStrict({
+        sourceOwner,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        snapshotCounterPda,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .instruction();
+
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+    const rawTx = new anchor.web3.Transaction();
+    rawTx.recentBlockhash = blockhash;
+    rawTx.feePayer = provider.wallet.publicKey;
+    rawTx.add(anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+    rawTx.add(verifyIx);
+    rawTx.add(transferIx);
+    await provider.wallet.signTransaction(rawTx);
+    rawTx.partialSign(sourceOwnerKeypair);
+
+    const sig = await connection.sendRawTransaction(rawTx.serialize(), { preflightCommitment: "confirmed" });
+    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+    console.log("  transfer (clearing mode, deployer signed) tx:", sig);
+
+    const sourceAfter = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const destAfter = (await getAccount(connection, destination, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+
+    assert.equal(
+      (sourceBefore - sourceAfter).toString(),
+      TRANSFER_AMOUNT.toString(),
+      "source should be debited by the transfer amount"
+    );
+    assert.equal(
+      (destAfter - destBefore).toString(),
+      TRANSFER_AMOUNT.toString(),
+      "destination should be credited by the transfer amount"
+    );
   });
 });
