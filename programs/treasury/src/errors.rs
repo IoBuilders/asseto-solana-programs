@@ -12,4 +12,6 @@ pub enum ErrorCode {
     AmountOverflow,
     #[msg("Coupon payment_date has not been reached yet")]
     CouponNotMature,
+    #[msg("Payment token cannot be changed while claims are in progress for the current coupon")]
+    ClaimsInProgress,
 }

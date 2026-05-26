@@ -48,7 +48,7 @@ use common::program_ids as constants;
 /// - `holder_payment_account.mint == payment_mint` (`token::mint`)
 /// - All token accounts and the mint share the same `token_program`
 ///   (`token::token_program` / `mint::token_program`)
-pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
+pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
     verify_deployer(
         &ctx.accounts.mint_owner_pda.to_account_info(),
@@ -167,6 +167,12 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, _coupon_id: u64) -> Result<()> {
         cfg.payment_mint_decimals,
     )?;
 
+    // ── Lock the treasury config for this coupon ─────────────────────────────
+    // Prevents set_payment_token from changing the payment mint mid-distribution.
+    // Idempotent: subsequent pay_coupon calls for the same coupon overwrite the
+    // same value.
+    ctx.accounts.treasury_config.locked_for_coupon_id = coupon_id;
+
     // ── Mark this (coupon, holder_token_account) as paid ─────────────────────
     let marker = &mut ctx.accounts.coupon_paid;
     marker.bump = ctx.bumps.coupon_paid;
@@ -215,6 +221,7 @@ pub struct PayCoupon<'info> {
     /// Treasury config storing the payment mint pubkey + decimals.
     /// Seeds: `["treasury_config", mint]`.
     #[account(
+        mut,
         seeds = [pda_seeds::TREASURY_CONFIG, mint.key().as_ref()],
         bump = treasury_config.bump,
     )]

@@ -347,6 +347,7 @@ describe("treasury", () => {
         deactivatePda: pdas.deactivatePda,
         mint,
         treasuryConfig: pdas.treasuryConfig,
+        couponCounter: pdas.couponCounter,
         paymentMint,
         systemProgram: SYSTEM_PROGRAM_ID,
       })
@@ -458,6 +459,7 @@ describe("treasury", () => {
         deactivatePda: pdas.deactivatePda,
         mint,
         treasuryConfig: pdas.treasuryConfig,
+        couponCounter: pdas.couponCounter,
         paymentMint,
         systemProgram: SYSTEM_PROGRAM_ID,
       })
@@ -490,6 +492,7 @@ describe("treasury", () => {
         deactivatePda: pdas.deactivatePda,
         mint,
         treasuryConfig: pdas.treasuryConfig,
+        couponCounter: pdas.couponCounter,
         paymentMint: firstMint,
         systemProgram: SYSTEM_PROGRAM_ID,
       })
@@ -509,6 +512,7 @@ describe("treasury", () => {
         deactivatePda: pdas.deactivatePda,
         mint,
         treasuryConfig: pdas.treasuryConfig,
+        couponCounter: pdas.couponCounter,
         paymentMint: secondMint,
         systemProgram: SYSTEM_PROGRAM_ID,
       })
@@ -549,6 +553,7 @@ describe("treasury", () => {
           deactivatePda: pdas.deactivatePda,
           mint,
           treasuryConfig: pdas.treasuryConfig,
+          couponCounter: pdas.couponCounter,
           paymentMint,
           systemProgram: SYSTEM_PROGRAM_ID,
         })
@@ -590,6 +595,7 @@ describe("treasury", () => {
           deactivatePda: pdaUtils.deactivatePda(mint),
           mint,
           treasuryConfig: pdas.treasuryConfig,
+          couponCounter: pdas.couponCounter,
           paymentMint,
           systemProgram: SYSTEM_PROGRAM_ID,
         })
@@ -622,6 +628,7 @@ describe("treasury", () => {
           deactivatePda: pdas.deactivatePda,
           mint,
           treasuryConfig: pdas.treasuryConfig,
+          couponCounter: pdas.couponCounter,
           paymentMint,
           systemProgram: SYSTEM_PROGRAM_ID,
         })
@@ -631,6 +638,73 @@ describe("treasury", () => {
     } catch (err) {
       assert.instanceOf(err, AnchorError);
       assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("set_payment_token: fails with AccountNotInitialized when payment_mint is not a valid mint", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+
+    const couponId = new anchor.BN(1);
+    const dummyHolderTA = Keypair.generate().publicKey;
+    const pdas = treasuryPdas(mint, couponId, dummyHolderTA);
+
+    // A random keypair pubkey — not an initialised mint account.
+    const invalidPaymentMint = Keypair.generate().publicKey;
+
+    try {
+      await treasuryProgram.methods
+        .setPaymentToken()
+        .accountsStrict({
+          payer: deployer,
+          deployer,
+          mintOwnerPda,
+          deactivatePda: pdas.deactivatePda,
+          mint,
+          treasuryConfig: pdas.treasuryConfig,
+          couponCounter: pdas.couponCounter,
+          paymentMint: invalidPaymentMint,
+          systemProgram: SYSTEM_PROGRAM_ID,
+        })
+        .rpc({ commitment: "confirmed" });
+      assert.fail("Expected error for invalid payment_mint but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "AccountNotInitialized");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("set_payment_token: fails with ClaimsInProgress when pay_coupon has already been called for the current coupon", async () => {
+    const ctx = await deployBondAndCoupon();
+
+    // Execute one pay_coupon — this locks treasury_config.locked_for_coupon_id = 1.
+    await treasuryProgram.methods
+      .payCoupon(ctx.couponId)
+      .accountsStrict(payCouponAccounts(ctx))
+      .rpc({ commitment: "confirmed" });
+
+    // Attempting to change the payment mint now must fail.
+    const newPaymentMint = await createPaymentMint(6);
+    try {
+      await treasuryProgram.methods
+        .setPaymentToken()
+        .accountsStrict({
+          payer: deployer,
+          deployer,
+          mintOwnerPda: ctx.mintOwnerPda,
+          deactivatePda: ctx.pdas.deactivatePda,
+          mint: ctx.mint,
+          treasuryConfig: ctx.pdas.treasuryConfig,
+          couponCounter: ctx.pdas.couponCounter,
+          paymentMint: newPaymentMint,
+          systemProgram: SYSTEM_PROGRAM_ID,
+        })
+        .rpc({ commitment: "confirmed" });
+      assert.fail("Expected ClaimsInProgress error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "ClaimsInProgress");
     }
   });
 
@@ -798,6 +872,60 @@ describe("treasury", () => {
       expectedAmount.toString(),
       "coupon_paid.amount should match transferred amount"
     );
+  });
+
+  it("pay_coupon: uses the newly configured payment token after set_payment_token is updated", async () => {
+    // deployBondAndCoupon sets mintA as the initial payment token.
+    const ctx = await deployBondAndCoupon();
+
+    // Create mintB with a fresh funded treasury TA and a holder payment TA.
+    const mintB = await createPaymentMint(6);
+    const treasuryTAB = await createAndFundTreasuryTA(mintB, ctx.pdas.treasuryAuthority, BigInt(1_000_000_000));
+    const holderPaymentAccountB = await createPaymentTA(mintB, deployer);
+
+    // Update the config to point at mintB.
+    await treasuryProgram.methods
+      .setPaymentToken()
+      .accountsStrict({
+        payer: deployer,
+        deployer,
+        mintOwnerPda: ctx.mintOwnerPda,
+        deactivatePda: ctx.pdas.deactivatePda,
+        mint: ctx.mint,
+        treasuryConfig: ctx.pdas.treasuryConfig,
+        couponCounter: ctx.pdas.couponCounter,
+        paymentMint: mintB,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    const treasuryBBefore = (await getAccount(connection, treasuryTAB, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const holderBBefore = (await getAccount(connection, holderPaymentAccountB, "confirmed", TOKEN_2022_PROGRAM_ID))
+      .amount;
+
+    // pay_coupon must succeed using mintB exclusively.
+    await treasuryProgram.methods
+      .payCoupon(ctx.couponId)
+      .accountsStrict(
+        payCouponAccounts(ctx, {
+          paymentMint: mintB,
+          treasuryTokenAccount: treasuryTAB,
+          holderPaymentAccount: holderPaymentAccountB,
+        })
+      )
+      .rpc({ commitment: "confirmed" });
+
+    const treasuryBAfter = (await getAccount(connection, treasuryTAB, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const holderBAfter = (await getAccount(connection, holderPaymentAccountB, "confirmed", TOKEN_2022_PROGRAM_ID))
+      .amount;
+
+    assert.isTrue(treasuryBAfter < treasuryBBefore, "mintB treasury TA should be debited");
+    assert.isTrue(holderBAfter > holderBBefore, "mintB holder TA should be credited");
+
+    // Verify mintA treasury TA was untouched.
+    const treasuryAAfter = (await getAccount(connection, ctx.treasuryTokenAccount, "confirmed", TOKEN_2022_PROGRAM_ID))
+      .amount;
+    assert.equal(treasuryAAfter.toString(), BigInt(1_000_000_000).toString(), "mintA treasury TA should be untouched");
   });
 
   // ════════════════════════════════════════════════════════════════════════════
