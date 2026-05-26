@@ -1119,4 +1119,81 @@ describe("freeze", () => {
       assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
     }
   });
+
+  // ── partially_freeze_account overwrites without prior unfreeze ──
+  it("partially_freeze_account: a second call on the same account overwrites the balance without remove_partial_freeze", async () => {
+    const { mint, mintOwnerPda } = await deployMint();
+
+    const payerKeypair = provider.wallet.payer!;
+    const accountKeypair = Keypair.generate();
+    const tokenAccount = await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      deployer,
+      accountKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    const deactivatePda = pdas.deactivatePda(mint);
+    const [frozenBalancePda, expectedBump] = pdas.frozenBalancePdaWithBump(mint, tokenAccount);
+
+    const FIRST_BALANCE = new anchor.BN(500_000_000);
+    const SECOND_BALANCE = new anchor.BN(300_000_000);
+
+    // ── First call: creates the PDA with FIRST_BALANCE ───────────────────────
+    const firstTx = await freezeProgram.methods
+      .partiallyFreezeAccount(FIRST_BALANCE)
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: tokenAccount,
+        deactivatePda,
+        frozenBalancePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    const stateAfterFirst = await freezeProgram.account.frozenBalance.fetch(frozenBalancePda);
+    assert.equal(
+      stateAfterFirst.balance.toString(),
+      FIRST_BALANCE.toString(),
+      "balance after first call should equal FIRST_BALANCE"
+    );
+
+    // ── Second call (same PDA, new value): MUST overwrite, NOT fail ──────────
+    const secondTx = await freezeProgram.methods
+      .partiallyFreezeAccount(SECOND_BALANCE)
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: tokenAccount,
+        deactivatePda,
+        frozenBalancePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    const stateAfterSecond = await freezeProgram.account.frozenBalance.fetch(frozenBalancePda);
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Mint:                       ", mint.toBase58());
+    console.log("  Token account:              ", tokenAccount.toBase58());
+    console.log("  Frozen balance PDA:         ", frozenBalancePda.toBase58());
+    console.log("  partially_freeze (1st) tx:  ", firstTx);
+    console.log("  partially_freeze (2nd) tx:  ", secondTx);
+    console.log("  balance after 1st call:     ", stateAfterFirst.balance.toString());
+    console.log("  balance after 2nd call:     ", stateAfterSecond.balance.toString());
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    assert.equal(
+      stateAfterSecond.balance.toString(),
+      SECOND_BALANCE.toString(),
+      "balance after second call should overwrite to SECOND_BALANCE (not add, not keep first)"
+    );
+    assert.equal(stateAfterSecond.bump, expectedBump, "bump should remain the canonical bump after overwrite");
+  });
 });

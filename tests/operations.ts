@@ -10,6 +10,7 @@ import { Pause } from "../target/types/pause";
 import { Deactivate } from "../target/types/deactivate";
 import { Snapshot } from "../target/types/snapshot";
 import { Coupon } from "../target/types/coupon";
+import { Freeze } from "../target/types/freeze";
 import * as pdaUtils from "./utils/pda_utils";
 import {
   SYSTEM_PROGRAM_ID,
@@ -39,6 +40,7 @@ describe("operations", () => {
   const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
   const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
   const couponProgram = anchor.workspace.Coupon as Program<Coupon>;
+  const freezeProgram = anchor.workspace.Freeze as Program<Freeze>;
   const connection = provider.connection;
   const deployer = provider.wallet.publicKey;
   const sourceOwner = sourceOwnerKeypair.publicKey;
@@ -502,6 +504,137 @@ describe("operations", () => {
       totalSupplyValue.toString(),
       MINT_AMOUNT.toString(),
       "total supply snapshot should record the total supply before burning, which equals MINT_AMOUNT"
+    );
+  });
+
+  // ── coupon snapshot captures full balance, ignoring partial-freeze PDA ──
+  it("burn: holder balance snapshot records full Token-2022 balance (ignoring partial-freeze PDA)", async () => {
+    const { mint, mintOwnerPda, mintAuthority, freezeAuthority, operationsAuthority } = await deployMint();
+
+    const PARTIAL_FROZEN = new anchor.BN(400 * 10 ** MINT_DECIMALS); // 40 % locked
+    // Expected unfrozen amount at snapshot time — used only as a wrong-answer guard.
+    const UNFROZEN_AT_SNAPSHOT = MINT_AMOUNT.sub(PARTIAL_FROZEN); // 600 tokens
+
+    // ── Mint 1 000 tokens (no snapshot active yet → snapshot CPIs exit silently) ──
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, MINT_AMOUNT);
+
+    const snapshotCounterPda = pdaUtils.snapshotCounterPda(mint);
+    const totalSupplySnapshot = pdaUtils.snapshotTotalSupplyPda(mint);
+    const holderBalanceSnapshot = pdaUtils.snapshotHolderBalancePda(mint, source);
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const frozenBalancePda = pdaUtils.frozenBalancePda(mint, source);
+
+    // ── Partially freeze 400 tokens on source ─────────────────────────────────
+    const partialFreezeTx = await freezeProgram.methods
+      .partiallyFreezeAccount(PARTIAL_FROZEN)
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: source,
+        deactivatePda,
+        frozenBalancePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
+    const couponId = new anchor.BN(1);
+    const couponAuthority = pdaUtils.couponAuthorityPda(mint);
+    const couponCounter = pdaUtils.couponCounterPda(mint);
+    const coupon = pdaUtils.couponPda(mint, couponId);
+
+    const couponTx = await couponProgram.methods
+      .createCoupon(
+        new anchor.BN(1_700_000_000),
+        new anchor.BN(1_750_000_000),
+        new anchor.BN(1_800_000_000),
+        couponId,
+        null,
+        null
+      )
+      .accountsStrict({
+        payer: deployer,
+        deployer,
+        mintOwnerPda,
+        deactivatePda,
+        mint,
+        couponAuthority,
+        couponCounter,
+        coupon,
+        snapshotCounter: snapshotCounterPda,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 1 ──
+    const burnTx = await operationsProgram.methods
+      .burn(BURN_AMOUNT)
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        deactivatePda,
+        mint,
+        tokenAccount: source,
+        operationsAuthority,
+        freezeAuthority,
+        snapshotCounterPda,
+        totalSupplySnapshot,
+        holderBalanceSnapshot,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    const holderValue: anchor.BN = await snapshotProgram.methods
+      .getHolderbalanceSnapshotAt(new anchor.BN(1))
+      .accountsStrict({
+        mint,
+        holderBalanceSnapshot,
+        holderTokenAccount: source,
+      })
+      .view();
+    const totalSupplyValue: anchor.BN = await snapshotProgram.methods
+      .getTotalsupplySnapshotAt(new anchor.BN(1))
+      .accountsStrict({
+        mint,
+        totalSupplySnapshot,
+      })
+      .view();
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Mint:                          ", mint.toBase58());
+    console.log("  Source:                        ", source.toBase58());
+    console.log("  partially_freeze tx:           ", partialFreezeTx);
+    console.log("  create_coupon tx:              ", couponTx);
+    console.log("  burn tx:                       ", burnTx);
+    console.log("  Partial-frozen amount:         ", PARTIAL_FROZEN.toString());
+    console.log("  Expected full balance @snap 1: ", MINT_AMOUNT.toString());
+    console.log("  Wrong-answer (unfrozen-only):  ", UNFROZEN_AT_SNAPSHOT.toString());
+    console.log("  holderBalanceSnapshot[1]:      ", holderValue.toString());
+    console.log("  totalSupplySnapshot[1]:        ", totalSupplyValue.toString());
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    // (1) Snapshot recorded the FULL balance — not adjusted by frozen_balance_pda.
+    assert.equal(
+      holderValue.toString(),
+      MINT_AMOUNT.toString(),
+      "holder snapshot at coupon-1 must record the full Token-2022 balance (frozen + unfrozen)"
+    );
+    assert.notEqual(
+      holderValue.toString(),
+      UNFROZEN_AT_SNAPSHOT.toString(),
+      "holder snapshot must NOT be adjusted by frozen_balance_pda (would yield the unfrozen-only value)"
+    );
+
+    // (2) Total supply snapshot is independent of partial-freeze PDAs by definition.
+    assert.equal(
+      totalSupplyValue.toString(),
+      MINT_AMOUNT.toString(),
+      "total supply snapshot must record the full minted supply, unaffected by partial-freeze PDAs"
     );
   });
 });

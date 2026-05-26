@@ -9,6 +9,7 @@ import { Transfer } from "../target/types/transfer";
 import { Deactivate } from "../target/types/deactivate";
 import { Snapshot } from "../target/types/snapshot";
 import { Coupon } from "../target/types/coupon";
+import { Operations } from "../target/types/operations";
 import { AccountMeta, Keypair, PublicKey, SendTransactionError, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { createAccount, getAccount, getMint, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
@@ -45,6 +46,7 @@ describe("transfer", () => {
   const transferControlProgram = anchor.workspace.TransferControl as Program<TransferControl>;
   const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
   const couponProgram = anchor.workspace.Coupon as Program<Coupon>;
+  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
   const connection = provider.connection;
   const deployer = provider.wallet.publicKey;
   const sourceOwner = sourceOwnerKeypair.publicKey;
@@ -2657,6 +2659,203 @@ describe("transfer", () => {
       destAfter.toString(),
       destMid.toString(),
       "phase B: rejected transfer must not change destination balance"
+    );
+  });
+
+  // ── burn × partial freeze handled correctly (no panic, transfers stay blocked) ──
+  it("transfer: burning below the partial-freeze amount leaves the frozen PDA stale and blocks all outbound transfers", async () => {
+    const {
+      mint,
+      mintOwnerPda,
+      mintAuthority,
+      freezeAuthority,
+      transferAuthority,
+      extraAccountMetaList,
+      transferHookAuthority,
+    } = await deployMint();
+
+    const TOTAL_AMOUNT = new anchor.BN(100 * 10 ** MINT_DECIMALS);
+    const FROZEN_AMOUNT = new anchor.BN(40 * 10 ** MINT_DECIMALS);
+    const BURN_AMOUNT = new anchor.BN(80 * 10 ** MINT_DECIMALS);
+    const TRANSFER_ATTEMPT = new anchor.BN(1 * 10 ** MINT_DECIMALS);
+    const EXPECTED_REMAINDER = TOTAL_AMOUNT.sub(BURN_AMOUNT); // 20 tokens, < FROZEN_AMOUNT (40)
+
+    const operationsAuthority = pdaUtils.permanentDelegatePda(mint);
+
+    // ── Mint 100 tokens to source ─────────────────────────────────────────────
+    const source = await mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, TOTAL_AMOUNT);
+
+    // ── Create destination token account ──────────────────────────────────────
+    const destKeypair = Keypair.generate();
+    await createAccount(
+      connection,
+      payerKeypair,
+      mint,
+      destinationOwner,
+      destKeypair,
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
+    );
+    const destination = destKeypair.publicKey;
+
+    const deactivatePda = pdaUtils.deactivatePda(mint);
+    const frozenBalancePda = pdaUtils.frozenBalancePda(mint, source);
+
+    // ── Partially freeze 40 tokens (available = 60 of 100) ────────────────────
+    const partialFreezeTx = await freezeProgram.methods
+      .partiallyFreezeAccount(FROZEN_AMOUNT)
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: source,
+        deactivatePda,
+        frozenBalancePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    // ── Burn 80 via permanent-delegate (issuer redemption) ────────────────────
+    //
+    // Operations::burn doesn't read or adjust frozen_balance_pda, so afterwards
+    // we have: token_account.amount = 20, frozen_balance_pda.balance = 40.
+    // `require_unfrozen_balance` uses saturating_sub → available = 0.
+    const { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot } = snapshotAccounts(mint, source);
+    const burnTx = await operationsProgram.methods
+      .burn(BURN_AMOUNT)
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        deactivatePda,
+        mint,
+        tokenAccount: source,
+        operationsAuthority,
+        freezeAuthority,
+        snapshotCounterPda,
+        totalSupplySnapshot,
+        holderBalanceSnapshot,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    const sourceAfterBurn = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    const frozenAfterBurn = await freezeProgram.account.frozenBalance.fetch(frozenBalancePda);
+
+    console.log("\n══════════════════════════════════════════════════════════");
+    console.log("  Mint:                       ", mint.toBase58());
+    console.log("  Source:                     ", source.toBase58());
+    console.log("  partially_freeze tx:        ", partialFreezeTx);
+    console.log("  burn tx:                    ", burnTx);
+    console.log("  Source balance after burn:  ", sourceAfterBurn.toString(), "(raw)");
+    console.log("  frozen_balance_pda.balance: ", frozenAfterBurn.balance.toString(), "(raw) — STALE");
+    console.log("══════════════════════════════════════════════════════════\n");
+
+    // (1) Burn succeeded — balance is now below the recorded frozen amount.
+    assert.equal(sourceAfterBurn.toString(), EXPECTED_REMAINDER.toString(), "burn should leave 20 tokens (100 − 80)");
+
+    // (2) PDA is stale — burn does not adjust frozen_balance_pda by design.
+    assert.equal(
+      frozenAfterBurn.balance.toString(),
+      FROZEN_AMOUNT.toString(),
+      "frozen_balance_pda should still record the original 40 (stale, as documented)"
+    );
+
+    // (3) Any positive outbound transfer must fail — saturating_sub clamps available to 0.
+    await fundTransferHookAuthority(transferHookAuthority);
+    const {
+      snapshotCounterPda: scTransfer,
+      senderSnapshot,
+      receiverSnapshot,
+    } = transferSnapshotAccounts(mint, source, destination);
+
+    try {
+      const verifyIx = await buildVerifyTransferIx(source, destination, mint, TRANSFER_ATTEMPT);
+      await transferProgram.methods
+        .transfer(TRANSFER_ATTEMPT)
+        .accountsStrict({
+          sourceOwner,
+          source,
+          destination,
+          mint,
+          transferAuthority,
+          transferHookAuthority,
+          freezeAuthority,
+          extraAccountMetaList,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+          freezeProgram: FREEZE_PROGRAM_ID,
+          snapshotProgram: SNAPSHOT_PROGRAM_ID,
+          snapshotCounterPda: scTransfer,
+          senderSnapshot,
+          receiverSnapshot,
+          instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SYSTEM_PROGRAM_ID,
+        })
+        .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx])
+        .signers([sourceOwnerKeypair])
+        .rpc({ commitment: "confirmed" });
+
+      assert.fail("Expected InsufficientUnfrozenBalance error but transfer succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError raised by verify_transfer");
+      const anchorErr = err as AnchorError;
+      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
+      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "InsufficientUnfrozenBalance",
+        "available balance must clamp to 0 via saturating_sub, blocking the transfer"
+      );
+    }
+
+    // (4) Recovery path — after remove_partial_freeze, the 20 remaining tokens transact normally.
+    await freezeProgram.methods
+      .removePartialFreeze()
+      .accountsStrict({
+        deployer,
+        mintOwnerPda,
+        mint,
+        account: source,
+        deactivatePda,
+        frozenBalancePda,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .rpc({ commitment: "confirmed" });
+
+    const verifyIxRecovery = await buildVerifyTransferIx(source, destination, mint, TRANSFER_ATTEMPT);
+    await transferProgram.methods
+      .transfer(TRANSFER_ATTEMPT)
+      .accountsStrict({
+        sourceOwner,
+        source,
+        destination,
+        mint,
+        transferAuthority,
+        transferHookAuthority,
+        freezeAuthority,
+        extraAccountMetaList,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+        freezeProgram: FREEZE_PROGRAM_ID,
+        snapshotProgram: SNAPSHOT_PROGRAM_ID,
+        snapshotCounterPda: scTransfer,
+        senderSnapshot,
+        receiverSnapshot,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SYSTEM_PROGRAM_ID,
+      })
+      .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIxRecovery])
+      .signers([sourceOwnerKeypair])
+      .rpc({ commitment: "confirmed" });
+
+    const sourceAfterRecovery = (await getAccount(connection, source, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+    assert.equal(
+      sourceAfterRecovery.toString(),
+      EXPECTED_REMAINDER.sub(TRANSFER_ATTEMPT).toString(),
+      "after remove_partial_freeze the remaining tokens transact normally"
     );
   });
 });
