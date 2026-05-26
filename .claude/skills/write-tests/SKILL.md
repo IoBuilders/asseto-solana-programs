@@ -1,6 +1,6 @@
 ---
 name: write-tests
-description: Use when writing tests in the asseto-solana-programs workspace — either adding a new test case to an existing `tests/<name>.ts` file or (rarer) scaffolding a new test file for a program. Triggers on "add a test for X", "write a test for the Y instruction", "cover Z with a test", "create the test file for W". Covers: the `deployMint()` / `mintTokens()` helper shape, program workspace references, Anchor-0.32 `as Program<any>` workaround, the `AnchorError` vs `SendTransactionError` decision (the subtle part), shared helpers (`snapshotAccounts`, `transferSnapshotAccounts`, `fundTransferHookAuthority`), pre-instructions for transfer tests, and running a single suite.
+description: Use when writing tests in the asseto-solana-programs workspace — either adding a new test case to an existing `tests/<name>.ts` file or (rarer) scaffolding a new test file for a program. Triggers on "add a test for X", "write a test for the Y instruction", "cover Z with a test", "create the test file for W". Covers: the helper shape in program_helpers/, how program clients are typed and accessed, the `AnchorError` vs `SendTransactionError` decision (the subtle part), snapshot helpers, transfer pre-instructions, and running a single suite or single test.
 ---
 
 # Writing Tests
@@ -9,13 +9,17 @@ description: Use when writing tests in the asseto-solana-programs workspace — 
 
 Before writing anything, open one or two existing `tests/<x>.ts` files and scan them. This skill captures *why* the patterns look the way they do; the sibling file shows the current exact shape. `pause.ts` is the simplest happy-path+error pattern to copy from; `transfer.ts` is the most comprehensive (hook, snapshots, pre-instructions).
 
-## 1. Run a single suite
+## 1. Run a single suite or test
 
 ```bash
+# Run all tests in one file
 TEST_FILE=<name> anchor test --skip-build
+
+# Run a single test by name inside a file
+TEST_FILE=<name> GREP="<partial test name>" anchor test --skip-build
 ```
 
-`TEST_FILE` is the filename under `tests/` without `.ts`. Leaving it unset runs every suite. Use `--skip-build` once you've done a fresh `anchor build`.
+`TEST_FILE` is the filename under `tests/` without `.ts`. `GREP` is matched against the full test title (`describe` + `it` concatenated). Use `--skip-build` once you've done a fresh `anchor build`.
 
 ## 2. `describe` structure
 
@@ -24,88 +28,205 @@ Every test file has exactly one top-level `describe("<name>", ...)` block. Progr
 ```ts
 const provider = anchor.AnchorProvider.env();
 anchor.setProvider(provider);
+const deployer = provider.wallet.publicKey;
+const payerKeypair = provider.wallet.payer!;
 ```
 
-## 3. Program references — use `as Program<any>`
+## 3. Program references live in helpers, not in test files
 
-Anchor 0.32's strict `ResolvedAccounts` typing rejects calls that pass `mintOwnerPda` (and other PDAs) by hand, so every workspace program except the one whose IDL we fully trust is cast to `any`:
-
-```ts
-const pauseProgram = anchor.workspace.Pause as Program<any>;
-```
-
-The cast is deliberate — don't fight the types. The only program you'd keep as `Program<Deploy>` is the one whose accounts map is small enough to satisfy the strict types (often `deploy` in the helper that calls `deploy_mint`).
-
-## 4. `deployMint()` helper (if the file doesn't exist yet)
-
-Every test file has a local `deployMint()` helper that:
-1. Generates a fresh mint keypair.
-2. Derives every authority PDA and `extra_account_meta_list` via `PublicKey.findProgramAddressSync`.
-3. Calls `deployProgram.methods.deployMint({...}).accounts({...}).signers([mintKeypair]).rpc(...)`.
-4. Returns only the PDAs the current file's tests actually need.
-
-Don't try to share it across files via `import` — tests need a fresh mint per case and each file's returned tuple is tailored to what it exercises. Copy-paste from the closest sibling and trim the return shape.
-
-If the program needs tokens in some tests, add a `mintTokens(mint, mintOwnerPda, mintAuthority, freezeAuthority, amount)` helper that creates a token account with `createAccount(...)` from `@solana/spl-token`, then calls `mintProgram.methods.mint(amount)...`. `transfer.ts` and `operations.ts` have the reference implementation; the correct set of snapshot accounts comes from the `snapshotAccounts()` helper below.
-
-## 5. Snapshot helpers
-
-For any program that moves tokens (mint / burn / transfer), declare these once per file:
+Test files (`tests/*.ts`) don't access `anchor.workspace` directly. All program clients are instantiated inside the corresponding `program_helpers/` file, typed with the generated IDL type:
 
 ```ts
-function snapshotAccounts(mint: PublicKey, holderTokenAccount: PublicKey) {
-  const [snapshotCounterPda]    = PublicKey.findProgramAddressSync([Buffer.from("snapshot_counter"),       mint.toBuffer()], snapshotProgram.programId);
-  const [totalSupplySnapshot]   = PublicKey.findProgramAddressSync([Buffer.from("snapshot_totalsupply"),   mint.toBuffer()], snapshotProgram.programId);
-  const [holderBalanceSnapshot] = PublicKey.findProgramAddressSync([Buffer.from("snapshot_holderbalance"), mint.toBuffer(), holderTokenAccount.toBuffer()], snapshotProgram.programId);
-  return { snapshotCounterPda, totalSupplySnapshot, holderBalanceSnapshot };
+// inside pause_helper.ts
+function getPauseProgram(): Program<Pause> {
+  return anchor.workspace.Pause as Program<Pause>;
 }
 ```
 
-For transfer tests, the hook needs both parties' holder-balance snapshot PDAs:
+Test files only call the exported helper functions — they never touch `anchor.workspace` themselves. If you're writing a new helper, follow this pattern: one private getter per program, fully typed.
+
+## 4. Helper files under `tests/program_helpers/`
+
+All shared test logic lives here. Import from the relevant helper rather than re-implementing inline.
+
+| File | Key exports |
+|---|---|
+| `base_helper.ts` | Context type hierarchy (`DeployerContext`, `MintWriteContext`, etc.) |
+| `deploy_helper.ts` | `deployMint(context, args?)` |
+| `mint_helper.ts` | `mintTokens(context, args?)` |
+| `spl_token_helper.ts` | `createTokenAccount`, `getTokenAccount`, `getMint`, `createMint`, `mintTo` |
+| `transfer_helper.ts` | `transfer(context, args?)`, `buildVerifyTransferIx(...)` |
+| `freeze_helper.ts` | `freezeAccount`, `unfreezeAccount`, `partiallyFreezeAccount`, `removePartialFreeze` |
+| `pause_helper.ts` | `pauseMint`, `unpauseMint` |
+| `deactivate_helper.ts` | `deactivateMint` |
+| `snapshot_helper.ts` | `getHolderBalanceSnapshotAt`, `getTotalSupplySnapshotAt` |
+| `coupon_helper.ts` | `createCoupon` |
+| `bond_helper.ts` | `updateBondTerms` |
+| `account_helper.ts` | `requestAirdrop`, `getAccountInfo`, `getBalanceForRentExeption` |
+
+### Context type hierarchy (from `base_helper.ts`)
 
 ```ts
-function transferSnapshotAccounts(mint, source, destination) {
-  // same idea, returns { snapshotCounterPda, senderSnapshot, receiverSnapshot }
-}
+type BaseWriteContext   = { signers?: Signer[] };
+type DeployerContext    = BaseWriteContext & { deployer: PublicKey };
+type MintContext        = { mint: PublicKey };
+type MintWriteContext   = DeployerContext & MintContext;
 ```
 
-These are passed through to the instruction's account map as `snapshotCounterPda`, `totalSupplySnapshot`, `holderBalanceSnapshot` (mint/burn) or `snapshotCounterPda`, `senderSnapshot`, `receiverSnapshot` (transfer).
+Helpers compose these types. When calling a helper, pass an object that satisfies the context.
 
-To assert snapshot values, prefer the `get_*_snapshot_at(snapshot_id)` views via `.view()`:
+## 5. `deployMint()` — shared helper, not local
+
+`deployMint` lives in `deploy_helper.ts`. Import it; don't re-implement it per file.
 
 ```ts
-const value: anchor.BN = await snapshotProgram.methods
-  .getHolderbalanceSnapshotAt(new anchor.BN(1))
-  .accounts({ mint, holderBalanceSnapshot, holderTokenAccount })
-  .view();
+import { deployMint } from "./program_helpers/deploy_helper";
+
+const { mint } = await deployMint({ deployer }, { decimals: 6 });
 ```
 
-## 6. Transfer-specific patterns
+Options object (all optional, with defaults):
 
-Transfer tests need two extra bits of setup:
+```ts
+type DeployMintArgs = {
+  decimals?: number;               // default: 6
+  name?: string;                   // default: "Test Token"
+  symbol?: string;                 // default: "TEST_TOKEN"
+  uri?: string;                    // default: "https://example.com/metadata.json"
+  additionalMetadata?: { key: string; value: string }[];  // default: []
+};
+```
+
+## 6. `mintTokens()` — minting bond/asset tokens to an account
+
+```ts
+import { mintTokens } from "./program_helpers/mint_helper";
+
+await mintTokens(
+  { deployer, mint, destination: holderTokenAccount },
+  { amount: new anchor.BN(1_000_000) }
+);
+```
+
+`amount` defaults to `new anchor.BN(1)` if omitted. Returns `void`.
+
+## 7. SPL token and account helpers — no `provider` argument
+
+All functions in `spl_token_helper.ts` and `account_helper.ts` obtain the provider internally via `anchor.getProvider()`. Do not pass `provider` at the call site.
+
+```ts
+import {
+  createTokenAccount,
+  getTokenAccount,
+  getMint,
+  createMint,
+  mintTo,
+} from "./program_helpers/spl_token_helper";
+import {
+  requestAirdrop,
+  getAccountInfo,
+  getBalanceForRentExeption,
+} from "./program_helpers/account_helper";
+
+// Create a Token-2022 token account
+const ta = await createTokenAccount({ mint, owner: deployer });
+
+// Read a token account
+const account = await getTokenAccount(tokenAccountPubkey);
+
+// Read mint info
+const mintInfo = await getMint(mint);
+
+// Create a stand-alone Token-2022 mint (e.g. payment mint for treasury tests)
+const paymentMint = await createMint({ decimals: 6 });
+
+// Mint raw tokens (bypassing the Anchor mint instruction)
+await mintTo({ mint, tokenAccount: ta, amount: BigInt(1_000_000) });
+
+// Airdrop SOL to a keypair
+await requestAirdrop(rogueKeypair.publicKey);
+
+// Check if an account exists
+const info = await getAccountInfo(somePda);
+```
+
+All SPL helpers default to `TOKEN_2022_PROGRAM_ID` and `{ commitment: "confirmed" }` — no need to pass those.
+
+## 8. PDA derivation — use `pda_utils`
+
+Derive PDAs via `tests/utils/pda_utils.ts` rather than inline `findProgramAddressSync`:
+
+```ts
+import * as pdaUtils from "./utils/pda_utils";
+
+const mintOwnerPda        = pdaUtils.mintOwnerPda(mint);
+const treasuryAuthority   = pdaUtils.treasuryAuthorityPda(mint);
+const snapshotCounterPda  = pdaUtils.snapshotCounterPda(mint);
+// etc.
+```
+
+## 9. Snapshot helpers
+
+For querying snapshot values after a `createCoupon` CPI chain:
+
+```ts
+import {
+  getHolderBalanceSnapshotAt,
+  getTotalSupplySnapshotAt,
+} from "./program_helpers/snapshot_helper";
+
+const balance = await getHolderBalanceSnapshotAt(
+  { mint, holderTokenAccount: source },
+  { snapshotId: new anchor.BN(1) }
+);
+
+const supply = await getTotalSupplySnapshotAt(
+  { mint },
+  { snapshotId: new anchor.BN(1) }
+);
+```
+
+These query the on-chain snapshot PDAs via `.view()` — no transaction sent.
+
+## 10. Transfer-specific patterns
 
 ### Fund the transfer-hook authority
 
-The hook authority PDA pays for snapshot-PDA creation inside `execute`, so it must hold lamports before any transfer. Once per test, call a local helper:
+The hook authority PDA pays for snapshot-PDA creation during `execute`. Fund it once before any transfer in the test:
 
 ```ts
 async function fundTransferHookAuthority(transferHookAuthority: PublicKey) {
+  const tx = new anchor.web3.Transaction().add(
+    anchor.web3.SystemProgram.transfer({
+      fromPubkey: payerKeypair.publicKey,
+      toPubkey:   transferHookAuthority,
+      lamports:   anchor.web3.LAMPORTS_PER_SOL * 0.01,
+    })
+  );
   await anchor.web3.sendAndConfirmTransaction(
-    connection,
-    new anchor.web3.Transaction().add(
-      anchor.web3.SystemProgram.transfer({
-        fromPubkey: payerKeypair.publicKey,
-        toPubkey:   transferHookAuthority,
-        lamports:   anchor.web3.LAMPORTS_PER_SOL * 0.01,
-      })
-    ),
-    [payerKeypair],
-    { commitment: "confirmed" }
+    provider.connection, tx, [payerKeypair], { commitment: "confirmed" }
   );
 }
 ```
 
-### Pre-instructions on every `transfer(...)` call
+### Using `transfer()` from `transfer_helper.ts`
+
+The helper builds and sends the full verify + transfer instruction pair automatically:
+
+```ts
+import { transfer } from "./program_helpers/transfer_helper";
+
+await transfer(
+  { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+  { amount: TRANSFER_AMOUNT }
+);
+```
+
+When you need a custom/malformed verify instruction for error tests, build it manually with `buildVerifyTransferIx` and pass it as a pre-instruction yourself via the Anchor methods builder.
+
+### Compute budget on raw transfer calls
+
+If you build the transfer instruction manually (instead of using the `transfer()` helper), always attach:
 
 ```ts
 .preInstructions([
@@ -114,59 +235,55 @@ async function fundTransferHookAuthority(transferHookAuthority: PublicKey) {
 ])
 ```
 
-Both are required on transfer tests — the CU limit because the hook CPI chain is heavy, the heap frame because the metalist resolution path requires more room than the default 32 KiB.
+The CU limit covers the hook CPI chain; the heap frame is required because the metalist resolution path needs more than the default 32 KiB.
 
-## 7. Assertion style — `AnchorError` vs `SendTransactionError`
+## 11. Assertion style — `AnchorError` vs `SendTransactionError`
 
-This is the part that most often breaks a test. Pick the right one based on **where the error is raised**:
+This is the part that most often breaks a test. Pick based on **where the error is raised**:
 
 | Where the error comes from | Caught as | How to assert |
 |---|---|---|
-| Directly in the instruction you called (`pause::pause`, `mint::mint`, etc.) | `AnchorError` | `assert.instanceOf(err, AnchorError)` then `anchorErr.error.errorCode.code === "Deactivated"` |
-| Inside a sibling program reached via Anchor CPI (e.g. `require_active` in the instruction you called) | `AnchorError` — Anchor parses it from logs | same as above |
-| Inside `transfer-hook::execute` invoked by Token-2022 | `SendTransactionError` — Anchor can't parse the error from that depth | either `assert.instanceOf(err, SendTransactionError)` + `logs.some(l => l.includes("<substring>"))`, **or** `AnchorError.parse(sendErr.logs)` then assert on the returned code |
-| Token-2022 native error (e.g. owner mismatch, mint paused, insufficient funds) | `SendTransactionError` | inspect `(err as SendTransactionError).logs` for a Token-2022-specific substring like `"owner does not match"` or `"paused"` |
+| Directly in the instruction you called | `AnchorError` | `assert.instanceOf(err, AnchorError)` → `err.error.errorCode.code === "SomeCode"` |
+| Via Anchor CPI into a sibling program | `AnchorError` — Anchor parses it from logs | same |
+| Inside `transfer-hook::execute` (Token-2022 invoked) | `SendTransactionError` — Anchor can't parse from that depth | check `.logs` for substring, or `AnchorError.parse(sendErr.logs)` |
+| Token-2022 native error (owner mismatch, paused, etc.) | `SendTransactionError` | inspect `.logs` for Token-2022 substring |
 
 Canonical templates:
 
 ```ts
-// Direct-program AnchorError
+// AnchorError — direct program error
 try {
-  await program.methods.x().accounts({...}).rpc(...);
-  assert.fail("Expected Deactivated error but instruction succeeded");
+  await program.methods.x().accounts({...}).rpc({ commitment: "confirmed" });
+  assert.fail("Expected error but instruction succeeded");
 } catch (err) {
   assert.instanceOf(err, AnchorError);
   assert.equal((err as AnchorError).error.errorCode.code, "Deactivated");
 }
 
-// Deep-CPI or Token-2022 error
+// SendTransactionError — hook / Token-2022 / deep CPI
 try {
-  await program.methods.x().accounts({...}).preInstructions([...]).rpc(...);
+  await program.methods.x().accounts({...}).rpc({ commitment: "confirmed" });
   assert.fail("Expected failure but instruction succeeded");
 } catch (err) {
   assert.instanceOf(err, SendTransactionError);
   const logs = (err as SendTransactionError).logs ?? [];
-  assert.isTrue(logs.some(l => l.toLowerCase().includes("<expected substring>")));
+  assert.isTrue(logs.some(l => l.includes("expected substring")));
 }
 ```
 
-## 8. `it()` shape
+## 12. `it()` shape
 
-One happy-path `it()` per instruction, then one `it()` per precondition error. Every test starts with a fresh `deployMint()` (and, if needed, fresh mint tokens) so tests don't leak state.
+One happy-path `it()` per instruction, then one `it()` per precondition error. Every test starts with a fresh `deployMint()` so tests don't share state.
 
 ```ts
 it("<instruction>: <expected behaviour>", async () => {
-  const { mint, mintOwnerPda, ... } = await deployMint();
-  // arrange: derive PDAs, create token accounts, set any extra state
+  const { mint } = await deployMint({ deployer }, { decimals: 6 });
+  // arrange: derive PDAs, create token accounts, set state
   // act: call the instruction
-  // assert: read state, compare balances, etc.
+  // assert: read state, compare balances
 });
 ```
 
-## 9. Silence noise
+## 13. Silence noise
 
-`tests/setup.ts` wipes `console.log` by default (`VERBOSE = false`). Don't `require` it in individual files — mocha picks it up via the `--require tests/setup.ts` flag in the `[scripts] test` line of `Anchor.toml`. Use `console.log` freely in tests; when debugging, flip `VERBOSE = true` in `setup.ts`.
-
-## 10. Don't duplicate setup in `beforeEach`
-
-The existing tests deliberately call `deployMint()` inside each `it()` rather than a shared `beforeEach`, so individual failures leave no state behind. Keep that pattern — it's verbose but makes tests independently reproducible.
+`tests/setup.ts` suppresses `console.log` by default. Mocha picks it up via `--require tests/setup.ts` in `Anchor.toml`. Use `console.log` freely in tests; flip `VERBOSE = true` in `setup.ts` when debugging.

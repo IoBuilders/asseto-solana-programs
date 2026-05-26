@@ -1,148 +1,22 @@
 import * as anchor from "@anchor-lang/core";
-import { AnchorError, Program } from "@anchor-lang/core";
-import { Deploy } from "../target/types/deploy";
-import { MetadataUpdate } from "../target/types/metadata_update";
-import { Pause } from "../target/types/pause";
-import { Deactivate } from "../target/types/deactivate";
-import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID, getTokenMetadata } from "@solana/spl-token";
+import { AnchorError } from "@anchor-lang/core";
+import { Keypair } from "@solana/web3.js";
 import { assert } from "chai";
-import * as pdas from "./utils/pda_utils";
-import { SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "./utils/address_utils";
-
-// ── Initial mint parameters ────────────────────────────────────────────────────
-const MINT_DECIMALS = 6;
-const MINT_NAME = "CMTAT Test Token";
-const MINT_SYMBOL = "CMTAT";
-const MINT_URI = "https://example.com/metadata.json";
-
-// ── Program IDs sourced from workspace (mirrors constants.rs in deploy) ──
-const deactivateProgram = anchor.workspace.Deactivate as Program<Deactivate>;
-const pauseProgram = anchor.workspace.Pause as Program<Pause>;
+import { deployMint } from "./program_helpers/deploy_helper";
+import { pauseMint } from "./program_helpers/pause_helper";
+import { deactivateMint } from "./program_helpers/deactivate_helper";
+import { removeMetadataField, updateMetadataField } from "./program_helpers/metadata_update_helper";
+import { getTokenMetadata } from "./program_helpers/spl_token_helper";
 
 describe("metadata-update", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-
-  const deployProgram = anchor.workspace.Deploy as Program<Deploy>;
-  const metadataProgram = anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
-  const connection = provider.connection;
   // The wallet is both payer and deployer in these tests.
   const deployer = provider.wallet.publicKey;
 
-  // ── Helper: deploy a fresh mint, return the keys needed for metadata ops ──────
-  async function deployMint(additionalMetadata: { key: string; value: string }[] = []): Promise<{
-    mint: PublicKey;
-    mintOwnerPda: PublicKey;
-    metadataUpdateAuthority: PublicKey;
-    pausableAuthority: PublicKey;
-  }> {
-    const mintKeypair = Keypair.generate();
-    const mint = mintKeypair.publicKey;
-
-    const mintOwnerPda = pdas.mintOwnerPda(mint);
-    const tempMintAuthority = pdas.tempMintAuthorityPda(mint);
-    const mintAuthority = pdas.mintAuthorityPda(mint);
-    const permanentDelegateAuthority = pdas.permanentDelegatePda(mint);
-    const metadataUpdateAuthority = pdas.metadataUpdateAuthorityPda(mint);
-    const pausableAuthority = pdas.pausableAuthorityPda(mint);
-    const freezeAuthority = pdas.freezeAuthorityPda(mint);
-    const transferHookAuthority = pdas.transferHookAuthorityPda(mint);
-    const extraAccountMetaList = pdas.extraAccountMetaListPda(mint);
-
-    const tx = await deployProgram.methods
-      .deployMint({ decimals: MINT_DECIMALS, name: MINT_NAME, symbol: MINT_SYMBOL, uri: MINT_URI, additionalMetadata })
-      .accountsStrict({
-        payer: deployer,
-        deployer,
-        mintOwnerPda,
-        mint,
-        tempMintAuthority,
-        mintAuthority,
-        permanentDelegateAuthority,
-        metadataUpdateAuthority,
-        pausableAuthority,
-        freezeAuthority,
-        transferHookAuthority,
-        extraAccountMetaList,
-        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SYSTEM_PROGRAM_ID,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .signers([mintKeypair])
-      .rpc({ commitment: "confirmed" });
-
-    console.log("  deploy_mint tx:", tx);
-    return { mint, mintOwnerPda, metadataUpdateAuthority, pausableAuthority };
-  }
-
-  // ── Helper: call update_metadata_field ────────────────────────────────────────
-  async function updateField(
-    mint: PublicKey,
-    mintOwnerPda: PublicKey,
-    metadataUpdateAuthority: PublicKey,
-    key: string,
-    value: string
-  ): Promise<void> {
-    const deactivatePda = pdas.deactivatePda(mint);
-
-    await metadataProgram.methods
-      .updateMetadataField(key, value)
-      .accountsStrict({
-        payer: deployer,
-        deployer,
-        mint,
-        mintOwnerPda,
-        metadataUpdateAuthority,
-        deactivatePda,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SYSTEM_PROGRAM_ID,
-      })
-      .rpc({ commitment: "confirmed" });
-  }
-
-  // ── Helper: call remove_metadata_field ────────────────────────────────────────
-  async function removeField(
-    mint: PublicKey,
-    mintOwnerPda: PublicKey,
-    metadataUpdateAuthority: PublicKey,
-    key: string
-  ): Promise<void> {
-    const deactivatePda = pdas.deactivatePda(mint);
-
-    await metadataProgram.methods
-      .removeMetadataField(key, false)
-      .accountsStrict({
-        payer: deployer,
-        deployer,
-        mint,
-        mintOwnerPda,
-        metadataUpdateAuthority,
-        deactivatePda,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SYSTEM_PROGRAM_ID,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .rpc({ commitment: "confirmed" });
-  }
-
-  // ── Helper: print metadata state ──────────────────────────────────────────────
-  async function printMetadata(label: string, mint: PublicKey): Promise<void> {
-    const metadata = await getTokenMetadata(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
-    console.log(`\n── Metadata ${label} ${"─".repeat(Math.max(0, 44 - label.length))}`);
-    console.log("  name:               ", metadata?.name);
-    console.log("  symbol:             ", metadata?.symbol);
-    console.log("  uri:                ", metadata?.uri);
-    console.log("  additionalMetadata: ", JSON.stringify(metadata?.additionalMetadata ?? []));
-    console.log("──────────────────────────────────────────────────────────\n");
-  }
-
   // ────────────────────────────────────────────────────────────────────────────
   it("update_metadata_field: updates all metadata fields", async () => {
-    const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint();
-
-    await printMetadata("BEFORE update", mint);
+    const { mint } = await deployMint({ deployer });
 
     // ── New values ─────────────────────────────────────────────────────────────
     // Core fields are set to shorter strings → no account growth (pass null).
@@ -156,18 +30,16 @@ describe("metadata-update", () => {
     const CTRY_VALUE = "CH";
 
     // Update core fields (shorter → no growth, pass null)
-    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "name", NEW_NAME);
-    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "symbol", NEW_SYMBOL);
-    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, "uri", NEW_URI);
+    await updateMetadataField({ deployer, mint }, { key: "name", value: NEW_NAME });
+    await updateMetadataField({ deployer, mint }, { key: "symbol", value: NEW_SYMBOL });
+    await updateMetadataField({ deployer, mint }, { key: "uri", value: NEW_URI });
 
     // Add new custom fields — each grows the account by 4+key.len+4+value.len bytes
-    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, ISIN_KEY, ISIN_VALUE);
-    await updateField(mint, mintOwnerPda, metadataUpdateAuthority, CTRY_KEY, CTRY_VALUE);
-
-    await printMetadata("AFTER update", mint);
+    await updateMetadataField({ deployer, mint }, { key: ISIN_KEY, value: ISIN_VALUE });
+    await updateMetadataField({ deployer, mint }, { key: CTRY_KEY, value: CTRY_VALUE });
 
     // ── Assertions ─────────────────────────────────────────────────────────────
-    const metadataAfter = await getTokenMetadata(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
+    const metadataAfter = await getTokenMetadata(mint);
 
     assert.equal(metadataAfter?.name, NEW_NAME, "name should be updated");
     assert.equal(metadataAfter?.symbol, NEW_SYMBOL, "symbol should be updated");
@@ -192,16 +64,19 @@ describe("metadata-update", () => {
     const CAT_KEY = "category";
     const CAT_VALUE = "equity";
 
-    const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint([
-      { key: ISIN_KEY, value: ISIN_VALUE },
-      { key: JURIS_KEY, value: JURIS_VALUE },
-      { key: CAT_KEY, value: CAT_VALUE },
-    ]);
-
-    await printMetadata("BEFORE remove", mint);
+    const { mint } = await deployMint(
+      { deployer },
+      {
+        additionalMetadata: [
+          { key: ISIN_KEY, value: ISIN_VALUE },
+          { key: JURIS_KEY, value: JURIS_VALUE },
+          { key: CAT_KEY, value: CAT_VALUE },
+        ],
+      }
+    );
 
     // Sanity-check that all three fields landed before we remove them
-    const metadataBefore = await getTokenMetadata(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
+    const metadataBefore = await getTokenMetadata(mint);
     assert.deepEqual(
       metadataBefore?.additionalMetadata,
       [
@@ -213,19 +88,17 @@ describe("metadata-update", () => {
     );
 
     // ── Remove all custom fields ───────────────────────────────────────────────
-    await removeField(mint, mintOwnerPda, metadataUpdateAuthority, ISIN_KEY);
-    await removeField(mint, mintOwnerPda, metadataUpdateAuthority, JURIS_KEY);
-    await removeField(mint, mintOwnerPda, metadataUpdateAuthority, CAT_KEY);
-
-    await printMetadata("AFTER remove", mint);
+    await removeMetadataField({ deployer, mint }, { key: ISIN_KEY, idempotent: false });
+    await removeMetadataField({ deployer, mint }, { key: JURIS_KEY, idempotent: false });
+    await removeMetadataField({ deployer, mint }, { key: CAT_KEY, idempotent: false });
 
     // ── Assertions ─────────────────────────────────────────────────────────────
-    const metadataAfter = await getTokenMetadata(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
+    const metadataAfter = await getTokenMetadata(mint);
 
     // Core fields must be untouched by remove
-    assert.equal(metadataAfter?.name, MINT_NAME, "name should be unchanged");
-    assert.equal(metadataAfter?.symbol, MINT_SYMBOL, "symbol should be unchanged");
-    assert.equal(metadataAfter?.uri, MINT_URI, "uri should be unchanged");
+    assert.equal(metadataAfter?.name, "Test Token", "name should be unchanged");
+    assert.equal(metadataAfter?.symbol, "TEST_TOKEN", "symbol should be unchanged");
+    assert.equal(metadataAfter?.uri, "https://example.com/metadata.json", "uri should be unchanged");
 
     // All custom fields must be gone
     assert.deepEqual(metadataAfter?.additionalMetadata, [], "all custom metadata fields should be removed");
@@ -233,49 +106,16 @@ describe("metadata-update", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("update_metadata_field: fails with MintPaused when mint is paused", async () => {
-    const { mint, mintOwnerPda, metadataUpdateAuthority, pausableAuthority } = await deployMint();
-    const deactivatePda = pdas.deactivatePda(mint);
+    const { mint } = await deployMint({ deployer });
 
-    // Pause the mint via pause
-    const pauseTx: string = await pauseProgram.methods
-      .pause()
-      .accountsStrict({
-        deployer,
-        mintOwnerPda,
-        mint,
-        deactivatePda,
-        pausableAuthority,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-      })
-      .rpc({ commitment: "confirmed" });
+    await pauseMint({ deployer, mint });
 
-    console.log("\n══════════════════════════════════════════════════════════");
-    console.log("  Mint:               ", mint.toBase58());
-    console.log("  pause tx:           ", pauseTx);
-    console.log("══════════════════════════════════════════════════════════\n");
-
-    // update_metadata_field must now be rejected
     try {
-      await metadataProgram.methods
-        .updateMetadataField("name", "Should Fail")
-        .accountsStrict({
-          payer: deployer,
-          deployer,
-          mint,
-          mintOwnerPda,
-          metadataUpdateAuthority,
-          deactivatePda,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SYSTEM_PROGRAM_ID,
-        })
-        .rpc({ commitment: "confirmed" });
-
+      await updateMetadataField({ deployer, mint });
       assert.fail("Expected MintPaused error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
-      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
-      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
       assert.equal(anchorErr.error.errorCode.code, "MintPaused", "error code should be MintPaused");
     }
   });
@@ -286,52 +126,16 @@ describe("metadata-update", () => {
     const ISIN_VALUE = "CH0012221716";
 
     // Deploy with a custom field present so there is something to remove
-    const { mint, mintOwnerPda, metadataUpdateAuthority, pausableAuthority } = await deployMint([
-      { key: ISIN_KEY, value: ISIN_VALUE },
-    ]);
-    const deactivatePda = pdas.deactivatePda(mint);
+    const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
 
-    // Pause the mint via pause
-    const pauseTx: string = await pauseProgram.methods
-      .pause()
-      .accountsStrict({
-        deployer,
-        mintOwnerPda,
-        mint,
-        deactivatePda,
-        pausableAuthority,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-      })
-      .rpc({ commitment: "confirmed" });
+    await pauseMint({ deployer, mint });
 
-    console.log("\n══════════════════════════════════════════════════════════");
-    console.log("  Mint:               ", mint.toBase58());
-    console.log("  pause tx:           ", pauseTx);
-    console.log("══════════════════════════════════════════════════════════\n");
-
-    // remove_metadata_field must now be rejected
     try {
-      await metadataProgram.methods
-        .removeMetadataField(ISIN_KEY, false)
-        .accountsStrict({
-          payer: deployer,
-          deployer,
-          mint,
-          mintOwnerPda,
-          metadataUpdateAuthority,
-          deactivatePda,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SYSTEM_PROGRAM_ID,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
-        .rpc({ commitment: "confirmed" });
-
+      await removeMetadataField({ deployer, mint });
       assert.fail("Expected MintPaused error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
-      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
-      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
       assert.equal(anchorErr.error.errorCode.code, "MintPaused", "error code should be MintPaused");
     }
   });
@@ -339,142 +143,50 @@ describe("metadata-update", () => {
   // ────────────────────────────────────────────────────────────────────────────
   it("update_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
     // ── Deploy a fresh mint ────────────────────────────────────────────────
-    const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint();
-
-    const deactivatePda = pdas.deactivatePda(mint);
+    const { mint } = await deployMint({ deployer });
 
     // ── Deactivate the mint ────────────────────────────────────────────────
-    const deactivateTx = await deactivateProgram.methods
-      .deactivate()
-      .accountsStrict({
-        deployer,
-        mintOwnerPda,
-        mint,
-        deactivatePda,
-        systemProgram: SYSTEM_PROGRAM_ID,
-      })
-      .rpc({ commitment: "confirmed" });
-
-    console.log("\n══════════════════════════════════════════════════════════");
-    console.log("  Mint:               ", mint.toBase58());
-    console.log("  Deactivate PDA:     ", deactivatePda.toBase58());
-    console.log("  deactivate tx:      ", deactivateTx);
-    console.log("══════════════════════════════════════════════════════════\n");
+    await deactivateMint({ deployer, mint });
 
     try {
-      await metadataProgram.methods
-        .updateMetadataField("name", "Should Fail")
-        .accountsStrict({
-          payer: deployer,
-          deployer,
-          mint,
-          mintOwnerPda,
-          deactivatePda,
-          metadataUpdateAuthority,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SYSTEM_PROGRAM_ID,
-        })
-        .rpc({ commitment: "confirmed" });
-
+      await updateMetadataField({ deployer, mint });
       assert.fail("Expected Deactivated error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
-      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
-      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
       assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
     }
   });
 
   // ────────────────────────────────────────────────────────────────────────────
   it("remove_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
-    const ISIN_KEY = "isin";
-
     // ── Deploy a fresh mint ────────────────────────────────────────────────
-    const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint();
-
-    const deactivatePda = pdas.deactivatePda(mint);
+    const { mint } = await deployMint({ deployer });
 
     // ── Deactivate the mint ────────────────────────────────────────────────
-    const deactivateTx = await deactivateProgram.methods
-      .deactivate()
-      .accountsStrict({
-        deployer,
-        mintOwnerPda,
-        mint,
-        deactivatePda,
-        systemProgram: SYSTEM_PROGRAM_ID,
-      })
-      .rpc({ commitment: "confirmed" });
-
-    console.log("\n══════════════════════════════════════════════════════════");
-    console.log("  Mint:               ", mint.toBase58());
-    console.log("  Deactivate PDA:     ", deactivatePda.toBase58());
-    console.log("  deactivate tx:      ", deactivateTx);
-    console.log("══════════════════════════════════════════════════════════\n");
+    await deactivateMint({ deployer, mint });
 
     try {
-      await metadataProgram.methods
-        .removeMetadataField(ISIN_KEY, false)
-        .accountsStrict({
-          payer: deployer,
-          deployer,
-          mint,
-          mintOwnerPda,
-          deactivatePda,
-          metadataUpdateAuthority,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SYSTEM_PROGRAM_ID,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
-        .rpc({ commitment: "confirmed" });
-
+      await removeMetadataField({ deployer, mint });
       assert.fail("Expected Deactivated error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
-      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
-      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
       assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
     }
   });
 
   // ────────────────────────────────────────────────────────────────────────────
   it("update_metadata_field: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-    const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint();
-    const deactivatePda = pdas.deactivatePda(mint);
-
-    // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
+    const { mint } = await deployMint({ deployer });
     const rogueKeypair = Keypair.generate();
 
-    console.log("\n══════════════════════════════════════════════════════════");
-    console.log("  Mint:               ", mint.toBase58());
-    console.log("  Real deployer:      ", deployer.toBase58());
-    console.log("  Rogue signer:       ", rogueKeypair.publicKey.toBase58());
-    console.log("══════════════════════════════════════════════════════════\n");
-
     try {
-      await metadataProgram.methods
-        .updateMetadataField("name", "Should Fail")
-        .accountsStrict({
-          payer: deployer, // wallet still pays fees
-          deployer: rogueKeypair.publicKey,
-          mint,
-          mintOwnerPda,
-          metadataUpdateAuthority,
-          deactivatePda,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SYSTEM_PROGRAM_ID,
-        })
-        .signers([rogueKeypair])
-        .rpc({ commitment: "confirmed" });
-
+      await updateMetadataField({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
       assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
-      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
-      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
       assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer", "error code should be UnauthorizedDeployer");
     }
   });
@@ -483,43 +195,17 @@ describe("metadata-update", () => {
   it("remove_metadata_field: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
     const ISIN_KEY = "isin";
     const ISIN_VALUE = "CH0012221716";
-
-    // Deploy with a custom field present so there is something to remove.
-    const { mint, mintOwnerPda, metadataUpdateAuthority } = await deployMint([{ key: ISIN_KEY, value: ISIN_VALUE }]);
-    const deactivatePda = pdas.deactivatePda(mint);
-
-    // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
     const rogueKeypair = Keypair.generate();
 
-    console.log("\n══════════════════════════════════════════════════════════");
-    console.log("  Mint:               ", mint.toBase58());
-    console.log("  Real deployer:      ", deployer.toBase58());
-    console.log("  Rogue signer:       ", rogueKeypair.publicKey.toBase58());
-    console.log("══════════════════════════════════════════════════════════\n");
+    // Deploy with a custom field present so there is something to remove.
+    const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
 
     try {
-      await metadataProgram.methods
-        .removeMetadataField(ISIN_KEY, false)
-        .accountsStrict({
-          payer: deployer, // wallet still pays fees
-          deployer: rogueKeypair.publicKey,
-          mint,
-          mintOwnerPda,
-          metadataUpdateAuthority,
-          deactivatePda,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SYSTEM_PROGRAM_ID,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
-        .signers([rogueKeypair])
-        .rpc({ commitment: "confirmed" });
-
+      await updateMetadataField({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
       assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
-      console.log("  caught error code:  ", anchorErr.error.errorCode.code);
-      console.log("  caught error msg:   ", anchorErr.error.errorMessage);
       assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer", "error code should be UnauthorizedDeployer");
     }
   });

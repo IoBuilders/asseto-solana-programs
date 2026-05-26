@@ -35,7 +35,7 @@ wallet = "./test-wallet.json"
 members = ["programs/deactivate", "programs/freeze", "programs/deploy", "programs/metadata-update", "programs/mint", "programs/operations", "programs/pause", "programs/snapshot", "programs/transfer", "programs/transfer-control", "programs/transfer-hook", "programs/bond", "programs/coupon", "programs/treasury"]
 
 [scripts]
-test = "solana airdrop 1000 $(solana-keygen pubkey ./test-wallet.json) -u http://127.0.0.1:8899 && anchor program deploy --no-idl && ANCHOR_WALLET=./test-wallet.json NODE_OPTIONS='--import tsx' npx mocha \"tests/${TEST_FILE:-**/*}.ts\""
+test = "solana airdrop 1000 $(solana-keygen pubkey ./test-wallet.json) -u http://127.0.0.1:8899 && anchor program deploy --no-idl && ANCHOR_WALLET=./test-wallet.json NODE_OPTIONS='--import tsx' npx mocha \"tests/${TEST_FILE:-**/*}.ts\" ${TEST:+--grep \"$TEST\"}"
 
 [hooks]
 

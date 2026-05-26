@@ -70,7 +70,7 @@ pub struct UnfreezeAccount<'info> {
         mut,
         close = deployer,
         seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), account.key().as_ref()],
-        bump,
+        bump = frozen_account_pda.bump,
     )]
     pub frozen_account_pda: Account<'info, FrozenAccountStatus>,
 }

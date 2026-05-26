@@ -1,16 +1,13 @@
 import * as anchor from "@anchor-lang/core";
-import { AnchorError, Program } from "@anchor-lang/core";
-import { Snapshot } from "../target/types/snapshot";
+import { AnchorError } from "@anchor-lang/core";
 import { Keypair } from "@solana/web3.js";
 import { assert } from "chai";
-import * as pdas from "./utils/pda_utils";
-import { SYSTEM_PROGRAM_ID } from "./utils/address_utils";
+import { takeSnapshot } from "./program_helpers/snapshot_helper";
 
 describe("snapshot", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const snapshotProgram = anchor.workspace.Snapshot as Program<Snapshot>;
   const deployer = provider.wallet.publicKey;
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -19,25 +16,13 @@ describe("snapshot", () => {
   // wallet must fail the authorised-caller check inside the handler.
   it("take_snapshot: rejects direct invocation with Unauthorized (auxiliary, only callable via coupon CPI)", async () => {
     const mint = Keypair.generate().publicKey;
-    const snapshotCounter = pdas.snapshotCounterPda(mint);
 
     try {
-      await snapshotProgram.methods
-        .takeSnapshot()
-        .accountsStrict({
-          callingAuthority: deployer,
-          payer: deployer,
-          mint,
-          snapshotCounter,
-          systemProgram: SYSTEM_PROGRAM_ID,
-        })
-        .rpc({ commitment: "confirmed" });
-
+      await takeSnapshot({ deployer, mint });
       assert.fail("Expected Unauthorized error but take_snapshot succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
       const anchorErr = err as AnchorError;
-      console.log("  caught error code:", anchorErr.error.errorCode.code);
       assert.equal(anchorErr.error.errorCode.code, "Unauthorized");
     }
   });

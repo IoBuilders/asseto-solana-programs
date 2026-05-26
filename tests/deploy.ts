@@ -1,21 +1,17 @@
 import * as anchor from "@anchor-lang/core";
-import { Program } from "@anchor-lang/core";
 import { SendTransactionError } from "@solana/web3.js";
-import { Deploy } from "../target/types/deploy";
-import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import {
-  TOKEN_2022_PROGRAM_ID,
   AccountState,
-  getMint,
   getDefaultAccountState,
   getMetadataPointerState,
   getPermanentDelegate,
-  getTokenMetadata,
   getPausableConfig,
 } from "@solana/spl-token";
 import { assert } from "chai";
-import * as pdas from "./utils/pda_utils";
-import { SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "./utils/address_utils";
+import * as pdaUtils from "./utils/pda_utils";
+import { deployMint, getMintOwner } from "./program_helpers/deploy_helper";
+import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
 
 // ── Test mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -28,164 +24,32 @@ const MINT_ISIN_VALUE = "CH0012221716";
 describe("deploy", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-
-  const program = anchor.workspace.Deploy as Program<Deploy>;
-  const connection = provider.connection;
-
   // The wallet that signs as deployer and becomes the recorded mint owner.
   const deployer = provider.wallet.publicKey;
 
-  // ── Helper: deploy a fresh mint ──────────────────────────────────────────────
-  async function deployMint(): Promise<{
-    mintKeypair: Keypair;
-    mint: PublicKey;
-    mintOwnerPda: PublicKey;
-    tempMintAuthority: PublicKey;
-    mintAuthority: PublicKey;
-    permanentDelegateAuthority: PublicKey;
-    metadataUpdateAuthority: PublicKey;
-    pausableAuthority: PublicKey;
-    freezeAuthority: PublicKey;
-    transferHookAuthority: PublicKey;
-    extraAccountMetaList: PublicKey;
-  }> {
-    const mintKeypair = Keypair.generate();
-    const mint = mintKeypair.publicKey;
-
-    const mintOwnerPda = pdas.mintOwnerPda(mint);
-    const tempMintAuthority = pdas.tempMintAuthorityPda(mint);
-    const mintAuthority = pdas.mintAuthorityPda(mint);
-    const permanentDelegateAuthority = pdas.permanentDelegatePda(mint);
-    const metadataUpdateAuthority = pdas.metadataUpdateAuthorityPda(mint);
-    const pausableAuthority = pdas.pausableAuthorityPda(mint);
-    const freezeAuthority = pdas.freezeAuthorityPda(mint);
-    const transferHookAuthority = pdas.transferHookAuthorityPda(mint);
-    const extraAccountMetaList = pdas.extraAccountMetaListPda(mint);
-
-    await program.methods
-      .deployMint({
+  it("deploy_mint: deploys a Token-2022 mint with all extensions and metadata", async () => {
+    const { mint } = await deployMint(
+      { deployer },
+      {
         decimals: MINT_DECIMALS,
         name: MINT_NAME,
         symbol: MINT_SYMBOL,
         uri: MINT_URI,
         additionalMetadata: [{ key: MINT_ISIN_KEY, value: MINT_ISIN_VALUE }],
-      })
-      .accountsStrict({
-        payer: provider.wallet.publicKey,
-        deployer,
-        mintOwnerPda,
-        mint,
-        tempMintAuthority,
-        mintAuthority,
-        permanentDelegateAuthority,
-        metadataUpdateAuthority,
-        pausableAuthority,
-        freezeAuthority,
-        transferHookAuthority,
-        extraAccountMetaList,
-        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SYSTEM_PROGRAM_ID,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .signers([mintKeypair])
-      .rpc({ commitment: "confirmed" });
-
-    return {
-      mintKeypair,
-      mint,
-      mintOwnerPda,
-      tempMintAuthority,
-      mintAuthority,
-      permanentDelegateAuthority,
-      metadataUpdateAuthority,
-      pausableAuthority,
-      freezeAuthority,
-      transferHookAuthority,
-      extraAccountMetaList,
-    };
-  }
-
-  it("deploy_mint: deploys a Token-2022 mint with all extensions and metadata", async () => {
-    const {
-      mint,
-      mintOwnerPda,
-      tempMintAuthority,
-      mintAuthority,
-      permanentDelegateAuthority,
-      metadataUpdateAuthority,
-      pausableAuthority,
-      freezeAuthority,
-    } = await deployMint();
-
-    // ── Print PDAs ─────────────────────────────────────────────────────────────
-    console.log("\n──────────────────────────────────────────────────────────");
-    console.log("  Deployer:                  ", deployer.toBase58());
-    console.log("  Mint:                      ", mint.toBase58());
-    console.log("  mintOwnerPda:              ", mintOwnerPda.toBase58());
-    console.log("  tempMintAuthority:         ", tempMintAuthority.toBase58());
-    console.log("  mintAuthority:             ", mintAuthority.toBase58());
-    console.log("  permanentDelegateAuth:     ", permanentDelegateAuthority.toBase58());
-    console.log("  metadataUpdateAuthority:   ", metadataUpdateAuthority.toBase58());
-    console.log("  pausableAuthority:         ", pausableAuthority.toBase58());
-    console.log("  freezeAuthority:           ", freezeAuthority.toBase58());
-    console.log("──────────────────────────────────────────────────────────\n");
-
-    // ── Read back mint account ─────────────────────────────────────────────────
-    const mintInfo = await getMint(connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
-
-    // ── Read back mint owner PDA ───────────────────────────────────────────────
-    const mintOwnerAccount = await program.account.mintOwner.fetch(mintOwnerPda, "confirmed");
-
-    // ── Print mint state ───────────────────────────────────────────────────────
-    console.log("\n── Mint Account ───────────────────────────────────────────");
-    console.log("  address:          ", mintInfo.address.toBase58());
-    console.log("  decimals:         ", mintInfo.decimals);
-    console.log("  supply:           ", mintInfo.supply.toString());
-    console.log("  mintAuthority:    ", mintInfo.mintAuthority?.toBase58() ?? "null");
-    console.log("  freezeAuthority:  ", mintInfo.freezeAuthority?.toBase58() ?? "null");
-    console.log("  isInitialized:    ", mintInfo.isInitialized);
-
-    // ── Print extensions ───────────────────────────────────────────────────────
-    console.log("\n── Extensions ─────────────────────────────────────────────");
-
-    const metadataPointerState = getMetadataPointerState(mintInfo);
-    console.log("  MetadataPointer:");
-    console.log("    authority:       ", metadataPointerState?.authority?.toBase58() ?? "null");
-    console.log("    metadataAddress: ", metadataPointerState?.metadataAddress?.toBase58() ?? "null");
-
-    const permanentDelegateState = getPermanentDelegate(mintInfo);
-    console.log("  PermanentDelegate:");
-    console.log("    delegate:        ", permanentDelegateState?.delegate?.toBase58() ?? "null");
-
-    const defaultAccountState = getDefaultAccountState(mintInfo);
-    console.log("  DefaultAccountState:");
-    console.log(
-      "    state:           ",
-      defaultAccountState?.state === AccountState.Frozen ? "Frozen" : defaultAccountState?.state
+      }
     );
-
+    const mintAuthority = pdaUtils.mintAuthorityPda(mint);
+    const permanentDelegateAuthority = pdaUtils.permanentDelegatePda(mint);
+    const metadataUpdateAuthority = pdaUtils.metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pdaUtils.pausableAuthorityPda(mint);
+    const freezeAuthority = pdaUtils.freezeAuthorityPda(mint);
+    const mintInfo = await getMint(mint);
+    const mintOwnerAccount = await getMintOwner(mint);
+    const metadataPointerState = getMetadataPointerState(mintInfo);
+    const permanentDelegateState = getPermanentDelegate(mintInfo);
+    const defaultAccountState = getDefaultAccountState(mintInfo);
     const pausableState = getPausableConfig(mintInfo);
-    console.log("  Pausable:");
-    console.log("    authority:       ", pausableState?.authority?.toBase58() ?? "null");
-    console.log("    paused:          ", pausableState?.paused);
-
-    // ── Print token metadata ───────────────────────────────────────────────────
-    const metadata = await getTokenMetadata(connection, mint);
-    console.log("\n── Token Metadata ─────────────────────────────────────────");
-    console.log("  mint:             ", metadata?.mint.toBase58());
-    console.log("  updateAuthority:  ", metadata?.updateAuthority?.toBase58() ?? "null");
-    console.log("  name:             ", metadata?.name);
-    console.log("  symbol:           ", metadata?.symbol);
-    console.log("  uri:              ", metadata?.uri);
-    console.log("  additionalMetadata:", metadata?.additionalMetadata ?? []);
-
-    // ── Print mint owner PDA ───────────────────────────────────────────────────
-    console.log("\n── Mint Owner PDA ─────────────────────────────────────────");
-    console.log("  address:          ", mintOwnerPda.toBase58());
-    console.log("  deployer:         ", mintOwnerAccount.deployer.toBase58());
-    console.log("  bump:             ", mintOwnerAccount.bump);
-    console.log("──────────────────────────────────────────────────────────\n");
+    const metadata = await getTokenMetadata(mint);
 
     // ── Assertions: mint core ──────────────────────────────────────────────────
     assert.isTrue(mintInfo.isInitialized, "mint should be initialized");
@@ -246,56 +110,18 @@ describe("deploy", () => {
       "mint owner PDA should record the deployer"
     );
     // Verify the stored bump is consistent with the derived PDA address.
-    const [, expectedBump] = pdas.mintOwnerPdaWithBump(mint);
+    const [, expectedBump] = pdaUtils.mintOwnerPdaWithBump(mint);
     assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
   });
 
   it("deploy_mint: fails when attempting to deploy an already-deployed mint", async () => {
-    const {
-      mintKeypair,
-      mint,
-      mintOwnerPda,
-      tempMintAuthority,
-      mintAuthority,
-      permanentDelegateAuthority,
-      metadataUpdateAuthority,
-      pausableAuthority,
-      freezeAuthority,
-      transferHookAuthority,
-      extraAccountMetaList,
-    } = await deployMint();
+    const mintKeypair = Keypair.generate();
+    await deployMint({ deployer, signers: [mintKeypair] });
 
-    // Attempt to deploy the same mint again — mint_owner_pda already exists,
+    // Attempt to deploy the same mint again (by using the same mint pda) — mint_owner_pda already exists,
     // so Anchor's `init` constraint rejects it before the instruction body runs.
     try {
-      await program.methods
-        .deployMint({
-          decimals: MINT_DECIMALS,
-          name: MINT_NAME,
-          symbol: MINT_SYMBOL,
-          uri: MINT_URI,
-          additionalMetadata: [],
-        })
-        .accountsStrict({
-          payer: provider.wallet.publicKey,
-          deployer,
-          mintOwnerPda,
-          mint,
-          tempMintAuthority,
-          mintAuthority,
-          permanentDelegateAuthority,
-          metadataUpdateAuthority,
-          pausableAuthority,
-          freezeAuthority,
-          transferHookAuthority,
-          extraAccountMetaList,
-          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SYSTEM_PROGRAM_ID,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
-        .signers([mintKeypair])
-        .rpc({ commitment: "confirmed" });
+      await deployMint({ deployer, signers: [mintKeypair] });
 
       assert.fail("Expected re-deploy to fail but it succeeded");
     } catch (err) {

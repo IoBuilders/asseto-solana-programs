@@ -69,7 +69,7 @@ pub struct RemovePartialFreeze<'info> {
         mut,
         close = deployer,
         seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), account.key().as_ref()],
-        bump,
+        bump = frozen_balance_pda.bump,
     )]
     pub frozen_balance_pda: Account<'info, FrozenBalance>,
 
