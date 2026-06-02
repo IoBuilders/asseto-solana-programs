@@ -4,6 +4,8 @@
 
 Modular multi-program Anchor workspace extending Token-2022 for compliant token issuance. Each extension is governed by a dedicated program owning a PDA authority for it.
 
+![image](./docs/images/AssetDesign.png)
+
 ---
 
 ## Code Structure
