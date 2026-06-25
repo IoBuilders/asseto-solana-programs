@@ -67,20 +67,20 @@ pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()> {
 /// Parses the TLV extension data of the mint account using `StateWithExtensions`
 /// to locate `PausableConfig` and reads its `paused` flag.
 ///
-/// Returns `Ok(())` if the mint is **not** paused (or has no `Pausable` extension).
+/// Returns `Ok(())` if the mint is **not** paused.
 /// Returns `Err(CommonError::MintPaused)` if the mint is paused.
+/// Returns Err if the mint has no Pausable extension — something that should never happen for a correctly deployed mint.
 pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()> {
     use spl_token_2022::extension::pausable::PausableConfig;
     use spl_token_2022::extension::{BaseStateWithExtensions, StateWithExtensions};
     use spl_token_2022::state::Mint;
 
     let mint_data = mint_account.try_borrow_data()?;
-    let mint_state = StateWithExtensions::<Mint>::unpack(&mint_data)
-        .map_err(|_| error!(CommonError::MintPaused))?;
+    let mint_state = StateWithExtensions::<Mint>::unpack(&mint_data)?;
 
-    if let Ok(pausable_config) = mint_state.get_extension::<PausableConfig>() {
-        require!(!bool::from(pausable_config.paused), CommonError::MintPaused);
-    }
+    let pausable_config = mint_state.get_extension::<PausableConfig>()?;
+
+    require!(!bool::from(pausable_config.paused), CommonError::MintPaused);
 
     Ok(())
 }
