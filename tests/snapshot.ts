@@ -1,18 +1,23 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
+import { SNAPSHOT_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { createCoupon } from "./program_helpers/coupon_helper";
 import { createTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint_helper";
 import {
+  encodeSnapshotCounter,
   getHolderBalanceSnapshotAt,
+  getSnapshotCounterByPda,
   getTotalSupplySnapshotAt,
   takeSnapshot,
   updateHolderBalanceSnapshot,
   updateTotalSupplySnapshot,
 } from "./program_helpers/snapshot_helper";
+import { getBalanceForRentExeption, surfnetSetAccount } from "./program_helpers/account_helper";
+import { U64_MAX } from "./constants";
 
 describe("snapshot", () => {
   const provider = anchor.AnchorProvider.env();
@@ -30,6 +35,43 @@ describe("snapshot", () => {
       assert.instanceOf(err, AnchorError);
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "Unauthorized");
+    }
+  });
+
+  it("take_snapshot: fails with SnapshotCounterOverflow when the counter is at u64::MAX", async () => {
+    const { mint } = await deployMint({ deployer });
+
+    // take_snapshot is auxiliary (CPI-only via coupon), so we drive it through
+    // create_coupon. Brute-forcing the counter to u64::MAX is infeasible, so we
+    // plant a snapshot_counter already saturated at u64::MAX via surfpool's
+    // surfnet_setAccount cheatcode. The CPI then hits the `else` branch
+    // `counter.count.checked_add(1)` -> None -> SnapshotCounterOverflow, which
+    // propagates out of create_coupon.
+    const [snapshotCounterPda, bump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("snapshot_counter"), mint.toBuffer()],
+      SNAPSHOT_PROGRAM_ID
+    );
+    const data = await encodeSnapshotCounter(bump, U64_MAX);
+    const lamports = await getBalanceForRentExeption(data.length);
+
+    await surfnetSetAccount(snapshotCounterPda, {
+      lamports,
+      owner: SNAPSHOT_PROGRAM_ID.toBase58(),
+      data: data.toString("hex"),
+      executable: false,
+      rentEpoch: 0,
+    });
+
+    // Sanity: the planted counter really is at u64::MAX.
+    const planted = await getSnapshotCounterByPda(snapshotCounterPda);
+    assert.equal(planted.count.toString(), U64_MAX.toString(), "snapshot_counter should be planted at u64::MAX");
+
+    try {
+      await createCoupon({ deployer, mint });
+      assert.fail("Expected SnapshotCounterOverflow error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "SnapshotCounterOverflow");
     }
   });
 

@@ -61,7 +61,10 @@ pub fn create_coupon(
         counter.bump = ctx.bumps.coupon_counter;
         1u64
     } else {
-        counter.count.checked_add(1).unwrap()
+        counter
+            .count
+            .checked_add(1)
+            .ok_or(ErrorCode::CouponCounterOverflow)?
     };
     require!(coupon_id == expected_id, ErrorCode::InvalidCouponId);
     counter.count = expected_id;

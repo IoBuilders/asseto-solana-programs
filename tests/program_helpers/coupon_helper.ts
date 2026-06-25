@@ -108,6 +108,15 @@ export async function getCouponCounter(mint: PublicKey) {
   return await getCouponCounterByPda(pdaUtils.couponCounterPda(mint));
 }
 
+/**
+ * Borsh-encodes a `CouponCounter` (8-byte discriminator + bump + count) the way
+ * the program stores it on-chain. Used by tests that plant counter state
+ * directly via a surfpool cheatcode.
+ */
+export async function encodeCouponCounter(bump: number, count: anchor.BN): Promise<Buffer> {
+  return getCouponProgram().coder.accounts.encode("couponCounter", { bump, count });
+}
+
 export async function getCouponCounterByPda(pda: PublicKey) {
   return await getCouponProgram().account.couponCounter.fetch(pda, "confirmed");
 }
