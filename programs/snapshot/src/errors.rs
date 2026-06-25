@@ -8,4 +8,6 @@ pub enum ErrorCode {
     InvalidTokenAccount,
     #[msg("Snapshot delta adjustment overflows the holder balance")]
     DeltaOverflow,
+    #[msg("snapshot counter overflow when creating new snapshot")]
+    SnapshotCounterOverflow,
 }

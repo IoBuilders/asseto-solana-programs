@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use common::pda_seeds;
+use crate::errors::ErrorCode;
 
 use crate::state::{SnapshotCounter, SnapshotHistory};
 
@@ -23,7 +24,7 @@ pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
         counter.bump = ctx.bumps.snapshot_counter;
         counter.count = 1;
     } else {
-        counter.count = counter.count.checked_add(1).unwrap();
+        counter.count = counter.count.checked_add(1).ok_or(ErrorCode::SnapshotCounterOverflow)?;
     }
 
     Ok(())

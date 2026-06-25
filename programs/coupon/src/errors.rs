@@ -10,4 +10,6 @@ pub enum ErrorCode {
     InvalidPaymentDate,
     #[msg("interest_rate_override and interest_rate_override_decimals must both be Some or both be None")]
     InconsistentRateOverride,
+    #[msg("coupon counter overflow when creating new coupon")]
+    CouponCounterOverflow,
 }

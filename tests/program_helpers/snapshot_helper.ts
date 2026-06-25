@@ -124,3 +124,12 @@ export async function getSnapshotCounter(mint: PublicKey) {
 export async function getSnapshotCounterByPda(pda: PublicKey) {
   return await getSnapshotProgram().account.snapshotCounter.fetch(pda, "confirmed");
 }
+
+/**
+ * Borsh-encodes a `SnapshotCounter` (8-byte discriminator + bump + count) the
+ * way the program stores it on-chain. Used by tests that plant counter state
+ * directly via a surfpool cheatcode.
+ */
+export async function encodeSnapshotCounter(bump: number, count: anchor.BN): Promise<Buffer> {
+  return getSnapshotProgram().coder.accounts.encode("snapshotCounter", { bump, count });
+}

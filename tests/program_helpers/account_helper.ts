@@ -20,3 +20,35 @@ export async function getAccountInfo(address: PublicKey): Promise<anchor.web3.Ac
 export async function getBalanceForRentExeption(expectedSize: number): Promise<number> {
   return getProvider().connection.getMinimumBalanceForRentExemption(expectedSize);
 }
+
+type AccountUpdate = {
+  lamports?: number;
+  owner?: string; // base58 program id
+  data?: string; // hex-encoded string (no 0x prefix)
+  executable?: boolean;
+  rentEpoch?: number;
+};
+
+/**
+ * Test-only: overwrites an account's on-chain state directly via surfpool's
+ * `surfnet_setAccount` cheatcode. Lets a test force state that is otherwise
+ * unreachable in practice (e.g. a counter saturated at u64::MAX). `data` must
+ * be a hex-encoded string (no `0x` prefix); omitted fields are left untouched.
+ */
+export async function surfnetSetAccount(address: PublicKey, update: AccountUpdate): Promise<void> {
+  const endpoint = getProvider().connection.rpcEndpoint;
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "surfnet_setAccount",
+      params: [address.toBase58(), update],
+    }),
+  });
+  const json = (await res.json()) as { error?: unknown };
+  if (json.error) {
+    throw new Error(`surfnet_setAccount failed: ${JSON.stringify(json.error)}`);
+  }
+}

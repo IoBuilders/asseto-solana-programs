@@ -1,6 +1,6 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { COUPON_PROGRAM_ID } from "./utils/address_utils";
@@ -9,6 +9,7 @@ import { pauseMint } from "./program_helpers/pause_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
 import {
   createCoupon,
+  encodeCouponCounter,
   getCoupon,
   getCouponByPda,
   getCouponCounter,
@@ -16,7 +17,8 @@ import {
   setCouponRate,
 } from "./program_helpers/coupon_helper";
 import { getSnapshotCounter, getSnapshotCounterByPda } from "./program_helpers/snapshot_helper";
-import { getAccountInfo } from "./program_helpers/account_helper";
+import { getAccountInfo, getBalanceForRentExeption, surfnetSetAccount } from "./program_helpers/account_helper";
+import { U64_MAX } from "./constants";
 
 describe("coupon", () => {
   const provider = anchor.AnchorProvider.env();
@@ -198,6 +200,44 @@ describe("coupon", () => {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "InvalidCouponId");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("create_coupon: fails with CouponCounterOverflow when the counter is at u64::MAX", async () => {
+    const { mint } = await deployMint({ deployer });
+
+    // Brute-forcing the counter from 0 to u64::MAX is infeasible, so we plant a
+    // coupon_counter already saturated at u64::MAX via surfpool's
+    // surfnet_setAccount cheatcode. The next create_coupon then hits the `else`
+    // branch `counter.count.checked_add(1)` -> None -> CouponCounterOverflow.
+    const [couponCounterPda, bump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("coupon_counter"), mint.toBuffer()],
+      COUPON_PROGRAM_ID
+    );
+    const data = await encodeCouponCounter(bump, U64_MAX);
+    const lamports = await getBalanceForRentExeption(data.length);
+
+    await surfnetSetAccount(couponCounterPda, {
+      lamports,
+      owner: COUPON_PROGRAM_ID.toBase58(),
+      data: data.toString("hex"),
+      executable: false,
+      rentEpoch: 0,
+    });
+
+    // Sanity: the planted counter really is at u64::MAX.
+    const planted = await getCouponCounterByPda(couponCounterPda);
+    assert.equal(planted.count.toString(), U64_MAX.toString(), "coupon_counter should be planted at u64::MAX");
+
+    // The overflow check runs before the coupon_id comparison, so the default
+    // coupon_id is irrelevant — the instruction reverts on the checked_add.
+    try {
+      await createCoupon({ deployer, mint });
+      assert.fail("Expected CouponCounterOverflow error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "CouponCounterOverflow");
     }
   });
 
