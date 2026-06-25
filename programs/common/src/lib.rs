@@ -77,10 +77,9 @@ pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()> {
     let mint_data = mint_account.try_borrow_data()?;
     let mint_state = StateWithExtensions::<Mint>::unpack(&mint_data)
         .map_err(|_| error!(CommonError::MintPaused))?;
+    let pausable_config = mint_state.get_extension::<PausableConfig>().unwrap();
 
-    if let Ok(pausable_config) = mint_state.get_extension::<PausableConfig>() {
-        require!(!bool::from(pausable_config.paused), CommonError::MintPaused);
-    }
+    require!(!bool::from(pausable_config.paused), CommonError::MintPaused);
 
     Ok(())
 }
