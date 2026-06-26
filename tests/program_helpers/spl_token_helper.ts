@@ -35,21 +35,21 @@ export async function createTokenAccount(args: CreateTokenAccountArgs): Promise<
     args.mint,
     args.owner,
     destination,
-    { commitment: "confirmed" },
+    { commitment: "processed" },
     TOKEN_2022_PROGRAM_ID
   );
 }
 
 export async function getTokenAccount(address: PublicKey): Promise<Account> {
-  return getAccount(getProvider().connection, address, "confirmed", TOKEN_2022_PROGRAM_ID);
+  return getAccount(getProvider().connection, address, "processed", TOKEN_2022_PROGRAM_ID);
 }
 
 export async function getMint(mint: PublicKey): Promise<Mint> {
-  return splGetMint(getProvider().connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
+  return splGetMint(getProvider().connection, mint, "processed", TOKEN_2022_PROGRAM_ID);
 }
 
 export async function getTokenMetadata(mint: PublicKey): Promise<TokenMetadata | null> {
-  return splGetTokenMetadata(getProvider().connection, mint, "confirmed", TOKEN_2022_PROGRAM_ID);
+  return splGetTokenMetadata(getProvider().connection, mint, "processed", TOKEN_2022_PROGRAM_ID);
 }
 
 export type CreateMintArgs = {
@@ -68,7 +68,7 @@ export async function createMint(args?: CreateMintArgs): Promise<PublicKey> {
     null,
     args?.decimals ?? 6,
     Keypair.generate(),
-    { commitment: "confirmed" },
+    { commitment: "processed" },
     TOKEN_2022_PROGRAM_ID
   );
 }
@@ -93,7 +93,7 @@ export async function mintTo(args: MintToArgs): Promise<void> {
     args.mintAuthority ?? provider.wallet.payer,
     args.amount,
     [],
-    { commitment: "confirmed" },
+    { commitment: "processed" },
     TOKEN_2022_PROGRAM_ID
   );
 }

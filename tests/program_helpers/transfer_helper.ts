@@ -96,7 +96,7 @@ export async function transfer(callContext: TransferContext, args?: TransferArgs
     .accountsStrict(getTransferAccounts(callContext))
     .preInstructions(preInstructions)
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export function getTransferAccounts(callContext: Omit<TransferContext, "deployer">) {

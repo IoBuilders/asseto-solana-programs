@@ -58,9 +58,9 @@ export async function updateBondTerms(callContext: MintWriteWithPayerContext, ar
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export async function getCouponCounterByPda(pda: PublicKey) {
-  return await getBondProgram().account.bondTerms.fetch(pda, "confirmed");
+  return await getBondProgram().account.bondTerms.fetch(pda, "processed");
 }

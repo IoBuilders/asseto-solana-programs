@@ -60,7 +60,7 @@ export async function createCoupon(callContext: MintWriteWithPayerContext, args?
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 type SetCouponRateArgs = {
@@ -93,7 +93,7 @@ export async function setCouponRate(context: MintWriteContext, args?: SetCouponR
       coupon: pdaUtils.couponPda(context.mint, effectiveArgs.couponId),
     })
     .signers(context?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export async function getCoupon(mint: PublicKey, couponId: BN) {
@@ -101,7 +101,7 @@ export async function getCoupon(mint: PublicKey, couponId: BN) {
 }
 
 export async function getCouponByPda(pda: PublicKey) {
-  return await getCouponProgram().account.coupon.fetch(pda, "confirmed");
+  return await getCouponProgram().account.coupon.fetch(pda, "processed");
 }
 
 export async function getCouponCounter(mint: PublicKey) {
@@ -118,5 +118,5 @@ export async function encodeCouponCounter(bump: number, count: anchor.BN): Promi
 }
 
 export async function getCouponCounterByPda(pda: PublicKey) {
-  return await getCouponProgram().account.couponCounter.fetch(pda, "confirmed");
+  return await getCouponProgram().account.couponCounter.fetch(pda, "processed");
 }

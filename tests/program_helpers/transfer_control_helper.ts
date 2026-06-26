@@ -40,7 +40,7 @@ export async function setTransferControlModes(callContext: MintWriteContext, arg
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export type AddToWhitelistContext = MintWriteContext & {
@@ -60,7 +60,7 @@ export async function addToWhitelist(callContext: AddToWhitelistContext): Promis
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export type RemoveFromWhitelistContext = MintWriteContext & {
@@ -79,13 +79,13 @@ export async function removeFromWhitelist(callContext: RemoveFromWhitelistContex
       whitelistPda: pdaUtils.whitelistPda(callContext.mint, callContext.account),
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export async function getTransferControlModeByPda(pda: PublicKey) {
-  return await getTransferControlProgram().account.transferControlMode.fetchNullable(pda, "confirmed");
+  return await getTransferControlProgram().account.transferControlMode.fetchNullable(pda, "processed");
 }
 
 export async function getWhitelistStatusByPda(pda: PublicKey) {
-  return await getTransferControlProgram().account.whitelistStatus.fetchNullable(pda, "confirmed");
+  return await getTransferControlProgram().account.whitelistStatus.fetchNullable(pda, "processed");
 }

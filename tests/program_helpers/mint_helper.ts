@@ -50,5 +50,5 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }

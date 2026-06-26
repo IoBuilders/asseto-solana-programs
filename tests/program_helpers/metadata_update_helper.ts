@@ -45,7 +45,7 @@ export async function updateMetadataField(
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 type RemoveMetadataFieldArgs = {
@@ -83,5 +83,5 @@ export async function removeMetadataField(
       rent: SYSVAR_RENT_PUBKEY,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }

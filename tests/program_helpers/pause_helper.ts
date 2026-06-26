@@ -21,7 +21,7 @@ export async function pauseMint(callContext: MintWriteContext): Promise<void> {
       token2022Program: TOKEN_2022_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export async function unpauseMint(params: MintWriteContext): Promise<void> {
@@ -35,5 +35,5 @@ export async function unpauseMint(params: MintWriteContext): Promise<void> {
       pausableAuthority: pdaUtils.pausableAuthorityPda(params.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
     })
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }

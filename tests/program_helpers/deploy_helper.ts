@@ -69,12 +69,12 @@ export async function deployMint(
       rent: SYSVAR_RENT_PUBKEY,
     })
     .signers([mintKeypair])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 
   return { mint };
 }
 
 export async function getMintOwner(mint: PublicKey) {
   const pda = pdaUtils.mintOwnerPda(mint);
-  return await getDeployProgram().account.mintOwner.fetch(pda, "confirmed");
+  return await getDeployProgram().account.mintOwner.fetch(pda, "processed");
 }

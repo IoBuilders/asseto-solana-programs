@@ -51,7 +51,7 @@ describe("transfer", () => {
         lamports: FUND_AMOUNT_IN_LAMPORT,
       })
     );
-    await anchor.web3.sendAndConfirmTransaction(provider.connection, tx, [payerKeypair], { commitment: "confirmed" });
+    await anchor.web3.sendAndConfirmTransaction(provider.connection, tx, [payerKeypair], { commitment: "processed" });
   }
 
   // ────────────────────────────────────────────────────────────────────────────

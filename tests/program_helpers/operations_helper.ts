@@ -48,5 +48,5 @@ export async function burnTokens(callContext: BurnTokensContext, args?: BurnToke
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }

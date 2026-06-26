@@ -27,7 +27,7 @@ export async function freezeAccount(callContext: FreezeAccountContext): Promise<
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export type UnfreezeAccountContext = MintWriteContext & {
@@ -46,7 +46,7 @@ export async function unfreezeAccount(callContext: UnfreezeAccountContext): Prom
       frozenAccountPda: pdaUtils.frozenAccountPda(callContext.mint, callContext.account),
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export type PartiallyFreezeAccountContext = MintWriteContext & {
@@ -84,7 +84,7 @@ export async function partiallyFreezeAccount(
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export type PartiallyUnfreezeAccountContext = MintWriteContext & {
@@ -104,13 +104,13 @@ export async function removePartialFreeze(callContext: PartiallyUnfreezeAccountC
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export async function getFrozenAccountStatusByPda(pda: PublicKey) {
-  return await getFreezeProgram().account.frozenAccountStatus.fetchNullable(pda, "confirmed");
+  return await getFreezeProgram().account.frozenAccountStatus.fetchNullable(pda, "processed");
 }
 
 export async function getFrozenBalanceByPda(pda: PublicKey) {
-  return await getFreezeProgram().account.frozenBalance.fetchNullable(pda, "confirmed");
+  return await getFreezeProgram().account.frozenBalance.fetchNullable(pda, "processed");
 }

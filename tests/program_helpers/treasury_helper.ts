@@ -32,7 +32,7 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export type PayCouponContext = MintWriteWithPayerContext & {
@@ -70,7 +70,7 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export async function getTreasuryConfigByPda(pda: PublicKey) {

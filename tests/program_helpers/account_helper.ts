@@ -10,11 +10,11 @@ export async function requestAirdrop(to: PublicKey, lamports = anchor.web3.LAMPO
   const connection = getProvider().connection;
   const airdropSig = await connection.requestAirdrop(to, lamports);
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-  await connection.confirmTransaction({ signature: airdropSig, blockhash, lastValidBlockHeight }, "confirmed");
+  await connection.confirmTransaction({ signature: airdropSig, blockhash, lastValidBlockHeight }, "processed");
 }
 
 export async function getAccountInfo(address: PublicKey): Promise<anchor.web3.AccountInfo<Buffer> | null> {
-  return getProvider().connection.getAccountInfo(address, "confirmed");
+  return getProvider().connection.getAccountInfo(address, "processed");
 }
 
 export async function getBalanceForRentExeption(expectedSize: number): Promise<number> {

@@ -21,7 +21,7 @@ export async function deactivateMint(callContext: MintWriteContext): Promise<voi
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export async function getDeactivatePda(pda: PublicKey) {

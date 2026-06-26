@@ -20,7 +20,7 @@ export async function takeSnapshot(callContext: MintWriteWithPayerContext): Prom
       snapshotCounter: pdaUtils.snapshotCounterPda(callContext.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
     })
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export type GetTotalSupplySnapshotAtArgs = {
@@ -75,7 +75,7 @@ export async function updateTotalSupplySnapshot(ctx: MintWriteWithPayerContext):
       totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(ctx.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
     })
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 type UpdateHolderBalanceSnapshotArgs = {
@@ -113,7 +113,7 @@ export async function updateHolderBalanceSnapshot(
       holderTokenAccount: holderTokenAccount,
       systemProgram: SYSTEM_PROGRAM_ID,
     })
-    .rpc({ commitment: "confirmed" });
+    .rpc({ commitment: "processed" });
 }
 
 export async function getSnapshotCounter(mint: PublicKey) {
@@ -122,7 +122,7 @@ export async function getSnapshotCounter(mint: PublicKey) {
 }
 
 export async function getSnapshotCounterByPda(pda: PublicKey) {
-  return await getSnapshotProgram().account.snapshotCounter.fetch(pda, "confirmed");
+  return await getSnapshotProgram().account.snapshotCounter.fetch(pda, "processed");
 }
 
 /**
