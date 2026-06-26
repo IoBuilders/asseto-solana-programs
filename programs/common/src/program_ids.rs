@@ -19,6 +19,7 @@ pub const SNAPSHOT_PROGRAM_ID: Pubkey = pubkey!("hgUtrpstViwxutrkoVXwQh3GQC18wHA
 pub const BOND_PROGRAM_ID: Pubkey = pubkey!("8opYXiWzWBrUEr5vtcvaX1ybzYaMKrndxkW1U9Patk46");
 pub const COUPON_PROGRAM_ID: Pubkey = pubkey!("CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK");
 pub const TREASURY_PROGRAM_ID: Pubkey = pubkey!("G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA");
+pub const FACTORY_PROGRAM_ID: Pubkey = pubkey!("FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5");
 
 #[cfg(test)]
 mod tests {
@@ -40,5 +41,6 @@ mod tests {
         assert_eq!(BOND_PROGRAM_ID, bond::ID);
         assert_eq!(COUPON_PROGRAM_ID, coupon::ID);
         assert_eq!(TREASURY_PROGRAM_ID, treasury::ID);
+        assert_eq!(FACTORY_PROGRAM_ID, factory::ID);
     }
 }

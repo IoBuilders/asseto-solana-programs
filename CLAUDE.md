@@ -39,7 +39,8 @@ asseto-solana-programs/
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
-│   └── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (transfer_checked from treasury TA, signed by `treasury_authority` PDA)
+│   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (transfer_checked from treasury TA, signed by `treasury_authority` PDA)
+│   └── factory/              — empty program scaffold (no instructions yet)
 └── tests/                    — one .ts file per program
 ```
 
@@ -83,6 +84,7 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 | `bond` | `8opYXiWzWBrUEr5vtcvaX1ybzYaMKrndxkW1U9Patk46` |
 | `coupon` | `CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK` |
 | `treasury` | `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA` |
+| `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
 
 ### ID sharing pattern
 
@@ -197,4 +199,5 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 - [`docs/bond.md`](docs/bond.md)
 - [`docs/coupon.md`](docs/coupon.md)
 - [`docs/treasury.md`](docs/treasury.md)
+- [`docs/factory.md`](docs/factory.md)
 - [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
