@@ -15,6 +15,7 @@ import {
   TRANSFER_HOOK_PROGRAM_ID,
   TRANSFER_PROGRAM_ID,
   TREASURY_PROGRAM_ID,
+  FACTORY_PROGRAM_ID,
 } from "./address_utils";
 
 // ── deploy ─────────────────────────────────────────────────────────────────────
@@ -208,4 +209,14 @@ export function couponPaidPda(mint: PublicKey, couponId: BN, holderTokenAccount:
     [Buffer.from("coupon_paid"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8), holderTokenAccount.toBuffer()],
     TREASURY_PROGRAM_ID
   )[0];
+}
+
+// ── factory ──────────────────────────────────────────────────────────────────
+
+export function factoryPda(): PublicKey {
+  return factoryPdaWithBump()[0];
+}
+
+export function factoryPdaWithBump(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("factory")], FACTORY_PROGRAM_ID);
 }

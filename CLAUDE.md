@@ -40,7 +40,7 @@ asseto-solana-programs/
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
 │   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (transfer_checked from treasury TA, signed by `treasury_authority` PDA)
-│   └── factory/              — empty program scaffold (no instructions yet)
+│   └── factory/              — singleton config PDA: `initialize` (records manager + pause flag)
 └── tests/                    — one .ts file per program
 ```
 
@@ -149,6 +149,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["treasury_config", mint]` | `treasury` | Stores the Token-2022 *payment* mint pubkey + cached decimals used by `pay_coupon` |
 | `["treasury_authority", mint]` | `treasury` | Owner of the treasury's payment-mint token account; signs `transfer_checked` during `pay_coupon` |
 | `["coupon_paid", mint, coupon_id, holder_token_account]` | `treasury` | Marker created by `pay_coupon`; existence prevents double-payment of the same `(coupon, holder)` pair |
+| `["factory"]` | `factory` | Singleton `Factory` config PDA (manager pubkey + pause flag); created once by `initialize` |
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
