@@ -29,7 +29,8 @@ Modular multi-program Anchor workspace extending Token-2022 for compliant token 
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot`
-│   └── treasury/             — coupon payouts: `pay_coupon` signed by `treasury_authority` PDA
+│   ├── treasury/             — coupon payouts: `pay_coupon` signed by `treasury_authority` PDA
+│   └── factory/              — empty program scaffold (no instructions yet)
 └── tests/                    — one .ts file per program
 ```
 
@@ -73,6 +74,7 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 | `bond` | `BLA6wUczWivPKBw7wnZbvHfYPxcRWEE2Z5aGRnTdfUcU` |
 | `coupon` | `4pvS3t8wey2MhcgTgBSZZbHRUe6EFUv2pD9jJLFKWZ6u` |
 | `treasury` | `CBxS9txE8qZqZkNXhTaWE42Ur3J3GtYv1ufLfNDNUEct` |
+| `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
 
 ### ID sharing pattern
 
@@ -197,4 +199,5 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 - [`docs/bond.md`](docs/bond.md)
 - [`docs/coupon.md`](docs/coupon.md)
 - [`docs/treasury.md`](docs/treasury.md)
+- [`docs/factory.md`](docs/factory.md)
 - [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
