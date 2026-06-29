@@ -110,3 +110,6 @@ pub const COUPON_PAID: &[u8] = b"coupon_paid";
 pub fn treasury_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![TREASURY_AUTHORITY, mint.as_ref()]
 }
+
+/********************************* FACTORY *********************************/
+pub const FACTORY: &[u8] = b"factory";
