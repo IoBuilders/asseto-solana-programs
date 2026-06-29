@@ -228,3 +228,14 @@ export function factoryPendingManagerPda(): PublicKey {
 export function factoryPendingManagerPdaWithBump(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("factory_pending_manager")], FACTORY_PROGRAM_ID);
 }
+
+export function assetClassOwnershipPda(configId: BN): PublicKey {
+  return assetClassOwnershipPdaWithBump(configId)[0];
+}
+
+export function assetClassOwnershipPdaWithBump(configId: BN): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("asset_class_ownership"), configId.toArrayLike(Buffer, "le", 8)],
+    FACTORY_PROGRAM_ID
+  );
+}
