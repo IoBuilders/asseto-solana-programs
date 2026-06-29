@@ -219,10 +219,7 @@ describe("factory", () => {
 
     await cancelNomination({ currentManager: manager.publicKey, signers: [manager] });
 
-    assert.isNull(
-      await getAccountInfo(pdaUtils.factoryPendingManagerPda()),
-      "pending PDA should be closed"
-    );
+    assert.isNull(await getAccountInfo(pdaUtils.factoryPendingManagerPda()), "pending PDA should be closed");
     assert.equal(
       (await getFactory()).manager.toBase58(),
       manager.publicKey.toBase58(),

@@ -231,4 +231,3 @@ export async function setAssetClassOwnership(
 export async function clearAssetClassOwnership(configId: anchor.BN): Promise<void> {
   await surfnetSetAccount(pdaUtils.assetClassOwnershipPda(configId), { lamports: 0 });
 }
-
