@@ -158,4 +158,3 @@ export async function clearFactory(): Promise<void> {
 export async function clearFactoryPendingManager(): Promise<void> {
   await surfnetSetAccount(pdaUtils.factoryPendingManagerPda(), { lamports: 0 });
 }
-
