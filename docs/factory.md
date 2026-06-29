@@ -33,10 +33,11 @@ Singleton pending-manager PDA stored at `["factory_pending_manager"]`. Its exist
 
 ## Instructions
 
-### `initialize(manager: Pubkey)`
+### `initialize()`
 
-Creates the singleton `factory` PDA, records `manager`, and defaults `pause` to `false`.
+Creates the singleton `factory` PDA, records the `manager` account, and defaults `pause` to `false`.
 
+The `manager` is supplied as a **signer account** rather than an instruction argument: it must sign the transaction, so the factory manager cannot be set to an account the caller does not control.
 The `factory` account uses Anchor's `init` constraint, so a second call fails because the PDA already exists — the factory can only be initialised once.
 
 **Accounts**
@@ -44,13 +45,14 @@ The `factory` account uses Anchor's `init` constraint, so a second call fails be
 | Account | Type | Notes |
 |---|---|---|
 | `payer` | `Signer` (mut) | Pays for the `factory` PDA creation. |
+| `manager` | `Signer` | Account recorded as the factory manager. Must sign the transaction. |
 | `factory` | `Account<Factory>` (init) | Singleton config PDA. Seeds: `["factory"]`. `init` fails if it already exists. |
 | `system_program` | `Program<System>` | Required for account creation. |
 
 **Execution**
 
 1. `init` creates the `factory` PDA at `["factory"]` (fails if it already exists).
-2. Stores `manager` from the argument.
+2. Stores `manager` from the signer account's key.
 3. Sets `pause = false`.
 4. Stores the PDA `bump`.
 
