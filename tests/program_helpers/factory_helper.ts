@@ -16,10 +16,13 @@ export async function initializeFactory(manager: PublicKey, callContext: Initial
   const program = getFactoryProgram();
   const payer = callContext.payer ?? program.provider.publicKey!;
 
+  // `manager` is now a `Signer` account (not an instruction argument). The
+  // caller must include the matching keypair in `callContext.signers`.
   await program.methods
-    .initialize(manager)
+    .initialize()
     .accountsStrict({
       payer,
+      manager,
       factory: pdaUtils.factoryPda(),
       systemProgram: SYSTEM_PROGRAM_ID,
     })

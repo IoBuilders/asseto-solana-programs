@@ -13,14 +13,15 @@ describe("factory", () => {
   // ────────────────────────────────────────────────────────────────────────────
   it("initialize: creates the factory PDA and stores manager, pause=false and bump", async () => {
     const factoryPda = pdaUtils.factoryPda();
-    const manager = Keypair.generate().publicKey;
+    const manager = Keypair.generate();
 
     // Always runs the instruction — on a fresh validator the singleton PDA does
     // not exist yet, so this both creates it and exercises the handler.
-    await initializeFactory(manager);
+    // `manager` is a required signer, so it must be passed in `signers`.
+    await initializeFactory(manager.publicKey, { signers: [manager] });
 
     const stored = await getFactory(factoryPda);
-    assert.equal(stored.manager.toBase58(), manager.toBase58(), "manager mismatch");
+    assert.equal(stored.manager.toBase58(), manager.publicKey.toBase58(), "manager mismatch");
     assert.equal(stored.pause, false, "pause should default to false");
     assert.equal(stored.bump, pdaUtils.factoryPdaWithBump()[1], "bump mismatch");
 
@@ -28,6 +29,22 @@ describe("factory", () => {
     const info = await getAccountInfo(factoryPda);
     assert.isNotNull(info, "factory PDA should be created by initialize");
     assert.equal(info!.owner.toBase58(), FACTORY_PROGRAM_ID.toBase58(), "factory PDA should be owned by factory");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("initialize: fails when the manager does not sign the transaction", async () => {
+    const manager = Keypair.generate();
+
+    try {
+      // `manager` is a required `Signer`, but we deliberately omit its keypair
+      // from `signers`. The transaction is therefore missing a required
+      // signature and is rejected before it ever reaches the cluster.
+      await initializeFactory(manager.publicKey, { signers: [] });
+      assert.fail("Expected failure but initialize succeeded without the manager's signature");
+    } catch (err) {
+      const message = (err as Error).message ?? "";
+      assert.match(message, /signature/i, "error should reference the missing manager signature");
+    }
   });
 
   // ────────────────────────────────────────────────────────────────────────────
