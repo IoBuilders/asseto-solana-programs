@@ -113,3 +113,4 @@ pub fn treasury_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> 
 
 /********************************* FACTORY *********************************/
 pub const FACTORY: &[u8] = b"factory";
+pub const FACTORY_PENDING_MANAGER: &[u8] = b"factory_pending_manager";
