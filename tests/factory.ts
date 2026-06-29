@@ -50,12 +50,17 @@ describe("factory", () => {
   // ────────────────────────────────────────────────────────────────────────────
   it("initialize: fails when the factory PDA already exists", async () => {
     // Ensure the PDA exists (created either by the test above or here).
+    // `manager` is a required signer, so it must be passed in `signers`.
     if ((await getAccountInfo(pdaUtils.factoryPda())) === null) {
-      await initializeFactory(Keypair.generate().publicKey);
+      const seedManager = Keypair.generate();
+      await initializeFactory(seedManager.publicKey, { signers: [seedManager] });
     }
 
     try {
-      await initializeFactory(Keypair.generate().publicKey);
+      // Fully sign the transaction so it reaches the cluster — the failure must
+      // come from `init` (PDA already exists), not from a missing signature.
+      const manager = Keypair.generate();
+      await initializeFactory(manager.publicKey, { signers: [manager] });
       assert.fail("Expected failure but initialize succeeded on an existing PDA");
     } catch (err) {
       // `init` on an existing account fails in the System program with
