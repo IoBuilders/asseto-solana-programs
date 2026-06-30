@@ -7,6 +7,7 @@ pub mod initialize;
 pub mod nominate_asset_class_owner;
 pub mod nominate_manager;
 pub mod pause;
+pub mod unpause;
 
 pub use accept_asset_class_ownership::*;
 pub use accept_nomination::*;
@@ -17,3 +18,4 @@ pub use initialize::*;
 pub use nominate_asset_class_owner::*;
 pub use nominate_manager::*;
 pub use pause::*;
+pub use unpause::*;

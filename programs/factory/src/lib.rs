@@ -87,4 +87,10 @@ pub mod factory {
     pub fn pause(ctx: Context<Pause>) -> Result<()> {
         pause::pause(ctx)
     }
+
+    /// Unpauses the factory, setting `factory.pause` to `false`. Callable only by
+    /// the current manager while the factory is paused.
+    pub fn unpause(ctx: Context<Unpause>) -> Result<()> {
+        unpause::unpause(ctx)
+    }
 }
