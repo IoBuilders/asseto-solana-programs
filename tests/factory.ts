@@ -40,7 +40,7 @@ describe("factory", () => {
     // Always runs the instruction — on a fresh validator the singleton PDA does
     // not exist yet, so this both creates it and exercises the handler.
     // `manager` is a required signer, so it must be passed in `signers`.
-    await initializeFactory(manager.publicKey, { signers: [manager] });
+    await initializeFactory({ signers: [manager] }, { manager: manager.publicKey });
 
     const stored = await getFactory(factoryPda);
     assert.equal(stored.manager.toBase58(), manager.publicKey.toBase58(), "manager mismatch");
@@ -61,7 +61,8 @@ describe("factory", () => {
       // `manager` is a required `Signer`, but we deliberately omit its keypair
       // from `signers`. The transaction is therefore missing a required
       // signature and is rejected before it ever reaches the cluster.
-      await initializeFactory(manager.publicKey, { signers: [] });
+      await initializeFactory({ signers: [] }, { manager: manager.publicKey });
+
       assert.fail("Expected failure but initialize succeeded without the manager's signature");
     } catch (err) {
       const message = (err as Error).message ?? "";
@@ -78,7 +79,8 @@ describe("factory", () => {
       // Fully sign the transaction so it reaches the cluster — the failure must
       // come from `init` (PDA already exists), not from a missing signature.
       const manager = Keypair.generate();
-      await initializeFactory(manager.publicKey, { signers: [manager] });
+      await initializeFactory({ signers: [manager] }, { manager: manager.publicKey });
+
       assert.fail("Expected failure but initialize succeeded on an existing PDA");
     } catch (err) {
       // `init` on an existing account fails in the System program with
@@ -101,10 +103,13 @@ describe("factory", () => {
     await setFactory(manager.publicKey, true);
 
     try {
-      await nominateManager(Keypair.generate().publicKey, {
-        currentManager: manager.publicKey,
-        signers: [manager],
-      });
+      await nominateManager(
+        {
+          currentManager: manager.publicKey,
+          signers: [manager],
+        },
+        { newManager: Keypair.generate().publicKey }
+      );
       assert.fail("Expected FactoryPaused error but nominate_manager succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -121,10 +126,13 @@ describe("factory", () => {
     await setFactory(manager.publicKey, false);
 
     try {
-      await nominateManager(Keypair.generate().publicKey, {
-        currentManager: rogue.publicKey,
-        signers: [rogue],
-      });
+      await nominateManager(
+        {
+          currentManager: rogue.publicKey,
+          signers: [rogue],
+        },
+        { newManager: Keypair.generate().publicKey }
+      );
       assert.fail("Expected NotManager error but nominate_manager succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -143,7 +151,7 @@ describe("factory", () => {
       "precondition: pending PDA should not exist before nomination"
     );
 
-    await nominateManager(nominee, { currentManager: manager.publicKey, signers: [manager] });
+    await nominateManager({ currentManager: manager.publicKey, signers: [manager] }, { newManager: nominee });
 
     const pending = await getFactoryPendingManager();
     assert.equal(pending.pendingManager.toBase58(), nominee.toBase58(), "pending manager mismatch");
@@ -169,7 +177,7 @@ describe("factory", () => {
       "precondition: old nominee should be planted"
     );
 
-    await nominateManager(newNominee, { currentManager: manager.publicKey, signers: [manager] });
+    await nominateManager({ currentManager: manager.publicKey, signers: [manager] }, { newManager: newNominee });
 
     const pending = await getFactoryPendingManager();
     assert.equal(pending.pendingManager.toBase58(), newNominee.toBase58(), "pending manager should be replaced");

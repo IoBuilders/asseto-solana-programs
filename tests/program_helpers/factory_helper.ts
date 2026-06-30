@@ -7,15 +7,27 @@ import * as pdaUtils from "../utils/pda_utils";
 import { BaseWriteContext, PayerContext } from "./base_helper";
 import { getBalanceForRentExeption, surfnetSetAccount } from "./account_helper";
 
+type InitializeArgs = {
+  manager: PublicKey;
+};
+
+type NominateManagerArgs = {
+  newManager: PublicKey;
+};
+
 function getFactoryProgram(): Program<Factory> {
   return anchor.workspace.Factory as Program<Factory>;
 }
 
 export type InitializeFactoryContext = BaseWriteContext & PayerContext;
 
-export async function initializeFactory(manager: PublicKey, callContext: InitializeFactoryContext = {}): Promise<void> {
+export async function initializeFactory(
+  callContext: InitializeFactoryContext = {},
+  args: InitializeArgs
+): Promise<void> {
   const program = getFactoryProgram();
   const payer = callContext.payer ?? program.provider.publicKey!;
+  const manager = args.manager;
 
   // `manager` is now a `Signer` account (not an instruction argument). The
   // caller must include the matching keypair in `callContext.signers`.
@@ -33,9 +45,13 @@ export async function initializeFactory(manager: PublicKey, callContext: Initial
 
 export type NominateManagerContext = BaseWriteContext & { currentManager?: PublicKey };
 
-export async function nominateManager(newManager: PublicKey, callContext: NominateManagerContext = {}): Promise<void> {
+export async function nominateManager(
+  callContext: NominateManagerContext = {},
+  args: NominateManagerArgs
+): Promise<void> {
   const program = getFactoryProgram();
   const currentManager = callContext.currentManager ?? program.provider.publicKey!;
+  const newManager = args.newManager;
 
   await program.methods
     .nominateManager(newManager)
