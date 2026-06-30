@@ -220,3 +220,11 @@ export function factoryPda(): PublicKey {
 export function factoryPdaWithBump(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("factory")], FACTORY_PROGRAM_ID);
 }
+
+export function factoryPendingManagerPda(): PublicKey {
+  return factoryPendingManagerPdaWithBump()[0];
+}
+
+export function factoryPendingManagerPdaWithBump(): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("factory_pending_manager")], FACTORY_PROGRAM_ID);
+}

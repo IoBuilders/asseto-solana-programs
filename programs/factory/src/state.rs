@@ -14,3 +14,17 @@ pub struct Factory {
     /// Bump for the `["factory"]` PDA.
     pub bump: u8,
 }
+
+/// Singleton pending-manager PDA, stored at `["factory_pending_manager"]`.
+///
+/// Created/updated by `nominate_manager` when the current manager nominates a
+/// successor, and removed by either `accept_nomination` (after the handover) or
+/// `cancel_nomination`. Its existence means a manager handover is in progress.
+#[account]
+#[derive(Debug, InitSpace)]
+pub struct FactoryPendingManager {
+    /// Account nominated to become the new factory manager.
+    pub pending_manager: Pubkey,
+    /// Bump for the `["factory_pending_manager"]` PDA.
+    pub bump: u8,
+}

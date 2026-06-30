@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+pub mod errors;
+pub mod helpers;
 pub mod instructions;
 pub mod state;
 
@@ -15,5 +17,26 @@ pub mod factory {
     /// defaulting `pause` to `false`. Fails if the PDA already exists.
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         instructions::initialize::initialize(ctx)
+    }
+
+    /// Current manager nominates `new_manager` as successor, creating/updating the
+    /// `factory_pending_manager` PDA. Callable only by the current manager while
+    /// the factory is not paused.
+    pub fn nominate_manager(ctx: Context<NominateManager>, new_manager: Pubkey) -> Result<()> {
+        instructions::nominate_manager::nominate_manager(ctx, new_manager)
+    }
+
+    /// Pending manager accepts the nomination: replaces `factory.manager` and
+    /// removes the `factory_pending_manager` PDA. Callable only by the pending
+    /// manager while the factory is not paused.
+    pub fn accept_nomination(ctx: Context<AcceptNomination>) -> Result<()> {
+        instructions::accept_nomination::accept_nomination(ctx)
+    }
+
+    /// Current manager cancels the pending nomination, removing the
+    /// `factory_pending_manager` PDA. Callable only by the current manager while
+    /// the factory is not paused.
+    pub fn cancel_nomination(ctx: Context<CancelNomination>) -> Result<()> {
+        instructions::cancel_nomination::cancel_nomination(ctx)
     }
 }
