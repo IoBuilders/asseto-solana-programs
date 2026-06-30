@@ -58,7 +58,7 @@ describe("factory", () => {
     // Always runs the instruction — on a fresh validator the singleton PDA does
     // not exist yet, so this both creates it and exercises the handler.
     // `manager` is a required signer, so it must be passed in `signers`.
-    await initializeFactory({ signers: [manager] }, { manager: manager.publicKey });
+    await initializeFactory({ manager });
 
     const stored = await getFactory(factoryPda);
     assert.equal(stored.manager.toBase58(), manager.publicKey.toBase58(), "manager mismatch");
@@ -79,7 +79,7 @@ describe("factory", () => {
       // `manager` is a required `Signer`, but we deliberately omit its keypair
       // from `signers`. The transaction is therefore missing a required
       // signature and is rejected before it ever reaches the cluster.
-      await initializeFactory({ signers: [] }, { manager: manager.publicKey });
+      await initializeFactory({ manager, signers: [] });
 
       assert.fail("Expected failure but initialize succeeded without the manager's signature");
     } catch (err) {
@@ -97,7 +97,7 @@ describe("factory", () => {
       // Fully sign the transaction so it reaches the cluster — the failure must
       // come from `init` (PDA already exists), not from a missing signature.
       const manager = Keypair.generate();
-      await initializeFactory({ signers: [manager] }, { manager: manager.publicKey });
+      await initializeFactory({ manager });
 
       assert.fail("Expected failure but initialize succeeded on an existing PDA");
     } catch (err) {
@@ -114,20 +114,14 @@ describe("factory", () => {
 
   // ── nominate_manager ──────────────────────────────────────────────────────────
   it("nominate_manager: fails with FactoryPaused when the factory is paused", async () => {
-    const manager = Keypair.generate();
-    await requestAirdrop(manager.publicKey);
+    const currentManager = Keypair.generate();
+    await requestAirdrop(currentManager.publicKey);
     // Paused factory owned by `manager` (the manager check would pass, so we
     // isolate the pause precondition).
-    await setFactory(manager.publicKey, true);
+    await setFactory(currentManager.publicKey, true);
 
     try {
-      await nominateManager(
-        {
-          currentManager: manager.publicKey,
-          signers: [manager],
-        },
-        { newManager: Keypair.generate().publicKey }
-      );
+      await nominateManager({ currentManager }, { newManager: Keypair.generate().publicKey });
       assert.fail("Expected FactoryPaused error but nominate_manager succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -144,13 +138,7 @@ describe("factory", () => {
     await setFactory(manager.publicKey, false);
 
     try {
-      await nominateManager(
-        {
-          currentManager: rogue.publicKey,
-          signers: [rogue],
-        },
-        { newManager: Keypair.generate().publicKey }
-      );
+      await nominateManager({ currentManager: rogue }, { newManager: Keypair.generate().publicKey });
       assert.fail("Expected NotManager error but nominate_manager succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -160,16 +148,16 @@ describe("factory", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("nominate_manager: creates the pending PDA when none exists", async () => {
-    const manager = Keypair.generate();
+    const currentManager = Keypair.generate();
     const nominee = Keypair.generate().publicKey;
-    await requestAirdrop(manager.publicKey);
-    await setFactory(manager.publicKey, false);
+    await requestAirdrop(currentManager.publicKey);
+    await setFactory(currentManager.publicKey, false);
     assert.isNull(
       await getAccountInfo(pdaUtils.factoryPendingManagerPda()),
       "precondition: pending PDA should not exist before nomination"
     );
 
-    await nominateManager({ currentManager: manager.publicKey, signers: [manager] }, { newManager: nominee });
+    await nominateManager({ currentManager }, { newManager: nominee });
 
     const pending = await getFactoryPendingManager();
     assert.equal(pending.pendingManager.toBase58(), nominee.toBase58(), "pending manager mismatch");
@@ -182,11 +170,11 @@ describe("factory", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("nominate_manager: replaces the pending manager when a nomination already exists", async () => {
-    const manager = Keypair.generate();
+    const currentManager = Keypair.generate();
     const oldNominee = Keypair.generate().publicKey;
     const newNominee = Keypair.generate().publicKey;
-    await requestAirdrop(manager.publicKey);
-    await setFactory(manager.publicKey, false);
+    await requestAirdrop(currentManager.publicKey);
+    await setFactory(currentManager.publicKey, false);
     // Force-create the pending PDA with an existing nominee via surfpool.
     await setFactoryPendingManager(oldNominee);
     assert.equal(
@@ -195,7 +183,7 @@ describe("factory", () => {
       "precondition: old nominee should be planted"
     );
 
-    await nominateManager({ currentManager: manager.publicKey, signers: [manager] }, { newManager: newNominee });
+    await nominateManager({ currentManager }, { newManager: newNominee });
 
     const pending = await getFactoryPendingManager();
     assert.equal(pending.pendingManager.toBase58(), newNominee.toBase58(), "pending manager should be replaced");
@@ -203,15 +191,15 @@ describe("factory", () => {
 
   // ── cancel_nomination ─────────────────────────────────────────────────────────
   it("cancel_nomination: fails with FactoryPaused when the factory is paused", async () => {
-    const manager = Keypair.generate();
-    await requestAirdrop(manager.publicKey);
+    const currentManager = Keypair.generate();
+    await requestAirdrop(currentManager.publicKey);
     // Paused factory + an existing pending PDA so account validation passes and
     // the handler runs into the pause check.
-    await setFactory(manager.publicKey, true);
+    await setFactory(currentManager.publicKey, true);
     await setFactoryPendingManager(Keypair.generate().publicKey);
 
     try {
-      await cancelNomination({ currentManager: manager.publicKey, signers: [manager] });
+      await cancelNomination({ currentManager });
       assert.fail("Expected FactoryPaused error but cancel_nomination succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -221,14 +209,14 @@ describe("factory", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("cancel_nomination: fails with NotManager when called by a non-manager", async () => {
-    const manager = Keypair.generate();
+    const currentManager = Keypair.generate();
     const rogue = Keypair.generate();
     await requestAirdrop(rogue.publicKey);
-    await setFactory(manager.publicKey, false);
+    await setFactory(currentManager.publicKey, false);
     await setFactoryPendingManager(Keypair.generate().publicKey);
 
     try {
-      await cancelNomination({ currentManager: rogue.publicKey, signers: [rogue] });
+      await cancelNomination({ currentManager: rogue });
       assert.fail("Expected NotManager error but cancel_nomination succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -238,14 +226,14 @@ describe("factory", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("cancel_nomination: fails when there is no pending nomination", async () => {
-    const manager = Keypair.generate();
-    await requestAirdrop(manager.publicKey);
+    const currentManager = Keypair.generate();
+    await requestAirdrop(currentManager.publicKey);
     // Unpaused factory, no pending PDA (cleared by beforeEach) — Anchor account
     // validation fails before the handler runs.
-    await setFactory(manager.publicKey, false);
+    await setFactory(currentManager.publicKey, false);
 
     try {
-      await cancelNomination({ currentManager: manager.publicKey, signers: [manager] });
+      await cancelNomination({ currentManager });
       assert.fail("Expected failure but cancel_nomination succeeded with no pending PDA");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -255,17 +243,17 @@ describe("factory", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("cancel_nomination: closes the pending PDA and leaves manager unchanged", async () => {
-    const manager = Keypair.generate();
-    await requestAirdrop(manager.publicKey);
-    await setFactory(manager.publicKey, false);
+    const currentManager = Keypair.generate();
+    await requestAirdrop(currentManager.publicKey);
+    await setFactory(currentManager.publicKey, false);
     await setFactoryPendingManager(Keypair.generate().publicKey);
 
-    await cancelNomination({ currentManager: manager.publicKey, signers: [manager] });
+    await cancelNomination({ currentManager });
 
     assert.isNull(await getAccountInfo(pdaUtils.factoryPendingManagerPda()), "pending PDA should be closed");
     assert.equal(
       (await getFactory()).manager.toBase58(),
-      manager.publicKey.toBase58(),
+      currentManager.publicKey.toBase58(),
       "manager should be unchanged after cancel"
     );
   });
@@ -279,7 +267,7 @@ describe("factory", () => {
     await setFactoryPendingManager(pendingManager.publicKey);
 
     try {
-      await acceptNomination({ pendingManager: pendingManager.publicKey, signers: [pendingManager] });
+      await acceptNomination({ pendingManager });
       assert.fail("Expected FactoryPaused error but accept_nomination succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -297,7 +285,7 @@ describe("factory", () => {
     await setFactoryPendingManager(pendingManager);
 
     try {
-      await acceptNomination({ pendingManager: rogue.publicKey, signers: [rogue] });
+      await acceptNomination({ pendingManager: rogue });
       assert.fail("Expected NotPendingManager error but accept_nomination succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -314,7 +302,7 @@ describe("factory", () => {
     await setFactory(Keypair.generate().publicKey, false);
 
     try {
-      await acceptNomination({ pendingManager: pendingManager.publicKey, signers: [pendingManager] });
+      await acceptNomination({ pendingManager });
       assert.fail("Expected failure but accept_nomination succeeded with no pending PDA");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -330,7 +318,7 @@ describe("factory", () => {
     await setFactory(manager, false);
     await setFactoryPendingManager(pendingManager.publicKey);
 
-    await acceptNomination({ pendingManager: pendingManager.publicKey, signers: [pendingManager] });
+    await acceptNomination({ pendingManager });
 
     assert.equal(
       (await getFactory()).manager.toBase58(),
@@ -353,7 +341,7 @@ describe("factory", () => {
     await setFactory(manager.publicKey, true);
 
     try {
-      await createAssetClass(configId, owner, { manager: manager.publicKey, signers: [manager] });
+      await createAssetClass({ manager }, { configId, owner });
       assert.fail("Expected FactoryPaused error but create_asset_class succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -371,7 +359,7 @@ describe("factory", () => {
     await setFactory(manager.publicKey, false);
 
     try {
-      await createAssetClass(configId, owner, { manager: rogue.publicKey, signers: [rogue] });
+      await createAssetClass({ manager: rogue }, { configId, owner });
       assert.fail("Expected NotManager error but create_asset_class succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -389,7 +377,7 @@ describe("factory", () => {
     await setAssetClassOwnership(configId, owner);
 
     try {
-      await createAssetClass(configId, owner, { manager: manager.publicKey, signers: [manager] });
+      await createAssetClass({ manager }, { configId, owner });
       assert.fail("Expected failure but create_asset_class succeeded on an existing PDA");
     } catch (err) {
       // `init` on an existing account fails in the System program with
@@ -414,7 +402,7 @@ describe("factory", () => {
       "precondition: asset class PDA should not exist before creation"
     );
 
-    await createAssetClass(configId, owner, { manager: manager.publicKey, signers: [manager] });
+    await createAssetClass({ manager }, { configId, owner });
 
     const stored = await getAssetClassOwnership(configId);
     assert.equal(stored.owner.toBase58(), owner.toBase58(), "owner mismatch");
@@ -428,18 +416,15 @@ describe("factory", () => {
 
   // ── nominate_asset_class_owner ──────────────────────────────────────────────
   it("nominate_asset_class_owner: fails with FactoryPaused when the factory is paused", async () => {
-    const owner = Keypair.generate();
-    await requestAirdrop(owner.publicKey);
+    const currentOwner = Keypair.generate();
+    await requestAirdrop(currentOwner.publicKey);
     // Paused factory + an asset class owned by `owner` (the owner check would
     // pass, so we isolate the pause precondition).
     await setFactory(Keypair.generate().publicKey, true);
-    await setAssetClassOwnership(configId, owner.publicKey);
+    await setAssetClassOwnership(configId, currentOwner.publicKey);
 
     try {
-      await nominateAssetClassOwner(
-        { currentOwner: owner.publicKey, signers: [owner] },
-        { configId, newOwner: Keypair.generate().publicKey }
-      );
+      await nominateAssetClassOwner({ currentOwner }, { configId, newOwner: Keypair.generate().publicKey });
       assert.fail("Expected FactoryPaused error but nominate_asset_class_owner succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -457,10 +442,7 @@ describe("factory", () => {
     await setAssetClassOwnership(configId, owner.publicKey);
 
     try {
-      await nominateAssetClassOwner(
-        { currentOwner: rogue.publicKey, signers: [rogue] },
-        { configId, newOwner: Keypair.generate().publicKey }
-      );
+      await nominateAssetClassOwner({ currentOwner: rogue }, { configId, newOwner: Keypair.generate().publicKey });
       assert.fail("Expected NotOwner error but nominate_asset_class_owner succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -470,17 +452,17 @@ describe("factory", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("nominate_asset_class_owner: creates the pending PDA when none exists", async () => {
-    const owner = Keypair.generate();
+    const currentOwner = Keypair.generate();
     const nominee = Keypair.generate().publicKey;
-    await requestAirdrop(owner.publicKey);
+    await requestAirdrop(currentOwner.publicKey);
     await setFactory(Keypair.generate().publicKey, false);
-    await setAssetClassOwnership(configId, owner.publicKey);
+    await setAssetClassOwnership(configId, currentOwner.publicKey);
     assert.isNull(
       await getAccountInfo(pdaUtils.assetClassPendingOwnerPda(configId)),
       "precondition: pending PDA should not exist before nomination"
     );
 
-    await nominateAssetClassOwner({ currentOwner: owner.publicKey, signers: [owner] }, { configId, newOwner: nominee });
+    await nominateAssetClassOwner({ currentOwner }, { configId, newOwner: nominee });
 
     const pending = await getAssetClassPendingOwner(configId);
     assert.equal(pending.pendingOwner.toBase58(), nominee.toBase58(), "pending owner mismatch");
@@ -493,12 +475,12 @@ describe("factory", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("nominate_asset_class_owner: replaces the pending owner when a nomination already exists", async () => {
-    const owner = Keypair.generate();
+    const currentOwner = Keypair.generate();
     const oldNominee = Keypair.generate().publicKey;
     const newNominee = Keypair.generate().publicKey;
-    await requestAirdrop(owner.publicKey);
+    await requestAirdrop(currentOwner.publicKey);
     await setFactory(Keypair.generate().publicKey, false);
-    await setAssetClassOwnership(configId, owner.publicKey);
+    await setAssetClassOwnership(configId, currentOwner.publicKey);
     // Force-create the pending PDA with an existing nominee via surfpool.
     await setAssetClassPendingOwner(configId, oldNominee);
     assert.equal(
@@ -507,10 +489,7 @@ describe("factory", () => {
       "precondition: old nominee should be planted"
     );
 
-    await nominateAssetClassOwner(
-      { currentOwner: owner.publicKey, signers: [owner] },
-      { configId, newOwner: newNominee }
-    );
+    await nominateAssetClassOwner({ currentOwner }, { configId, newOwner: newNominee });
 
     const pending = await getAssetClassPendingOwner(configId);
     assert.equal(pending.pendingOwner.toBase58(), newNominee.toBase58(), "pending owner should be replaced");
@@ -518,8 +497,8 @@ describe("factory", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("nominate_asset_class_owner: fails when the asset class does not exist", async () => {
-    const owner = Keypair.generate();
-    await requestAirdrop(owner.publicKey);
+    const currentOwner = Keypair.generate();
+    await requestAirdrop(currentOwner.publicKey);
     // Unpaused factory, but no asset class ownership PDA for `configId` (cleared
     // by beforeEach) — Anchor account validation of `asset_class_ownership_pda`
     // fails before the handler runs.
@@ -530,10 +509,7 @@ describe("factory", () => {
     );
 
     try {
-      await nominateAssetClassOwner(
-        { currentOwner: owner.publicKey, signers: [owner] },
-        { configId, newOwner: Keypair.generate().publicKey }
-      );
+      await nominateAssetClassOwner({ currentOwner }, { configId, newOwner: Keypair.generate().publicKey });
       assert.fail("Expected failure but nominate_asset_class_owner succeeded with no asset class");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
