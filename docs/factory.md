@@ -4,7 +4,9 @@ Program ID: `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5`
 
 Holds the factory's singleton configuration: the managing account and a pause flag. Initialised once via `initialize`. Management of the factory can be handed over through a two-step nomination flow (`nominate_manager` → `accept_nomination`), cancellable by the current manager (`cancel_nomination`).
 
-All three nomination instructions require the factory not to be paused and are gated through the shared helpers in `helpers.rs` (`require_not_paused`, `verify_manager`, `verify_pending_manager`).
+The factory manager also creates **asset classes** (`create_asset_class`), each a per-`config_id` ownership record. Ownership of an asset class can in turn be handed over through its own two-step nomination flow (`nominate_asset_class_owner` → `accept_asset_class_ownership`), cancellable by the current owner (`cancel_asset_class_ownership`) — structurally identical to the manager handover, but gated to the asset class's `owner` / `pending_owner` rather than the factory manager.
+
+Every instruction requires the factory not to be paused and is gated through the shared helpers in `helpers.rs` (`require_not_paused`, `verify_manager`, `verify_pending_manager`, `verify_owner`, `verify_pending_owner`).
 
 ---
 
@@ -28,6 +30,25 @@ Singleton pending-manager PDA stored at `["factory_pending_manager"]`. Its exist
 |---|---|---|
 | `pending_manager` | `Pubkey` | Account nominated to become the new factory manager. |
 | `bump` | `u8` | Bump for the `["factory_pending_manager"]` PDA. |
+
+### `AssetClassOwnership`
+
+Per-asset-class ownership PDA stored at `["asset_class_ownership", config_id]` (`config_id` as little-endian `u64`). Created by `create_asset_class`; its `owner` is replaced on `accept_asset_class_ownership`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `owner` | `Pubkey` | Account that owns this asset class. Supplied at creation; replaced on `accept_asset_class_ownership`. |
+| `latest_version` | `u64` | Most recent version of the asset class. Initialised to `0`. |
+| `bump` | `u8` | Bump for the `["asset_class_ownership", config_id]` PDA. |
+
+### `AssetClassPendingOwner`
+
+Per-asset-class pending-owner PDA stored at `["asset_class_pending_owner", config_id]` (`config_id` as little-endian `u64`). Its existence means an ownership handover is in progress for that asset class. Created/updated by `nominate_asset_class_owner`; removed by `accept_asset_class_ownership` or `cancel_asset_class_ownership`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `pending_owner` | `Pubkey` | Account nominated to become the new asset class owner. |
+| `bump` | `u8` | Bump for the `["asset_class_pending_owner", config_id]` PDA. |
 
 ---
 
@@ -126,6 +147,101 @@ Callable only by the current `factory.manager`, and only while the factory is no
 
 ---
 
+### `create_asset_class(config_id: u64, owner: Pubkey)`
+
+Creates a new asset class identified by `config_id` and owned by `owner`, creating its `asset_class_ownership` PDA with `latest_version` initialised to `0`. The `asset_class_ownership` PDA uses Anchor's `init` constraint, so a second call with the same `config_id` fails because the PDA already exists — each `config_id` can only be created once.
+
+Callable only by the current `factory.manager`, and only while the factory is not paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `manager` | `Signer` (mut) | The current factory manager. Must sign; pays for PDA creation. |
+| `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
+| `asset_class_ownership_pda` | `Account<AssetClassOwnership>` (init) | Asset-class ownership PDA. Seeds: `["asset_class_ownership", config_id]`. `init` fails if it already exists. |
+| `system_program` | `Program<System>` | Required for account creation. |
+
+**Execution**
+
+1. `require_not_paused` — fails if the factory is paused.
+2. `verify_manager` — fails unless `manager` is the recorded `factory.manager`.
+3. `init` creates the `asset_class_ownership` PDA at `["asset_class_ownership", config_id]` (fails if it already exists).
+4. Stores `owner`, sets `latest_version = 0`, and stores the PDA `bump`.
+
+---
+
+### `nominate_asset_class_owner(config_id: u64, new_owner: Pubkey)`
+
+Current owner of asset class `config_id` nominates `new_owner` as successor. Creates the `asset_class_pending_owner` PDA on the first call and overwrites the recorded `pending_owner` on subsequent calls (`init_if_needed`), so the owner may freely re-nominate while a nomination is pending. The current owner pays the PDA's rent.
+
+Callable only by the current asset class `owner`, and only while the factory is not paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `current_owner` | `Signer` (mut) | The current asset class owner. Must sign; pays for PDA creation if needed. |
+| `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
+| `asset_class_ownership_pda` | `Account<AssetClassOwnership>` | Asset-class ownership PDA. Seeds: `["asset_class_ownership", config_id]`. Read to verify the current owner. |
+| `asset_class_pending_owner_pda` | `Account<AssetClassPendingOwner>` (init_if_needed) | Pending-owner PDA. Seeds: `["asset_class_pending_owner", config_id]`. Created on first call, overwritten thereafter. |
+| `system_program` | `Program<System>` | Required for account creation. |
+
+**Execution**
+
+1. `require_not_paused` — fails if the factory is paused.
+2. `verify_owner` — fails unless `current_owner` is the recorded `asset_class_ownership.owner`.
+3. Creates (or reuses) the `asset_class_pending_owner` PDA and stores `pending_owner = new_owner` plus the PDA `bump`.
+
+---
+
+### `accept_asset_class_ownership(config_id: u64)`
+
+Pending owner accepts the nomination for asset class `config_id`. The recorded `pending_owner` becomes the new `asset_class_ownership.owner`, and the `asset_class_pending_owner` PDA is closed, returning its rent to the pending owner.
+
+Callable only by the recorded `pending_owner`, and only while the factory is not paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `pending_owner` | `Signer` (mut) | The pending owner accepting. Must sign; receives the closed PDA's lamports. |
+| `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
+| `asset_class_ownership_pda` | `Account<AssetClassOwnership>` (mut) | Asset-class ownership PDA. Seeds: `["asset_class_ownership", config_id]`. `owner` is updated here. |
+| `asset_class_pending_owner_pda` | `Account<AssetClassPendingOwner>` (mut, close) | Pending-owner PDA. Seeds: `["asset_class_pending_owner", config_id]`. Closed here. |
+
+**Execution**
+
+1. `require_not_paused` — fails if the factory is paused.
+2. `verify_pending_owner` — fails unless `pending_owner` matches the PDA's `pending_owner`.
+3. Sets `asset_class_ownership.owner = pending_owner`.
+4. Closes the `asset_class_pending_owner` PDA (rent → `pending_owner`).
+
+---
+
+### `cancel_asset_class_ownership(config_id: u64)`
+
+Current owner cancels a pending nomination for asset class `config_id`. The `asset_class_pending_owner` PDA is closed, returning its rent to the current owner; `asset_class_ownership.owner` is left unchanged.
+
+Callable only by the current asset class `owner`, and only while the factory is not paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `current_owner` | `Signer` (mut) | The current asset class owner. Must sign; receives the closed PDA's lamports. |
+| `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
+| `asset_class_ownership_pda` | `Account<AssetClassOwnership>` | Asset-class ownership PDA. Seeds: `["asset_class_ownership", config_id]`. Read to verify the current owner. |
+| `asset_class_pending_owner_pda` | `Account<AssetClassPendingOwner>` (mut, close) | Pending-owner PDA. Seeds: `["asset_class_pending_owner", config_id]`. Closed here. |
+
+**Execution**
+
+1. `require_not_paused` — fails if the factory is paused.
+2. `verify_owner` — fails unless `current_owner` is the recorded `asset_class_ownership.owner`.
+3. Closes the `asset_class_pending_owner` PDA (rent → `current_owner`).
+
+---
+
 ## Program IDs
 
-Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. The `["factory"]` and `["factory_pending_manager"]` PDA seeds are defined as `pda_seeds::FACTORY` and `pda_seeds::FACTORY_PENDING_MANAGER` in `common`. There is no per-program `constants.rs`.
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. The PDA seeds are defined in `common` as `pda_seeds::FACTORY` (`["factory"]`), `pda_seeds::FACTORY_PENDING_MANAGER` (`["factory_pending_manager"]`), `pda_seeds::ASSET_CLASS_OWNERSHIP` (`["asset_class_ownership", config_id]`), and `pda_seeds::ASSET_CLASS_PENDING_OWNER` (`["asset_class_pending_owner", config_id]`). There is no per-program `constants.rs`.

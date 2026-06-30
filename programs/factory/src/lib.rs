@@ -50,4 +50,37 @@ pub mod factory {
     ) -> Result<()> {
         instructions::create_asset_class::create_asset_class(ctx, config_id, owner)
     }
+
+    /// Current owner of the asset class `config_id` nominates `new_owner` as
+    /// successor, creating/updating the `asset_class_pending_owner` PDA. Callable
+    /// only by the current owner while the factory is not paused.
+    pub fn nominate_asset_class_owner(
+        ctx: Context<NominateAssetClassOwner>,
+        config_id: u64,
+        new_owner: Pubkey,
+    ) -> Result<()> {
+        instructions::nominate_asset_class_owner::nominate_asset_class_owner(
+            ctx, config_id, new_owner,
+        )
+    }
+
+    /// Pending owner accepts the nomination: replaces `asset_class_ownership.owner`
+    /// and removes the `asset_class_pending_owner` PDA. Callable only by the pending
+    /// owner while the factory is not paused.
+    pub fn accept_asset_class_ownership(
+        ctx: Context<AcceptAssetClassOwnership>,
+        config_id: u64,
+    ) -> Result<()> {
+        instructions::accept_asset_class_ownership::accept_asset_class_ownership(ctx, config_id)
+    }
+
+    /// Current owner cancels the pending nomination, removing the
+    /// `asset_class_pending_owner` PDA. Callable only by the current owner while the
+    /// factory is not paused.
+    pub fn cancel_asset_class_ownership(
+        ctx: Context<CancelAssetClassOwnership>,
+        config_id: u64,
+    ) -> Result<()> {
+        instructions::cancel_asset_class_ownership::cancel_asset_class_ownership(ctx, config_id)
+    }
 }

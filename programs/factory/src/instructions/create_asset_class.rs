@@ -15,7 +15,7 @@ use crate::state::{AssetClassOwnership, Factory};
 /// only while the factory is not paused.
 pub fn create_asset_class(
     ctx: Context<CreateAssetClass>,
-    config_id: u64,
+    _config_id: u64,
     owner: Pubkey,
 ) -> Result<()> {
     require_not_paused(&ctx.accounts.factory)?;

@@ -115,3 +115,4 @@ pub fn treasury_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> 
 pub const FACTORY: &[u8] = b"factory";
 pub const FACTORY_PENDING_MANAGER: &[u8] = b"factory_pending_manager";
 pub const ASSET_CLASS_OWNERSHIP: &[u8] = b"asset_class_ownership";
+pub const ASSET_CLASS_PENDING_OWNER: &[u8] = b"asset_class_pending_owner";

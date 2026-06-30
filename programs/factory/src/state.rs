@@ -45,3 +45,19 @@ pub struct AssetClassOwnership {
     /// Bump for the `["asset_class_ownership", owner]` PDA.
     pub bump: u8,
 }
+
+/// Pending-owner PDA for an asset class, stored at
+/// `["asset_class_pending_owner", config_id]`.
+///
+/// Created/updated by `nominate_asset_class_owner` when the current owner
+/// nominates a successor, and removed by either `accept_asset_class_ownership`
+/// (after the handover) or `cancel_asset_class_ownership`. Its existence means an
+/// asset-class ownership handover is in progress.
+#[account]
+#[derive(Debug, InitSpace)]
+pub struct AssetClassPendingOwner {
+    /// Account nominated to become the new asset class owner.
+    pub pending_owner: Pubkey,
+    /// Bump for the `["asset_class_pending_owner", config_id]` PDA.
+    pub bump: u8,
+}
