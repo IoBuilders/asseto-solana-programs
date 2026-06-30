@@ -8,4 +8,8 @@ pub enum ErrorCode {
     NotPendingManager,
     #[msg("Factory is paused")]
     FactoryPaused,
+    #[msg("Signer is not the current asset class owner")]
+    NotOwner,
+    #[msg("Signer is not the pending asset class owner")]
+    NotPendingOwner,
 }

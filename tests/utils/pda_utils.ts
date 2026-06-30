@@ -239,3 +239,14 @@ export function assetClassOwnershipPdaWithBump(configId: BN): [PublicKey, number
     FACTORY_PROGRAM_ID
   );
 }
+
+export function assetClassPendingOwnerPda(configId: BN): PublicKey {
+  return assetClassPendingOwnerPdaWithBump(configId)[0];
+}
+
+export function assetClassPendingOwnerPdaWithBump(configId: BN): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("asset_class_pending_owner"), configId.toArrayLike(Buffer, "le", 8)],
+    FACTORY_PROGRAM_ID
+  );
+}

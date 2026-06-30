@@ -6,18 +6,24 @@ import { FACTORY_PROGRAM_ID } from "./utils/address_utils";
 import * as pdaUtils from "./utils/pda_utils";
 import { getAccountInfo, requestAirdrop } from "./program_helpers/account_helper";
 import {
+  acceptAssetClassOwnership,
   acceptNomination,
+  cancelAssetClassOwnership,
   cancelNomination,
   clearAssetClassOwnership,
+  clearAssetClassPendingOwner,
   clearFactory,
   clearFactoryPendingManager,
   createAssetClass,
   getAssetClassOwnership,
+  getAssetClassPendingOwner,
   getFactory,
   getFactoryPendingManager,
   initializeFactory,
+  nominateAssetClassOwner,
   nominateManager,
   setAssetClassOwnership,
+  setAssetClassPendingOwner,
   setFactory,
   setFactoryPendingManager,
 } from "./program_helpers/factory_helper";
@@ -41,6 +47,7 @@ describe("factory", () => {
     await clearFactory();
     await clearFactoryPendingManager();
     await clearAssetClassOwnership(configId);
+    await clearAssetClassPendingOwner(configId);
   });
 
   // ── initialize ──────────────────────────────────────────────────────────────
@@ -417,5 +424,271 @@ describe("factory", () => {
     const info = await getAccountInfo(pdaUtils.assetClassOwnershipPda(configId));
     assert.isNotNull(info, "asset class PDA should be created");
     assert.equal(info!.owner.toBase58(), FACTORY_PROGRAM_ID.toBase58(), "asset class PDA should be owned by factory");
+  });
+
+  // ── nominate_asset_class_owner ──────────────────────────────────────────────
+  it("nominate_asset_class_owner: fails with FactoryPaused when the factory is paused", async () => {
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    // Paused factory + an asset class owned by `owner` (the owner check would
+    // pass, so we isolate the pause precondition).
+    await setFactory(Keypair.generate().publicKey, true);
+    await setAssetClassOwnership(configId, owner.publicKey);
+
+    try {
+      await nominateAssetClassOwner(
+        { currentOwner: owner.publicKey, signers: [owner] },
+        { configId, newOwner: Keypair.generate().publicKey }
+      );
+      assert.fail("Expected FactoryPaused error but nominate_asset_class_owner succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "FactoryPaused");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("nominate_asset_class_owner: fails with NotOwner when called by a non-owner", async () => {
+    const owner = Keypair.generate();
+    const rogue = Keypair.generate();
+    await requestAirdrop(rogue.publicKey);
+    // Unpaused factory; asset class owned by `owner`; the rogue signs instead.
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner.publicKey);
+
+    try {
+      await nominateAssetClassOwner(
+        { currentOwner: rogue.publicKey, signers: [rogue] },
+        { configId, newOwner: Keypair.generate().publicKey }
+      );
+      assert.fail("Expected NotOwner error but nominate_asset_class_owner succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "NotOwner");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("nominate_asset_class_owner: creates the pending PDA when none exists", async () => {
+    const owner = Keypair.generate();
+    const nominee = Keypair.generate().publicKey;
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner.publicKey);
+    assert.isNull(
+      await getAccountInfo(pdaUtils.assetClassPendingOwnerPda(configId)),
+      "precondition: pending PDA should not exist before nomination"
+    );
+
+    await nominateAssetClassOwner({ currentOwner: owner.publicKey, signers: [owner] }, { configId, newOwner: nominee });
+
+    const pending = await getAssetClassPendingOwner(configId);
+    assert.equal(pending.pendingOwner.toBase58(), nominee.toBase58(), "pending owner mismatch");
+    assert.equal(pending.bump, pdaUtils.assetClassPendingOwnerPdaWithBump(configId)[1], "bump mismatch");
+
+    const info = await getAccountInfo(pdaUtils.assetClassPendingOwnerPda(configId));
+    assert.isNotNull(info, "pending PDA should be created");
+    assert.equal(info!.owner.toBase58(), FACTORY_PROGRAM_ID.toBase58(), "pending PDA should be owned by factory");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("nominate_asset_class_owner: replaces the pending owner when a nomination already exists", async () => {
+    const owner = Keypair.generate();
+    const oldNominee = Keypair.generate().publicKey;
+    const newNominee = Keypair.generate().publicKey;
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner.publicKey);
+    // Force-create the pending PDA with an existing nominee via surfpool.
+    await setAssetClassPendingOwner(configId, oldNominee);
+    assert.equal(
+      (await getAssetClassPendingOwner(configId)).pendingOwner.toBase58(),
+      oldNominee.toBase58(),
+      "precondition: old nominee should be planted"
+    );
+
+    await nominateAssetClassOwner(
+      { currentOwner: owner.publicKey, signers: [owner] },
+      { configId, newOwner: newNominee }
+    );
+
+    const pending = await getAssetClassPendingOwner(configId);
+    assert.equal(pending.pendingOwner.toBase58(), newNominee.toBase58(), "pending owner should be replaced");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("nominate_asset_class_owner: fails when the asset class does not exist", async () => {
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    // Unpaused factory, but no asset class ownership PDA for `configId` (cleared
+    // by beforeEach) — Anchor account validation of `asset_class_ownership_pda`
+    // fails before the handler runs.
+    await setFactory(Keypair.generate().publicKey, false);
+    assert.isNull(
+      await getAccountInfo(pdaUtils.assetClassOwnershipPda(configId)),
+      "precondition: asset class ownership PDA should not exist"
+    );
+
+    try {
+      await nominateAssetClassOwner(
+        { currentOwner: owner.publicKey, signers: [owner] },
+        { configId, newOwner: Keypair.generate().publicKey }
+      );
+      assert.fail("Expected failure but nominate_asset_class_owner succeeded with no asset class");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "AccountNotInitialized");
+    }
+  });
+
+  // ── cancel_asset_class_ownership ────────────────────────────────────────────
+  it("cancel_asset_class_ownership: fails with FactoryPaused when the factory is paused", async () => {
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    // Paused factory + an asset class owned by `owner` + an existing pending PDA
+    // so account validation passes and the handler runs into the pause check.
+    await setFactory(Keypair.generate().publicKey, true);
+    await setAssetClassOwnership(configId, owner.publicKey);
+    await setAssetClassPendingOwner(configId, Keypair.generate().publicKey);
+
+    try {
+      await cancelAssetClassOwnership({ currentOwner: owner.publicKey, signers: [owner] }, { configId });
+      assert.fail("Expected FactoryPaused error but cancel_asset_class_ownership succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "FactoryPaused");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("cancel_asset_class_ownership: fails with NotOwner when called by a non-owner", async () => {
+    const owner = Keypair.generate();
+    const rogue = Keypair.generate();
+    await requestAirdrop(rogue.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner.publicKey);
+    await setAssetClassPendingOwner(configId, Keypair.generate().publicKey);
+
+    try {
+      await cancelAssetClassOwnership({ currentOwner: rogue.publicKey, signers: [rogue] }, { configId });
+      assert.fail("Expected NotOwner error but cancel_asset_class_ownership succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "NotOwner");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("cancel_asset_class_ownership: fails when there is no pending nomination", async () => {
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    // Unpaused factory, asset class present, but no pending PDA (cleared by
+    // beforeEach) — Anchor account validation fails before the handler runs.
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner.publicKey);
+
+    try {
+      await cancelAssetClassOwnership({ currentOwner: owner.publicKey, signers: [owner] }, { configId });
+      assert.fail("Expected failure but cancel_asset_class_ownership succeeded with no pending PDA");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "AccountNotInitialized");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("cancel_asset_class_ownership: closes the pending PDA and leaves owner unchanged", async () => {
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner.publicKey);
+    await setAssetClassPendingOwner(configId, Keypair.generate().publicKey);
+
+    await cancelAssetClassOwnership({ currentOwner: owner.publicKey, signers: [owner] }, { configId });
+
+    assert.isNull(await getAccountInfo(pdaUtils.assetClassPendingOwnerPda(configId)), "pending PDA should be closed");
+    assert.equal(
+      (await getAssetClassOwnership(configId)).owner.toBase58(),
+      owner.publicKey.toBase58(),
+      "owner should be unchanged after cancel"
+    );
+  });
+
+  // ── accept_asset_class_ownership ────────────────────────────────────────────
+  it("accept_asset_class_ownership: fails with FactoryPaused when the factory is paused", async () => {
+    const owner = Keypair.generate().publicKey;
+    const pendingOwner = Keypair.generate();
+    await requestAirdrop(pendingOwner.publicKey);
+    await setFactory(Keypair.generate().publicKey, true);
+    await setAssetClassOwnership(configId, owner);
+    await setAssetClassPendingOwner(configId, pendingOwner.publicKey);
+
+    try {
+      await acceptAssetClassOwnership({ pendingOwner: pendingOwner.publicKey, signers: [pendingOwner] }, { configId });
+      assert.fail("Expected FactoryPaused error but accept_asset_class_ownership succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "FactoryPaused");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("accept_asset_class_ownership: fails with NotPendingOwner when called by someone else", async () => {
+    const owner = Keypair.generate().publicKey;
+    const pendingOwner = Keypair.generate().publicKey;
+    const rogue = Keypair.generate();
+    await requestAirdrop(rogue.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner);
+    await setAssetClassPendingOwner(configId, pendingOwner);
+
+    try {
+      await acceptAssetClassOwnership({ pendingOwner: rogue.publicKey, signers: [rogue] }, { configId });
+      assert.fail("Expected NotPendingOwner error but accept_asset_class_ownership succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "NotPendingOwner");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("accept_asset_class_ownership: fails when there is no pending nomination", async () => {
+    const owner = Keypair.generate().publicKey;
+    const pendingOwner = Keypair.generate();
+    await requestAirdrop(pendingOwner.publicKey);
+    // Unpaused factory, asset class present, no pending PDA (cleared by
+    // beforeEach) — Anchor account validation fails before the handler runs.
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner);
+
+    try {
+      await acceptAssetClassOwnership({ pendingOwner: pendingOwner.publicKey, signers: [pendingOwner] }, { configId });
+      assert.fail("Expected failure but accept_asset_class_ownership succeeded with no pending PDA");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "AccountNotInitialized");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("accept_asset_class_ownership: promotes the pending owner and closes the pending PDA", async () => {
+    const owner = Keypair.generate().publicKey;
+    const pendingOwner = Keypair.generate();
+    await requestAirdrop(pendingOwner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(configId, owner);
+    await setAssetClassPendingOwner(configId, pendingOwner.publicKey);
+
+    await acceptAssetClassOwnership({ pendingOwner: pendingOwner.publicKey, signers: [pendingOwner] }, { configId });
+
+    assert.equal(
+      (await getAssetClassOwnership(configId)).owner.toBase58(),
+      pendingOwner.publicKey.toBase58(),
+      "owner should be replaced by the pending owner"
+    );
+    assert.isNull(
+      await getAccountInfo(pdaUtils.assetClassPendingOwnerPda(configId)),
+      "pending PDA should be closed after accept"
+    );
   });
 });
