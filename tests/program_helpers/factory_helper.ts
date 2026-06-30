@@ -177,6 +177,22 @@ export async function acceptAssetClassOwnership(
     .rpc({ commitment: "confirmed" });
 }
 
+export type PauseFactoryContext = BaseWriteContext & { manager?: Keypair };
+
+export async function pauseFactory(callContext: PauseFactoryContext = {}): Promise<void> {
+  const program = getFactoryProgram();
+  const manager = callContext.manager ?? program.provider.wallet.payer;
+
+  await program.methods
+    .pause()
+    .accountsStrict({
+      manager: manager.publicKey,
+      factory: pdaUtils.factoryPda(),
+    })
+    .signers(callContext.signers ?? [manager])
+    .rpc({ commitment: "confirmed" });
+}
+
 export type CancelAssetClassOwnershipContext = BaseWriteContext & { currentOwner?: PublicKey };
 
 export async function cancelAssetClassOwnership(
