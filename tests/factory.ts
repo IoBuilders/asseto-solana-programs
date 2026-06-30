@@ -23,6 +23,7 @@ import {
   nominateAssetClassOwner,
   nominateManager,
   pauseFactory,
+  unpauseFactory,
   setAssetClassOwnership,
   setAssetClassPendingOwner,
   setFactory,
@@ -627,6 +628,48 @@ describe("factory", () => {
     try {
       await pauseFactory({ manager: rogue });
       assert.fail("Expected NotManager error but pause succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "NotManager");
+    }
+  });
+
+  // ── unpause ───────────────────────────────────────────────────────────────────
+  it("unpause: unpauses factory", async () => {
+    const manager = Keypair.generate();
+    await requestAirdrop(manager.publicKey);
+    await setFactory(manager.publicKey, true);
+
+    await unpauseFactory({ manager });
+
+    assert.equal((await getFactory()).pause, false, "pause should be false after unpause instruction");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("unpause: fails with FactoryNotPaused when the factory is not paused", async () => {
+    const manager = Keypair.generate();
+    await requestAirdrop(manager.publicKey);
+    await setFactory(manager.publicKey, false);
+
+    try {
+      await unpauseFactory({ manager });
+      assert.fail("Expected FactoryNotPaused error but unpause succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "FactoryNotPaused");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("unpause: fails with NotManager when called by a non-manager", async () => {
+    const manager = Keypair.generate();
+    const rogue = Keypair.generate();
+    await requestAirdrop(rogue.publicKey);
+    await setFactory(manager.publicKey, true);
+
+    try {
+      await unpauseFactory({ manager: rogue });
+      assert.fail("Expected NotManager error but unpause succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
       assert.equal((err as AnchorError).error.errorCode.code, "NotManager");

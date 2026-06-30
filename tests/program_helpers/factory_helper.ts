@@ -193,6 +193,22 @@ export async function pauseFactory(callContext: PauseFactoryContext = {}): Promi
     .rpc({ commitment: "confirmed" });
 }
 
+export type UnpauseFactoryContext = BaseWriteContext & { manager?: Keypair };
+
+export async function unpauseFactory(callContext: UnpauseFactoryContext = {}): Promise<void> {
+  const program = getFactoryProgram();
+  const manager = callContext.manager ?? program.provider.wallet.payer;
+
+  await program.methods
+    .unpause()
+    .accountsStrict({
+      manager: manager.publicKey,
+      factory: pdaUtils.factoryPda(),
+    })
+    .signers(callContext.signers ?? [manager])
+    .rpc({ commitment: "confirmed" });
+}
+
 export type CancelAssetClassOwnershipContext = BaseWriteContext & { currentOwner?: PublicKey };
 
 export async function cancelAssetClassOwnership(
