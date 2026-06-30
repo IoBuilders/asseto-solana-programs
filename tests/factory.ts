@@ -12,13 +12,20 @@ import {
   cancelNomination,
   clearAssetClassOwnership,
   clearAssetClassPendingOwner,
+  clearAssetClassVersion,
   clearFactory,
   clearFactoryPendingManager,
   createAssetClass,
+  deployAssetClassVersion,
+  finalizeAssetClassVersion,
+  FUNCTIONALITIES_BYTES_MASK,
   getAssetClassOwnership,
   getAssetClassPendingOwner,
+  getAssetClassVersion,
+  getAssetClassVersionMask,
   getFactory,
   getFactoryPendingManager,
+  initAssetClassVersion,
   initializeFactory,
   nominateAssetClassOwner,
   nominateManager,
@@ -28,6 +35,7 @@ import {
   setAssetClassPendingOwner,
   setFactory,
   setFactoryPendingManager,
+  writeAssetClassVersionMask,
 } from "./program_helpers/factory_helper";
 
 // The factory PDAs (`["factory"]`, `["factory_pending_manager"]`) are singletons
@@ -752,5 +760,188 @@ describe("factory", () => {
       await getAccountInfo(pdaUtils.assetClassPendingOwnerPda(configId)),
       "pending PDA should be closed after accept"
     );
+  });
+
+  // ── deploy asset class version (init → write → finalize) ───────────────────────
+  // Each test uses its own config id so the per-(config_id, version) version PDA
+  // never collides across tests (beforeEach only clears the shared `configId`).
+  it("deploy version: writes the mask across chunks, seals to Ready and bumps latest_version", async () => {
+    const cfg = new anchor.BN(100);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    // 1000-byte mask (8000 functionalities) with a few bits set, written in
+    // 400-byte chunks → three `write` calls, so the multi-step path is exercised.
+    const mask = Buffer.alloc(1000);
+    mask[0] = 0b0000_0101; // functionalities 0 and 2
+    mask[500] = 0xff;
+    mask[999] = 0b1000_0000;
+    const version = new anchor.BN(1);
+
+    await deployAssetClassVersion({ owner }, { configId: cfg, version, mask, chunkSize: 400 });
+
+    const stored = await getAssetClassVersion(cfg, version);
+    assert.equal(stored.configId.toString(), cfg.toString(), "config id mismatch");
+    assert.equal(stored.version.toString(), "1", "version mismatch");
+    assert.equal(stored.state, 1, "version should be Ready (1) after finalize");
+
+    // The on-chain mask is the full fixed capacity; the first 1000 bytes are what
+    // we wrote, the rest stays zeroed.
+    const onChainMask = await getAssetClassVersionMask(cfg, version);
+    assert.equal(onChainMask.length, FUNCTIONALITIES_BYTES_MASK, "mask is fixed capacity");
+    assert.isTrue(onChainMask.subarray(0, mask.length).equals(mask), "written mask should match");
+
+    assert.equal(
+      (await getAssetClassOwnership(cfg)).latestVersion.toString(),
+      "1",
+      "latest_version should advance to 1 after finalize"
+    );
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("deploy version: each version is independent and does not inherit from the previous one", async () => {
+    const cfg = new anchor.BN(101);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    await clearAssetClassVersion(cfg, new anchor.BN(2));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    // v1 activates functionality 0.
+    const v1 = new anchor.BN(1);
+    const v1Mask = Buffer.alloc(8);
+    v1Mask[0] = 0b0000_0001;
+    await deployAssetClassVersion({ owner }, { configId: cfg, version: v1, mask: v1Mask });
+
+    // v2 activates a completely different functionality (7) — nothing from v1.
+    const v2 = new anchor.BN(2);
+    const v2Mask = Buffer.alloc(8);
+    v2Mask[0] = 0b1000_0000;
+    await deployAssetClassVersion({ owner }, { configId: cfg, version: v2, mask: v2Mask });
+
+    const onChainV2 = await getAssetClassVersionMask(cfg, v2);
+    assert.equal(onChainV2[0], 0b1000_0000, "v2 reflects only its own bits, not v1's");
+    assert.equal((await getAssetClassOwnership(cfg)).latestVersion.toString(), "2", "latest_version advances to 2");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("init version: fails with InvalidVersion when version is not latest_version + 1", async () => {
+    const cfg = new anchor.BN(103);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    // Ownership already at version 5, so the next version must be 6 — asking for 1 fails.
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(5));
+
+    try {
+      await initAssetClassVersion({ owner }, { configId: cfg, version: new anchor.BN(1) });
+      assert.fail("Expected InvalidVersion but init succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "InvalidVersion");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("init version: cannot create the same (config_id, version) twice", async () => {
+    const cfg = new anchor.BN(109);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    const version = new anchor.BN(1);
+    const mask = Buffer.alloc(8);
+    mask[0] = 0b0000_0001;
+    // Deploy v1 fully so its version PDA exists on-chain.
+    await deployAssetClassVersion({ owner }, { configId: cfg, version, mask });
+
+    try {
+      // `init` for the same (config_id, version) PDA must fail — it already exists.
+      await initAssetClassVersion({ owner }, { configId: cfg, version });
+      assert.fail("Expected failure but init succeeded for an existing version");
+    } catch (err) {
+      // System program "already in use" — surfaced as a SendTransactionError,
+      // raised by the `init` account constraint before the handler runs.
+      assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
+      const logs = (err as SendTransactionError).logs ?? [];
+      assert.isTrue(
+        logs.some((l) => l.includes("already in use")),
+        "transaction logs should mention account already in use"
+      );
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("init version: fails with NotOwner when called by a non-owner", async () => {
+    const cfg = new anchor.BN(104);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate().publicKey;
+    const rogue = Keypair.generate();
+    await requestAirdrop(rogue.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner, new anchor.BN(0));
+
+    try {
+      await initAssetClassVersion({ owner: rogue }, { configId: cfg, version: new anchor.BN(1) });
+      assert.fail("Expected NotOwner but init succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "NotOwner");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("write mask: fails with MaskChunkOutOfBounds when the chunk exceeds the mask capacity", async () => {
+    const cfg = new anchor.BN(107);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    const version = new anchor.BN(1);
+    await initAssetClassVersion({ owner }, { configId: cfg, version });
+
+    try {
+      // A 2-byte chunk at the last byte runs one byte past the fixed capacity.
+      await writeAssetClassVersionMask(
+        { owner },
+        { configId: cfg, version, offset: FUNCTIONALITIES_BYTES_MASK - 1, chunk: Buffer.alloc(2) }
+      );
+      assert.fail("Expected MaskChunkOutOfBounds but write succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "MaskChunkOutOfBounds");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("write mask: fails with VersionNotDraft once the version is sealed (immutability)", async () => {
+    const cfg = new anchor.BN(108);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    const version = new anchor.BN(1);
+    const mask = Buffer.alloc(8);
+    mask[0] = 0b0000_0001;
+    await deployAssetClassVersion({ owner }, { configId: cfg, version, mask });
+
+    try {
+      await writeAssetClassVersionMask({ owner }, { configId: cfg, version, offset: 0, chunk: Buffer.from([0xff]) });
+      assert.fail("Expected VersionNotDraft but write succeeded on a sealed version");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "VersionNotDraft");
+    }
   });
 });

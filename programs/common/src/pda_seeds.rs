@@ -116,3 +116,4 @@ pub const FACTORY: &[u8] = b"factory";
 pub const FACTORY_PENDING_MANAGER: &[u8] = b"factory_pending_manager";
 pub const ASSET_CLASS_OWNERSHIP: &[u8] = b"asset_class_ownership";
 pub const ASSET_CLASS_PENDING_OWNER: &[u8] = b"asset_class_pending_owner";
+pub const ASSET_CLASS_VERSION: &[u8] = b"asset_class_version";

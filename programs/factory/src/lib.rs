@@ -93,4 +93,47 @@ pub mod factory {
     pub fn unpause(ctx: Context<Unpause>) -> Result<()> {
         unpause::unpause(ctx)
     }
+
+    /// Starts deploying version `version` (= `latest_version + 1`) of asset class
+    /// `config_id`: creates the fixed-capacity zero-copy `asset_class_version` PDA
+    /// in `Draft` state with an empty mask (each version is independent — nothing
+    /// is inherited). The mask is written afterwards via
+    /// `write_asset_class_version_mask`. Callable only by the asset class owner
+    /// while the factory is not paused.
+    pub fn init_asset_class_version(
+        ctx: Context<InitAssetClassVersion>,
+        config_id: u64,
+        version: u64,
+    ) -> Result<()> {
+        instructions::init_asset_class_version::init_asset_class_version(ctx, config_id, version)
+    }
+
+    /// Writes `chunk` of the functionality mask at byte `offset` into a `Draft`
+    /// asset-class version, growing the account as needed. Called once per chunk
+    /// because the mask can exceed a single transaction. Callable only by the
+    /// asset class owner while the factory is not paused.
+    pub fn write_asset_class_version_mask(
+        ctx: Context<WriteAssetClassVersionMask>,
+        config_id: u64,
+        version: u64,
+        offset: u32,
+        chunk: Vec<u8>,
+    ) -> Result<()> {
+        instructions::write_asset_class_version_mask::write_asset_class_version_mask(
+            ctx, config_id, version, offset, chunk,
+        )
+    }
+
+    /// Seals a fully-written `Draft` version into `Ready` (immutable) and advances
+    /// the asset class's `latest_version`. Callable only by the asset class owner
+    /// while the factory is not paused.
+    pub fn finalize_asset_class_version(
+        ctx: Context<FinalizeAssetClassVersion>,
+        config_id: u64,
+        version: u64,
+    ) -> Result<()> {
+        instructions::finalize_asset_class_version::finalize_asset_class_version(
+            ctx, config_id, version,
+        )
+    }
 }

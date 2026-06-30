@@ -61,3 +61,54 @@ pub struct AssetClassPendingOwner {
     /// Bump for the `["asset_class_pending_owner", config_id]` PDA.
     pub bump: u8,
 }
+
+/// Global capacity, in bits, of every asset-class version's functionality mask.
+///
+/// Every `AssetClassVersion` reserves exactly this many bits (so the
+/// account is fixed-size and zero-copy-friendly), regardless of how many are
+/// actually defined. Must be a multiple of 8 (whole bytes) and keep the account
+/// under the 10 KiB `init` limit (`8 + size_of::<AssetClassVersion>() <= 10240`).
+pub const FUNCTIONALITIES_BITS_MASK: u64 = 8_192;
+
+/// Capacity of the mask in bytes (`FUNCTIONALITIES_BITS_MASK / 8`).
+pub const FUNCTIONALITIES_BYTES_MASK: usize = (FUNCTIONALITIES_BITS_MASK / 8) as usize;
+
+/// Lifecycle state of an asset-class version, stored as a `u8` (zero-copy /
+/// `Pod` accounts cannot hold a Borsh enum).
+pub const STATE_DRAFT: u8 = 0;
+/// Mask sealed; the version is immutable and usable by `deploy`/`mint`.
+pub const STATE_READY: u8 = 1;
+
+/// One version of an asset class, stored at
+/// `["asset_class_version", config_id, version]`.
+///
+/// **Zero-copy** (`AccountLoader`): the account bytes are reinterpreted in place,
+/// never copied/deserialised as a whole, so reading a single functionality bit
+/// (`mask[i / 8] >> (i % 8) & 1`) is cheap even though the mask is large. The
+/// layout is `#[repr(C)]` with no implicit padding (the explicit `_padding`
+/// keeps the header at 24 bytes; `FUNCTIONALITIES_BYTES_MASK` is a multiple of 8).
+///
+/// A version is fully defined by its bit-mask: bit `i = 1` means "functionality
+/// `i` is activated". The mask is fixed-capacity, so there is no length to track.
+/// Functionalities are append-only across versions: a higher version starts from
+/// the previous version's mask (copied at `init`) and `write` only turns bits
+/// **on** (bitwise OR), so a previously-activated functionality can never be
+/// removed.
+#[account(zero_copy)]
+#[repr(C)]
+pub struct AssetClassVersion {
+    /// Asset class config this version belongs to.
+    pub config_id: u64,
+    /// Version number (1-based); equals `AssetClassOwnership.latest_version + 1`
+    /// at the time `init` ran.
+    pub version: u64,
+    /// `STATE_DRAFT` while the mask is being written, `STATE_READY` once sealed.
+    pub state: u8,
+    /// Bump for the `["asset_class_version", config_id, version]` PDA.
+    pub bump: u8,
+    /// Padding so the header is 24 bytes (no implicit padding before `mask`).
+    pub _padding: [u8; 6],
+    /// Fixed-capacity functionality bit-mask. `1` = functionality activated.
+    /// Positions never set stay `0` (disabled).
+    pub mask: [u8; FUNCTIONALITIES_BYTES_MASK],
+}
