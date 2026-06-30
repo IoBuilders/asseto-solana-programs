@@ -99,12 +99,41 @@ export async function cancelNomination(callContext: CancelNominationContext = {}
     .rpc({ commitment: "confirmed" });
 }
 
+export type CreateAssetClassContext = BaseWriteContext & { manager?: PublicKey };
+
+export async function createAssetClass(
+  configId: anchor.BN,
+  owner: PublicKey,
+  callContext: CreateAssetClassContext = {}
+): Promise<void> {
+  const program = getFactoryProgram();
+  const manager = callContext.manager ?? program.provider.publicKey!;
+
+  await program.methods
+    .createAssetClass(configId, owner)
+    .accountsStrict({
+      manager,
+      factory: pdaUtils.factoryPda(),
+      assetClassOwnershipPda: pdaUtils.assetClassOwnershipPda(configId),
+      systemProgram: SYSTEM_PROGRAM_ID,
+    })
+    .signers(callContext.signers ?? [])
+    .rpc({ commitment: "confirmed" });
+}
+
 export async function getFactory(pda: PublicKey = pdaUtils.factoryPda()) {
   return await getFactoryProgram().account.factory.fetch(pda, "confirmed");
 }
 
 export async function getFactoryPendingManager(pda: PublicKey = pdaUtils.factoryPendingManagerPda()) {
   return await getFactoryProgram().account.factoryPendingManager.fetch(pda, "confirmed");
+}
+
+export async function getAssetClassOwnership(configId: anchor.BN) {
+  return await getFactoryProgram().account.assetClassOwnership.fetch(
+    pdaUtils.assetClassOwnershipPda(configId),
+    "confirmed"
+  );
 }
 
 /**
@@ -123,6 +152,19 @@ export async function encodeFactory(manager: PublicKey, pause: boolean, bump: nu
  */
 export async function encodeFactoryPendingManager(pendingManager: PublicKey, bump: number): Promise<Buffer> {
   return getFactoryProgram().coder.accounts.encode("factoryPendingManager", { pendingManager, bump });
+}
+
+/**
+ * Borsh-encodes an `AssetClassOwnership` (discriminator + owner + latest_version
+ * + bump). Used by tests that plant an existing asset class directly via a
+ * surfpool cheatcode.
+ */
+export async function encodeAssetClassOwnership(
+  owner: PublicKey,
+  latestVersion: anchor.BN,
+  bump: number
+): Promise<Buffer> {
+  return getFactoryProgram().coder.accounts.encode("assetClassOwnership", { owner, latestVersion, bump });
 }
 
 /**
@@ -176,4 +218,35 @@ export async function clearFactory(): Promise<void> {
  */
 export async function clearFactoryPendingManager(): Promise<void> {
   await surfnetSetAccount(pdaUtils.factoryPendingManagerPda(), { lamports: 0 });
+}
+
+/**
+ * Test-only: plants the `asset_class_ownership` PDA for `configId` via surfpool,
+ * simulating an asset class that already exists. The stored `owner` and
+ * `latestVersion` (default 0) are written into the account content.
+ */
+export async function setAssetClassOwnership(
+  configId: anchor.BN,
+  owner: PublicKey,
+  latestVersion: anchor.BN = new anchor.BN(0)
+): Promise<void> {
+  const [pda, bump] = pdaUtils.assetClassOwnershipPdaWithBump(configId);
+  const data = await encodeAssetClassOwnership(owner, latestVersion, bump);
+  const lamports = await getBalanceForRentExeption(data.length);
+  await surfnetSetAccount(pda, {
+    lamports,
+    owner: FACTORY_PROGRAM_ID.toBase58(),
+    data: data.toString("hex"),
+    executable: false,
+    rentEpoch: 0,
+  });
+}
+
+/**
+ * Test-only: removes the `asset_class_ownership` PDA for `configId` via surfpool
+ * by zeroing its lamports, so the account reads back as non-existent. Lets a test
+ * exercise the "no ownership" path independently of execution order.
+ */
+export async function clearAssetClassOwnership(configId: anchor.BN): Promise<void> {
+  await surfnetSetAccount(pdaUtils.assetClassOwnershipPda(configId), { lamports: 0 });
 }

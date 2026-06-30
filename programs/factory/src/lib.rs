@@ -39,4 +39,15 @@ pub mod factory {
     pub fn cancel_nomination(ctx: Context<CancelNomination>) -> Result<()> {
         instructions::cancel_nomination::cancel_nomination(ctx)
     }
+
+    /// Manager creates a new asset class identified by `config_id` and owned by
+    /// `owner`, creating its `asset_class_ownership` PDA with `latest_version = 0`.
+    /// Callable only by the current manager while the factory is not paused.
+    pub fn create_asset_class(
+        ctx: Context<CreateAssetClass>,
+        config_id: u64,
+        owner: Pubkey,
+    ) -> Result<()> {
+        instructions::create_asset_class::create_asset_class(ctx, config_id, owner)
+    }
 }
