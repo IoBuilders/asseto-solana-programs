@@ -22,6 +22,7 @@ import {
   initializeFactory,
   nominateAssetClassOwner,
   nominateManager,
+  pauseFactory,
   setAssetClassOwnership,
   setAssetClassPendingOwner,
   setFactory,
@@ -588,6 +589,48 @@ describe("factory", () => {
       owner.publicKey.toBase58(),
       "owner should be unchanged after cancel"
     );
+  });
+
+  // ── pause ─────────────────────────────────────────────────────────────────────
+  it("pause: pauses the factory", async () => {
+    const manager = Keypair.generate();
+    await requestAirdrop(manager.publicKey);
+    await setFactory(manager.publicKey, false);
+
+    await pauseFactory({ manager });
+
+    assert.equal((await getFactory()).pause, true, "pause should be true after pause instruction");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("pause: fails with FactoryPaused when the factory is already paused", async () => {
+    const manager = Keypair.generate();
+    await requestAirdrop(manager.publicKey);
+    await setFactory(manager.publicKey, true);
+
+    try {
+      await pauseFactory({ manager });
+      assert.fail("Expected FactoryPaused error but pause succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "FactoryPaused");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("pause: fails with NotManager when called by a non-manager", async () => {
+    const manager = Keypair.generate();
+    const rogue = Keypair.generate();
+    await requestAirdrop(rogue.publicKey);
+    await setFactory(manager.publicKey, false);
+
+    try {
+      await pauseFactory({ manager: rogue });
+      assert.fail("Expected NotManager error but pause succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "NotManager");
+    }
   });
 
   // ── accept_asset_class_ownership ────────────────────────────────────────────

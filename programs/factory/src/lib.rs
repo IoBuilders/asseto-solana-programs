@@ -16,28 +16,28 @@ pub mod factory {
     /// Creates the singleton `factory` PDA, recording the `manager` signer and
     /// defaulting `pause` to `false`. Fails if the PDA already exists.
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        instructions::initialize::initialize(ctx)
+        initialize::initialize(ctx)
     }
 
     /// Current manager nominates `new_manager` as successor, creating/updating the
     /// `factory_pending_manager` PDA. Callable only by the current manager while
     /// the factory is not paused.
     pub fn nominate_manager(ctx: Context<NominateManager>, new_manager: Pubkey) -> Result<()> {
-        instructions::nominate_manager::nominate_manager(ctx, new_manager)
+        nominate_manager::nominate_manager(ctx, new_manager)
     }
 
     /// Pending manager accepts the nomination: replaces `factory.manager` and
     /// removes the `factory_pending_manager` PDA. Callable only by the pending
     /// manager while the factory is not paused.
     pub fn accept_nomination(ctx: Context<AcceptNomination>) -> Result<()> {
-        instructions::accept_nomination::accept_nomination(ctx)
+        accept_nomination::accept_nomination(ctx)
     }
 
     /// Current manager cancels the pending nomination, removing the
     /// `factory_pending_manager` PDA. Callable only by the current manager while
     /// the factory is not paused.
     pub fn cancel_nomination(ctx: Context<CancelNomination>) -> Result<()> {
-        instructions::cancel_nomination::cancel_nomination(ctx)
+        cancel_nomination::cancel_nomination(ctx)
     }
 
     /// Manager creates a new asset class identified by `config_id` and owned by
@@ -48,7 +48,7 @@ pub mod factory {
         config_id: u64,
         owner: Pubkey,
     ) -> Result<()> {
-        instructions::create_asset_class::create_asset_class(ctx, config_id, owner)
+        create_asset_class::create_asset_class(ctx, config_id, owner)
     }
 
     /// Current owner of the asset class `config_id` nominates `new_owner` as
@@ -59,9 +59,7 @@ pub mod factory {
         config_id: u64,
         new_owner: Pubkey,
     ) -> Result<()> {
-        instructions::nominate_asset_class_owner::nominate_asset_class_owner(
-            ctx, config_id, new_owner,
-        )
+        nominate_asset_class_owner::nominate_asset_class_owner(ctx, config_id, new_owner)
     }
 
     /// Pending owner accepts the nomination: replaces `asset_class_ownership.owner`
@@ -71,7 +69,7 @@ pub mod factory {
         ctx: Context<AcceptAssetClassOwnership>,
         config_id: u64,
     ) -> Result<()> {
-        instructions::accept_asset_class_ownership::accept_asset_class_ownership(ctx, config_id)
+        accept_asset_class_ownership::accept_asset_class_ownership(ctx, config_id)
     }
 
     /// Current owner cancels the pending nomination, removing the
@@ -81,6 +79,12 @@ pub mod factory {
         ctx: Context<CancelAssetClassOwnership>,
         config_id: u64,
     ) -> Result<()> {
-        instructions::cancel_asset_class_ownership::cancel_asset_class_ownership(ctx, config_id)
+        cancel_asset_class_ownership::cancel_asset_class_ownership(ctx, config_id)
+    }
+
+    /// Pauses the factory, setting `factory.pause` to `true`. Callable only by
+    /// the current manager while the factory is not already paused.
+    pub fn pause(ctx: Context<Pause>) -> Result<()> {
+        pause::pause(ctx)
     }
 }
