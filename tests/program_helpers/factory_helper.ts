@@ -1,18 +1,19 @@
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
-import { PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { Factory } from "../../target/types/factory";
 import { FACTORY_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../utils/address_utils";
 import * as pdaUtils from "../utils/pda_utils";
 import { BaseWriteContext, PayerContext } from "./base_helper";
 import { getBalanceForRentExeption, surfnetSetAccount } from "./account_helper";
 
-type InitializeArgs = {
-  manager: PublicKey;
-};
-
 type NominateManagerArgs = {
   newManager: PublicKey;
+};
+
+type CreateAssetClassArgs = {
+  configId: anchor.BN;
+  owner: PublicKey;
 };
 
 type NominateAssetClassOwnerArgs = {
@@ -28,15 +29,15 @@ function getFactoryProgram(): Program<Factory> {
   return anchor.workspace.Factory as Program<Factory>;
 }
 
-export type InitializeFactoryContext = BaseWriteContext & PayerContext;
+export type InitializeFactoryContext = BaseWriteContext &
+  PayerContext & {
+    manager?: Keypair;
+  };
 
-export async function initializeFactory(
-  callContext: InitializeFactoryContext = {},
-  args: InitializeArgs
-): Promise<void> {
+export async function initializeFactory(callContext: InitializeFactoryContext = {}): Promise<void> {
   const program = getFactoryProgram();
   const payer = callContext.payer ?? program.provider.publicKey!;
-  const manager = args.manager;
+  const manager = callContext.manager ?? program.provider.wallet.payer;
 
   // `manager` is now a `Signer` account (not an instruction argument). The
   // caller must include the matching keypair in `callContext.signers`.
@@ -44,112 +45,113 @@ export async function initializeFactory(
     .initialize()
     .accountsStrict({
       payer,
-      manager,
+      manager: manager.publicKey,
       factory: pdaUtils.factoryPda(),
       systemProgram: SYSTEM_PROGRAM_ID,
     })
-    .signers(callContext.signers ?? [])
+    .signers(callContext.signers ?? [manager])
     .rpc({ commitment: "confirmed" });
 }
 
-export type NominateManagerContext = BaseWriteContext & { currentManager?: PublicKey };
+export type NominateManagerContext = BaseWriteContext & { currentManager?: Keypair };
 
 export async function nominateManager(
   callContext: NominateManagerContext = {},
   args: NominateManagerArgs
 ): Promise<void> {
   const program = getFactoryProgram();
-  const currentManager = callContext.currentManager ?? program.provider.publicKey!;
-  const newManager = args.newManager;
+  const currentManager = callContext.currentManager ?? program.provider.wallet.payer;
+  const { newManager } = args;
 
   await program.methods
     .nominateManager(newManager)
     .accountsStrict({
-      currentManager,
+      currentManager: currentManager.publicKey,
       factory: pdaUtils.factoryPda(),
       factoryPendingManagerPda: pdaUtils.factoryPendingManagerPda(),
       systemProgram: SYSTEM_PROGRAM_ID,
     })
-    .signers(callContext.signers ?? [])
+    .signers(callContext.signers ?? [currentManager])
     .rpc({ commitment: "confirmed" });
 }
 
-export type AcceptNominationContext = BaseWriteContext & { pendingManager?: PublicKey };
+export type AcceptNominationContext = BaseWriteContext & { pendingManager?: Keypair };
 
 export async function acceptNomination(callContext: AcceptNominationContext = {}): Promise<void> {
   const program = getFactoryProgram();
-  const pendingManager = callContext.pendingManager ?? program.provider.publicKey!;
+  const pendingManager = callContext.pendingManager ?? program.provider.wallet.payer;
 
   await program.methods
     .acceptNomination()
     .accountsStrict({
-      pendingManager,
+      pendingManager: pendingManager.publicKey,
       factory: pdaUtils.factoryPda(),
       factoryPendingManagerPda: pdaUtils.factoryPendingManagerPda(),
     })
-    .signers(callContext.signers ?? [])
+    .signers(callContext.signers ?? [pendingManager])
     .rpc({ commitment: "confirmed" });
 }
 
-export type CancelNominationContext = BaseWriteContext & { currentManager?: PublicKey };
+export type CancelNominationContext = BaseWriteContext & { currentManager?: Keypair };
 
 export async function cancelNomination(callContext: CancelNominationContext = {}): Promise<void> {
   const program = getFactoryProgram();
-  const currentManager = callContext.currentManager ?? program.provider.publicKey!;
+  const currentManager = callContext.currentManager ?? program.provider.wallet.payer;
 
   await program.methods
     .cancelNomination()
     .accountsStrict({
-      currentManager,
+      currentManager: currentManager.publicKey,
       factory: pdaUtils.factoryPda(),
       factoryPendingManagerPda: pdaUtils.factoryPendingManagerPda(),
     })
-    .signers(callContext.signers ?? [])
+    .signers(callContext.signers ?? [currentManager])
     .rpc({ commitment: "confirmed" });
 }
 
-export type CreateAssetClassContext = BaseWriteContext & { manager?: PublicKey };
+export type CreateAssetClassContext = BaseWriteContext & { manager?: Keypair };
 
 export async function createAssetClass(
-  configId: anchor.BN,
-  owner: PublicKey,
-  callContext: CreateAssetClassContext = {}
+  callContext: CreateAssetClassContext = {},
+  args: CreateAssetClassArgs
 ): Promise<void> {
   const program = getFactoryProgram();
-  const manager = callContext.manager ?? program.provider.publicKey!;
+  const manager = callContext.manager ?? program.provider.wallet.payer;
+
+  const { configId, owner } = args;
 
   await program.methods
     .createAssetClass(configId, owner)
     .accountsStrict({
-      manager,
+      manager: manager.publicKey,
       factory: pdaUtils.factoryPda(),
       assetClassOwnershipPda: pdaUtils.assetClassOwnershipPda(configId),
       systemProgram: SYSTEM_PROGRAM_ID,
     })
-    .signers(callContext.signers ?? [])
+    .signers(callContext.signers ?? [manager])
     .rpc({ commitment: "confirmed" });
 }
 
-export type NominateAssetClassOwnerContext = BaseWriteContext & { currentOwner?: PublicKey };
+export type NominateAssetClassOwnerContext = BaseWriteContext & { currentOwner?: Keypair };
 
 export async function nominateAssetClassOwner(
   callContext: NominateAssetClassOwnerContext = {},
   args: NominateAssetClassOwnerArgs
 ): Promise<void> {
   const program = getFactoryProgram();
-  const currentOwner = callContext.currentOwner ?? program.provider.publicKey!;
+  const currentOwner = callContext.currentOwner ?? program.provider.wallet.payer;
   const { configId, newOwner } = args;
 
   await program.methods
     .nominateAssetClassOwner(configId, newOwner)
     .accountsStrict({
-      currentOwner,
+      currentOwner: currentOwner.publicKey,
       factory: pdaUtils.factoryPda(),
       assetClassOwnershipPda: pdaUtils.assetClassOwnershipPda(configId),
       assetClassPendingOwnerPda: pdaUtils.assetClassPendingOwnerPda(configId),
       systemProgram: SYSTEM_PROGRAM_ID,
     })
-    .signers(callContext.signers ?? [])
+    .signers(callContext.signers ?? [currentOwner])
     .rpc({ commitment: "confirmed" });
 }
 
