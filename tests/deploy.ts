@@ -10,7 +10,7 @@ import {
 } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
-import { deployMint, getMintOwner } from "./program_helpers/deploy_helper";
+import { deployMint, getMintDeployedEvent, getMintOwner } from "./program_helpers/deploy_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
 
 // ── Test mint parameters ───────────────────────────────────────────────────────
@@ -112,6 +112,39 @@ describe("deploy", () => {
     // Verify the stored bump is consistent with the derived PDA address.
     const [, expectedBump] = pdaUtils.mintOwnerPdaWithBump(mint);
     assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
+  });
+
+  it("deploy_mint: emits a MintDeployed event with the deployment details", async () => {
+    const { mint, signature } = await deployMint(
+      { deployer },
+      {
+        decimals: MINT_DECIMALS,
+        name: MINT_NAME,
+        symbol: MINT_SYMBOL,
+        uri: MINT_URI,
+        additionalMetadata: [{ key: MINT_ISIN_KEY, value: MINT_ISIN_VALUE }],
+      }
+    );
+
+    const event = await getMintDeployedEvent(signature);
+
+    assert.isNotNull(event, "MintDeployed event should be emitted");
+    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(event!.deployer.toBase58(), deployer.toBase58(), "event deployer should match");
+    assert.equal(event!.decimals, MINT_DECIMALS);
+    assert.equal(event!.name, MINT_NAME);
+    assert.equal(event!.symbol, MINT_SYMBOL);
+    assert.equal(event!.uri, MINT_URI);
+    assert.equal(event!.isin, MINT_ISIN_VALUE, "isin should be taken from the additional_metadata 'isin' entry");
+  });
+
+  it("deploy_mint: MintDeployed event has a null isin when no isin metadata is provided", async () => {
+    const { signature } = await deployMint({ deployer }, { additionalMetadata: [] });
+
+    const event = await getMintDeployedEvent(signature);
+
+    assert.isNotNull(event, "MintDeployed event should be emitted");
+    assert.isNull(event!.isin ?? null, "isin should be null when no 'isin' metadata entry exists");
   });
 
   it("deploy_mint: fails when attempting to deploy an already-deployed mint", async () => {

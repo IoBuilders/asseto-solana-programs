@@ -21,7 +21,7 @@ custom-panic = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "1.0.2" }
+anchor-lang = { version = "1.0.2", features = ["event-cpi"] }
 common = { path = "../common" }
 freeze = { path = "../freeze", features = ["cpi"] }
 metadata-update = { path = "../metadata-update", features = ["cpi"] }
