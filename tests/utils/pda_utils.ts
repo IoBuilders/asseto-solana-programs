@@ -42,6 +42,10 @@ export function mintAuthorityPda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("mint_authority"), mint.toBuffer()], MINT_PROGRAM_ID)[0];
 }
 
+export function mintEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], MINT_PROGRAM_ID)[0];
+}
+
 // ── metadata-update ────────────────────────────────────────────────────────────
 
 export function metadataUpdateAuthorityPda(mint: PublicKey): PublicKey {

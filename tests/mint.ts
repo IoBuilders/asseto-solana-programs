@@ -7,7 +7,7 @@ import { pauseMint } from "./program_helpers/pause_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
 import { createCoupon } from "./program_helpers/coupon_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
-import { mintTokens } from "./program_helpers/mint_helper";
+import { mintTokens, getIssuedEvent } from "./program_helpers/mint_helper";
 import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
 import { setTransferControlModes, TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control_helper";
 
@@ -27,7 +27,7 @@ describe("mint", () => {
     const supplyBefore = mintInfoBefore.supply;
     const mintAmount = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
 
-    await mintTokens({ deployer, mint, destination }, { amount: mintAmount });
+    const signature = await mintTokens({ deployer, mint, destination }, { amount: mintAmount });
 
     const accountAfter = await getTokenAccount(destination);
     const balanceAfter = accountAfter.amount;
@@ -39,6 +39,13 @@ describe("mint", () => {
     assert.equal(supplyBefore.toString(), "0", "total supply should be zero before minting");
     assert.equal(supplyAfter.toString(), mintAmount.toString(), "total supply should equal the minted amount");
     assert.isTrue(accountAfter.isFrozen, "destination account should be re-frozen after minting");
+
+    const issued = await getIssuedEvent(signature);
+    assert.isNotNull(issued, "an Issued event should be emitted");
+    assert.equal(issued!.mint.toBase58(), mint.toBase58(), "event mint should match the minted mint");
+    assert.equal(issued!.operator.toBase58(), deployer.toBase58(), "event operator should be the deployer");
+    assert.equal(issued!.to.toBase58(), destination.toBase58(), "event destination should match the token account");
+    assert.equal(issued!.value.toString(), mintAmount.toString(), "event value should equal the minted amount");
   });
 
   it("mint: snapshot taken before mint records the destination balance previous to the mint and is never overwritten", async () => {
