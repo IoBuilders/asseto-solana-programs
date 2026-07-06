@@ -149,7 +149,7 @@ type AccountUnfrozenEvent = {
 type AccountPartiallyFrozenEvent = {
   mint: PublicKey;
   account: PublicKey;
-  frozen_balance: anchor.BN;
+  frozenBalance: anchor.BN;
   operator: PublicKey;
 };
 
@@ -165,7 +165,7 @@ type AccountPartialFreezeRemovedEvent = {
  * emit!/emit_cpi!-agnostic event helper.
  */
 export async function getAccountFrozenEvent(signature: string) {
-  return getEvent<AccountFrozenEvent>(getFreezeProgram(), signature, "accountfrozen");
+  return getEvent<AccountFrozenEvent>(getFreezeProgram(), signature, "accountFrozen");
 }
 
 /**
@@ -174,7 +174,7 @@ export async function getAccountFrozenEvent(signature: string) {
  * emit!/emit_cpi!-agnostic event helper.
  */
 export async function getAccountUnfrozenEvent(signature: string) {
-  return getEvent<AccountUnfrozenEvent>(getFreezeProgram(), signature, "accountunfrozen");
+  return getEvent<AccountUnfrozenEvent>(getFreezeProgram(), signature, "accountUnfrozen");
 }
 
 /**
@@ -183,7 +183,7 @@ export async function getAccountUnfrozenEvent(signature: string) {
  * emit!/emit_cpi!-agnostic event helper.
  */
 export async function getAccountPartiallyFrozenEvent(signature: string) {
-  return getEvent<AccountPartiallyFrozenEvent>(getFreezeProgram(), signature, "accountpartiallyfrozen");
+  return getEvent<AccountPartiallyFrozenEvent>(getFreezeProgram(), signature, "accountPartiallyFrozen");
 }
 
 /**
@@ -192,5 +192,5 @@ export async function getAccountPartiallyFrozenEvent(signature: string) {
  * emit!/emit_cpi!-agnostic event helper.
  */
 export async function getAccountPartialFreezeRemovedEvent(signature: string) {
-  return getEvent<AccountPartialFreezeRemovedEvent>(getFreezeProgram(), signature, "accountpartialfreezeremoved");
+  return getEvent<AccountPartialFreezeRemovedEvent>(getFreezeProgram(), signature, "accountPartialFreezeRemoved");
 }

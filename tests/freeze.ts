@@ -262,9 +262,10 @@ describe("freeze", () => {
     const event = await getAccountPartiallyFrozenEvent(signature);
 
     assert.isNotNull(event, "Account partially frozen event should be emitted");
+
     assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
     assert.equal(event!.account.toBase58(), tokenAccount.toBase58(), "event account should match the token account");
-    assert.equal(event!.frozen_balance, frozenBalance, "event frozenBalance should match the balance");
+    assert.equal(event!.frozenBalance.toString(), frozenBalance.toString(), "event frozenBalance should match the balance");
     assert.equal(event!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
   });
 
@@ -314,7 +315,7 @@ describe("freeze", () => {
 
     // ── First: partially freeze the account ──────────────────────────────────
     const frozenBalance = new anchor.BN(500_000_000);
-    const { signature } = await partiallyFreezeAccount(
+    await partiallyFreezeAccount(
       { deployer, mint, account: tokenAccount },
       { balance: frozenBalance }
     );
@@ -323,7 +324,7 @@ describe("freeze", () => {
     assert.isNotNull(statusAfterFreeze, "frozen_balance PDA should exist after partially_freeze_account");
 
     // ── Then: remove the partial freeze ──────────────────────────────────────
-    await removePartialFreeze({ deployer, mint, account: tokenAccount });
+    const { signature } = await removePartialFreeze({ deployer, mint, account: tokenAccount });
 
     // ── Verify the frozen_balance PDA has been closed ────────────────────────
     const statusAfterRemove = await getFrozenBalanceByPda(frozenBalancePda);
