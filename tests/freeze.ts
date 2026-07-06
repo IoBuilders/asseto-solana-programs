@@ -265,7 +265,11 @@ describe("freeze", () => {
 
     assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
     assert.equal(event!.account.toBase58(), tokenAccount.toBase58(), "event account should match the token account");
-    assert.equal(event!.frozenBalance.toString(), frozenBalance.toString(), "event frozenBalance should match the balance");
+    assert.equal(
+      event!.frozenBalance.toString(),
+      frozenBalance.toString(),
+      "event frozenBalance should match the balance"
+    );
     assert.equal(event!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
   });
 
@@ -315,10 +319,7 @@ describe("freeze", () => {
 
     // ── First: partially freeze the account ──────────────────────────────────
     const frozenBalance = new anchor.BN(500_000_000);
-    await partiallyFreezeAccount(
-      { deployer, mint, account: tokenAccount },
-      { balance: frozenBalance }
-    );
+    await partiallyFreezeAccount({ deployer, mint, account: tokenAccount }, { balance: frozenBalance });
 
     const statusAfterFreeze = await getFrozenBalanceByPda(frozenBalancePda);
     assert.isNotNull(statusAfterFreeze, "frozen_balance PDA should exist after partially_freeze_account");
