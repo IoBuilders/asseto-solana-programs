@@ -6,6 +6,11 @@ import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID, SNAPSHOT_PROGRAM_ID } from "../ut
 import { MintWriteContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../target/types/mint";
+import { getEvent } from "./event_helper";
+
+function getMintProgram(): Program<Mint> {
+  return anchor.workspace.Mint as Program<Mint>;
+}
 
 export type MintTokensContext = MintWriteContext & {
   destination: PublicKey;
@@ -21,15 +26,15 @@ function getDefaultArgs(): Required<MintTokensArgs> {
   };
 }
 
-export async function mintTokens(callContext: MintTokensContext, args?: MintTokensArgs): Promise<void> {
+export async function mintTokens(callContext: MintTokensContext, args?: MintTokensArgs): Promise<string> {
   const effectiveArgs: Required<MintTokensArgs> = {
     ...getDefaultArgs(),
     ...args,
   };
 
-  const mintProgram = anchor.workspace.Mint as Program<Mint>;
+  const mintProgram = getMintProgram();
 
-  await mintProgram.methods
+  return await mintProgram.methods
     .mint(effectiveArgs.amount)
     .accountsStrict({
       deployer: callContext.deployer,
@@ -48,7 +53,20 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: pdaUtils.mintEventAuthorityPda(),
+      program: mintProgram.programId,
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });
+}
+
+type IssuedEvent = {
+  mint: PublicKey;
+  operator: PublicKey;
+  to: PublicKey;
+  value: anchor.BN;
+};
+
+export async function getIssuedEvent(signature: string) {
+  return getEvent<IssuedEvent>(getMintProgram(), signature, "issued");
 }
