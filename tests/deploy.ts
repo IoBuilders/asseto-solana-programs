@@ -28,7 +28,7 @@ describe("deploy", () => {
   const deployer = provider.wallet.publicKey;
 
   it("deploy_mint: deploys a Token-2022 mint with all extensions and metadata", async () => {
-    const { mint } = await deployMint(
+    const { mint, signature } = await deployMint(
       { deployer },
       {
         decimals: MINT_DECIMALS,
@@ -112,22 +112,9 @@ describe("deploy", () => {
     // Verify the stored bump is consistent with the derived PDA address.
     const [, expectedBump] = pdaUtils.mintOwnerPdaWithBump(mint);
     assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
-  });
 
-  it("deploy_mint: emits a MintDeployed event with the deployment details", async () => {
-    const { mint, signature } = await deployMint(
-      { deployer },
-      {
-        decimals: MINT_DECIMALS,
-        name: MINT_NAME,
-        symbol: MINT_SYMBOL,
-        uri: MINT_URI,
-        additionalMetadata: [{ key: MINT_ISIN_KEY, value: MINT_ISIN_VALUE }],
-      }
-    );
-
+    // ── Assertions: MintDeployed event ─────────────────────────────────────────
     const event = await getMintDeployedEvent(signature);
-
     assert.isNotNull(event, "MintDeployed event should be emitted");
     assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
     assert.equal(event!.deployer.toBase58(), deployer.toBase58(), "event deployer should match");

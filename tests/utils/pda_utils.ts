@@ -88,6 +88,11 @@ export function permanentDelegatePda(mint: PublicKey): PublicKey {
   )[0];
 }
 
+// Anchor event-CPI authority for the operations program (seed "__event_authority").
+export function operationsEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], OPERATIONS_PROGRAM_ID)[0];
+}
+
 // ── pause ──────────────────────────────────────────────────────────────────────
 
 export function pausableAuthorityPda(mint: PublicKey): PublicKey {

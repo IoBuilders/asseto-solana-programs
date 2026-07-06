@@ -9,6 +9,8 @@ use spl_token_2022::instruction::burn as spl_burn;
 
 use common::program_ids as constants;
 
+use crate::events::ControllerRedemption;
+
 /// Burns `amount` tokens from any `token_account` for the given mint.
 ///
 /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
@@ -114,9 +116,19 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         &[permanent_delegate_signer_seeds.as_slice()],
     ))?;
 
+    // ── 6. Emit ControllerRedemption ─────────────────────────────────────────
+    // Emitted last so it only fires when the full burn succeeds.
+    emit_cpi!(ControllerRedemption {
+        mint: mint_key,
+        controller: ctx.accounts.deployer.key(),
+        from: ctx.accounts.token_account.key(),
+        value: amount,
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct BurnTokens<'info> {
     /// The deployer recorded as mint owner — must sign to authorise burning;
