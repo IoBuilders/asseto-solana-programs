@@ -31,6 +31,11 @@ export function tempMintAuthorityPda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("temp_mint_authority"), mint.toBuffer()], DEPLOY_PROGRAM_ID)[0];
 }
 
+// Anchor event-CPI authority for the deploy program (seed "__event_authority").
+export function deployEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], DEPLOY_PROGRAM_ID)[0];
+}
+
 // ── mint ───────────────────────────────────────────────────────────────────────
 
 export function mintAuthorityPda(mint: PublicKey): PublicKey {
