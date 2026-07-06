@@ -1,3 +1,4 @@
+use crate::events::AccountFrozen;
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
@@ -27,9 +28,16 @@ pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
     // ── Record canonical bump in the frozen account marker PDA ───────────────
     ctx.accounts.frozen_account_pda.bump = ctx.bumps.frozen_account_pda;
 
+    emit_cpi!(AccountFrozen {
+        mint: ctx.accounts.mint.key(),
+        account: ctx.accounts.account.key(),
+        operator: ctx.accounts.deployer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct FreezeAccount<'info> {
     /// The deployer recorded as mint owner — must sign and fund the PDA creation.

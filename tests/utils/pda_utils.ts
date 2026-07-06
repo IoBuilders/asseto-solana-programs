@@ -79,6 +79,11 @@ export function frozenBalancePdaWithBump(mint: PublicKey, account: PublicKey): [
   );
 }
 
+// Anchor event-CPI authority for the freeze program (seed "__event_authority").
+export function freezeEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], FREEZE_PROGRAM_ID)[0];
+}
+
 // ── operations ─────────────────────────────────────────────────────────────────
 
 export function permanentDelegatePda(mint: PublicKey): PublicKey {

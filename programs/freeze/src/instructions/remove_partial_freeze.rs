@@ -1,3 +1,4 @@
+use crate::events::AccountPartialFreezeRemoved;
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
@@ -23,9 +24,16 @@ pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
     // ── Verify mint has not been deactivated ──────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
+    emit_cpi!(AccountPartialFreezeRemoved {
+        mint: ctx.accounts.mint.key(),
+        account: ctx.accounts.account.key(),
+        operator: ctx.accounts.deployer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct RemovePartialFreeze<'info> {
     /// The deployer recorded as mint owner — must sign; receives the closed PDA's lamports.
