@@ -1,3 +1,4 @@
+use crate::events::Unpaused;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
@@ -48,9 +49,15 @@ pub fn unpause(ctx: Context<UnpauseMint>) -> Result<()> {
         &[pausable_authority_signer_seeds.as_slice()],
     )?;
 
+    emit_cpi!(Unpaused {
+        mint: mint_key,
+        operator: ctx.accounts.deployer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct UnpauseMint<'info> {
     /// The deployer recorded as mint owner — must sign to authorise unpausing.
