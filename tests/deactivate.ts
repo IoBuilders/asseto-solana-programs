@@ -4,7 +4,7 @@ import { Keypair } from "@solana/web3.js";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { deactivateMint, getDeactivatePda } from "./program_helpers/deactivate_helper";
+import { deactivateMint, getDeactivatedEvent, getDeactivatePda } from "./program_helpers/deactivate_helper";
 import { requestAirdrop } from "./program_helpers/account_helper";
 
 describe("deactivate", () => {
@@ -21,7 +21,7 @@ describe("deactivate", () => {
     const deactivateStatusBefore = await getDeactivatePda(deactivatePda);
 
     // ── Call the deactivate instruction ───────────────────────────────────────
-    await deactivateMint({ deployer, mint });
+    const { signature } = await deactivateMint({ deployer, mint });
 
     // ── Verify the deactivate PDA was created and stores the correct bump ─────
     const deactivateStatusAfter = await getDeactivatePda(deactivatePda);
@@ -29,6 +29,12 @@ describe("deactivate", () => {
     assert.isNull(deactivateStatusBefore, "deactivate PDA should not exist before calling deactivate");
     assert.isNotNull(deactivateStatusAfter, "deactivate PDA should exist after calling deactivate");
     assert.equal(deactivateStatusAfter.bump, expectedBump, "deactivate PDA bump should match the canonical bump");
+
+    const event = await getDeactivatedEvent(signature);
+
+    assert.isNotNull(event, "Deactivated event should be emitted");
+    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(event!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
   });
 
   // ── Error case: deactivate — UnauthorizedDeployer ──

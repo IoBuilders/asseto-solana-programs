@@ -109,6 +109,11 @@ export function deactivatePdaWithBump(mint: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("deactivate"), mint.toBuffer()], DEACTIVATE_PROGRAM_ID);
 }
 
+// Anchor event-CPI authority for the deactivate program (seed "__event_authority").
+export function deactivateEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], DEACTIVATE_PROGRAM_ID)[0];
+}
+
 // ── transfer-control ───────────────────────────────────────────────────────────
 
 export function transferControlModePda(mint: PublicKey): PublicKey {
