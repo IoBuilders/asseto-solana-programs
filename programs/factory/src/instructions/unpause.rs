@@ -1,8 +1,7 @@
 use anchor_lang::prelude::*;
 use common::pda_seeds;
 
-use crate::errors::ErrorCode;
-use crate::helpers::verify_manager;
+use crate::helpers::{require_paused, verify_manager};
 use crate::state::Factory;
 
 /// Unpauses the factory, setting `factory.pause` to `false`.
@@ -10,7 +9,7 @@ use crate::state::Factory;
 /// Management instruction — only the current `factory.manager` may call this, and
 /// only while the factory is paused.
 pub fn unpause(ctx: Context<Unpause>) -> Result<()> {
-    require!(&ctx.accounts.factory.pause, ErrorCode::FactoryNotPaused);
+    require_paused(&ctx.accounts.factory)?;
     verify_manager(&ctx.accounts.factory, &ctx.accounts.manager.key())?;
 
     ctx.accounts.factory.pause = false;
