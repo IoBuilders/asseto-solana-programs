@@ -1,3 +1,4 @@
+use crate::events::Deactivated;
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_not_paused, verify_deployer};
 
@@ -23,9 +24,15 @@ pub fn deactivate(ctx: Context<Deactivate>) -> Result<()> {
     // ── Record canonical bump in the deactivation marker PDA ─────────────────
     ctx.accounts.deactivate_pda.bump = ctx.bumps.deactivate_pda;
 
+    emit_cpi!(Deactivated {
+        mint: ctx.accounts.mint.key(),
+        operator: ctx.accounts.deployer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct Deactivate<'info> {
     /// The deployer recorded as mint owner — must sign and fund the PDA creation.
