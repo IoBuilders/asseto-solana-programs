@@ -20,6 +20,8 @@ export async function takeSnapshot(callContext: MintWriteWithPayerContext): Prom
       mint: callContext.mint,
       snapshotCounter: pdaUtils.snapshotCounterPda(callContext.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: pdaUtils.snapshotTriggeredEventAuthorityPda(),
+      program: getSnapshotProgram().programId,
     })
     .rpc({ commitment: "confirmed" });
 }
