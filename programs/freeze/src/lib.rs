@@ -3,6 +3,7 @@ use common::program_ids::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGR
 use common::{pda_seeds, pda_utils};
 
 pub mod errors;
+pub mod events;
 pub mod instructions;
 pub mod state;
 
