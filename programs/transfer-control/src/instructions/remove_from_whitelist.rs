@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
+use crate::events::AccountUnwhitelisted;
 use crate::state::WhitelistStatus;
 use common::program_ids as constants;
 
@@ -23,9 +24,16 @@ pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
     // ── Verify mint has not been deactivated ──────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
+    emit_cpi!(AccountUnwhitelisted {
+        mint: ctx.accounts.mint.key(),
+        account: ctx.accounts.account.key(),
+        operator: ctx.accounts.deployer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct RemoveFromWhitelist<'info> {
     /// The deployer recorded as mint owner — must sign; receives the closed PDA's lamports.

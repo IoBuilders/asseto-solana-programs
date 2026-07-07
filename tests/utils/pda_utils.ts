@@ -156,6 +156,11 @@ export function whitelistPdaWithBump(mint: PublicKey, account: PublicKey): [Publ
   );
 }
 
+// Anchor event-CPI authority for the transfer-control program (seed "__event_authority").
+export function transferControlEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], TRANSFER_CONTROL_PROGRAM_ID)[0];
+}
+
 // ── transfer ───────────────────────────────────────────────────────────────────
 
 export function transferAuthorityPda(mint: PublicKey): PublicKey {

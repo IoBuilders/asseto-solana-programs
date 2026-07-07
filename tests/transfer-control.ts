@@ -9,7 +9,10 @@ import { deactivateMint } from "./program_helpers/deactivate_helper";
 import { createTokenAccount } from "./program_helpers/spl_token_helper";
 import {
   addToWhitelist,
+  getAccountUnwhitelistedEvent,
+  getAccountWhitelistedEvent,
   getTransferControlModeByPda,
+  getTransferControlModesSetEvent,
   getWhitelistStatusByPda,
   removeFromWhitelist,
   setTransferControlModes,
@@ -39,7 +42,7 @@ describe("transfer-control", () => {
     const stateBefore = await getTransferControlModeByPda(transferControlModePda);
 
     // ── Call set_modes(TRANSFER_CONTROL_CLEARING) ────────────────────────────────────
-    await setTransferControlModes({ deployer, mint }, { modes });
+    const { signature } = await setTransferControlModes({ deployer, mint }, { modes });
 
     // ── Fetch and verify the PDA ─────────────────────────────────────────────
     const stateAfter = await getTransferControlModeByPda(transferControlModePda);
@@ -52,6 +55,12 @@ describe("transfer-control", () => {
     assert.deepEqual(stateAfter.modes, modes, `modes should be ${modes}`);
     assert.equal(stateAfter.bump, expectedBump, "bump should match the canonical bump");
     assert.equal(accountInfo.data.length, expectedSize, `PDA size should be ${expectedSize} bytes`);
+
+    const modesSetEvent = await getTransferControlModesSetEvent(signature);
+    assert.isNotNull(modesSetEvent, "TransferControlModesSet event should be emitted");
+    assert.equal(modesSetEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(modesSetEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+    assert.deepEqual(modesSetEvent!.modes, modes, `event modes should be ${modes}`);
   });
 
   // ── Happy-path: set_modes expands the PDA when a mode is added ────────────────────
@@ -178,13 +187,23 @@ describe("transfer-control", () => {
     const stateBefore = await getWhitelistStatusByPda(whitelistPda);
 
     // ── Call add_to_whitelist ───────────────────────────────────────────────
-    await addToWhitelist({ deployer, mint, account: tokenAccount });
+    const { signature } = await addToWhitelist({ deployer, mint, account: tokenAccount });
 
     // ── Fetch and verify the PDA ─────────────────────────────────────────────
     const stateAfter = await getWhitelistStatusByPda(whitelistPda);
     assert.isNull(stateBefore, "whitelist PDA should not exist before add_to_whitelist");
     assert.isNotNull(stateAfter, "whitelist PDA should exist after add_to_whitelist");
     assert.equal(stateAfter.bump, expectedBump, "bump should match the canonical bump");
+
+    const whitelistedEvent = await getAccountWhitelistedEvent(signature);
+    assert.isNotNull(whitelistedEvent, "AccountWhitelisted event should be emitted");
+    assert.equal(whitelistedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(
+      whitelistedEvent!.account.toBase58(),
+      tokenAccount.toBase58(),
+      "event account should match the whitelisted token account"
+    );
+    assert.equal(whitelistedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
   });
 
   // ── Happy-path: remove_from_whitelist ────────────────────────────────────────
@@ -200,11 +219,21 @@ describe("transfer-control", () => {
     assert.isNotNull(stateAfterAdd, "whitelist PDA should exist after add_to_whitelist");
 
     // ── Then: remove from whitelist ─────────────────────────────────────────
-    await removeFromWhitelist({ deployer, mint, account: tokenAccount });
+    const { signature } = await removeFromWhitelist({ deployer, mint, account: tokenAccount });
 
     // ── Verify the PDA has been closed ──────────────────────────────────────
     const stateAfterRemove = await getWhitelistStatusByPda(whitelistPda);
     assert.isNull(stateAfterRemove, "whitelist PDA should not exist after remove_from_whitelist");
+
+    const unwhitelistedEvent = await getAccountUnwhitelistedEvent(signature);
+    assert.isNotNull(unwhitelistedEvent, "AccountUnwhitelisted event should be emitted");
+    assert.equal(unwhitelistedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(
+      unwhitelistedEvent!.account.toBase58(),
+      tokenAccount.toBase58(),
+      "event account should match the unwhitelisted token account"
+    );
+    assert.equal(unwhitelistedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
   });
 
   // ── Error case: set_modes — UnauthorizedDeployer ──────────────────────────────
