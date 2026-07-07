@@ -5,8 +5,8 @@ Program ID: `8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd`
 Controls the Token-2022 freeze authority and all programmatic freezing. Owns the `["freeze_authority", mint]` PDA set as the mint's freeze authority during `deploy_mint`.
 
 Exposes two categories of instructions:
-- **Auxiliary** (`block_account`, `unblock_account`): called exclusively via CPI by `mint`, `operations`, and `transfer` as part of their token operation flows.
-- **Management** (`freeze_account`, `unfreeze_account`, `partially_freeze_account`): called directly by the deployer to enforce account-level restrictions.
+- **Auxiliary** (`block_account`, `unblock_account`): called exclusively via CPI by `mint`, `operations`, and `transfer` as part of their token operation flows. These do not emit events.
+- **Management** (`freeze_account`, `unfreeze_account`, `partially_freeze_account`, `remove_partial_freeze`): called directly by the deployer to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
 
 Also exports two verification functions used by `transfer` to gate transfers.
 
@@ -143,6 +143,14 @@ Creates the `frozen_account_pda` marker. After this call `require_unfrozen_accou
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
 | `frozen_account_pda` | yes | no | `Account<FrozenAccountStatus>` | init; seeds `["frozen_account", mint, account]` |
 | `system_program` | no | no | Program<System> | |
+| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountFrozen` |
+| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+
+### Events
+
+| Event | Fields | Emitted |
+|---|---|---|
+| `AccountFrozen` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | After the `frozen_account_pda` marker is created |
 
 ---
 
@@ -166,6 +174,14 @@ Closes the `frozen_account_pda` marker and returns rent to `deployer`.
 | `account` | no | no | UncheckedAccount | The token account to unfreeze; used only as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
 | `frozen_account_pda` | yes | no | `Account<FrozenAccountStatus>` | `close = deployer`; seeds `["frozen_account", mint, account]` |
+| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountUnfrozen` |
+| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+
+### Events
+
+| Event | Fields | Emitted |
+|---|---|---|
+| `AccountUnfrozen` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | Before the `frozen_account_pda` marker is closed |
 
 ---
 
@@ -194,6 +210,52 @@ Creates the `frozen_balance_pda` on first call; overwrites `balance` on subseque
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
 | `frozen_balance_pda` | yes | no | `Account<FrozenBalance>` | `init_if_needed`; seeds `["frozen_balance", mint, account]` |
 | `system_program` | no | no | Program<System> | |
+| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountPartiallyFrozen` |
+| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+
+### Events
+
+| Event | Fields | Emitted |
+|---|---|---|
+| `AccountPartiallyFrozen` | `mint: Pubkey`, `account: Pubkey`, `frozen_balance: u64`, `operator: Pubkey` | After the `frozen_balance_pda` is set/updated (`frozen_balance` is the newly-locked `balance`) |
+
+---
+
+## Instruction: `remove_partial_freeze` (Management)
+
+No parameters.
+
+Closes the `frozen_balance_pda` marker and returns rent to `deployer`, lifting the partial freeze so `require_unfrozen_balance` no longer restricts transfers from the account.
+
+### Preconditions
+
+- `verify_deployer`, `require_not_paused`, `require_active`
+
+### Accounts
+
+| Account | Mut | Signer | Type | Notes |
+|---|---|---|---|---|
+| `deployer` | yes | yes | Signer | Receives the closed PDA's lamports |
+| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
+| `account` | no | no | UncheckedAccount | The token account whose partial freeze is removed; used only as a seed |
+| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
+| `frozen_balance_pda` | yes | no | `Account<FrozenBalance>` | `close = deployer`; seeds `["frozen_balance", mint, account]` |
+| `system_program` | no | no | Program<System> | |
+| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountPartialFreezeRemoved` |
+| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+
+### Events
+
+| Event | Fields | Emitted |
+|---|---|---|
+| `AccountPartialFreezeRemoved` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | Before the `frozen_balance_pda` marker is closed |
+
+---
+
+## Emitting events
+
+The four management instructions emit their events with `emit_cpi!` (not `emit!`), which records each event as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on the corresponding accounts struct (injecting the `event_authority` and `program` accounts listed above) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`). The auxiliary `block_account` / `unblock_account` instructions do not emit events.
 
 ---
 

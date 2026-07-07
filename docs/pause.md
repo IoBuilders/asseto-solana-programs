@@ -29,12 +29,23 @@ Pauses the Token-2022 mint. All minting, burning, and transfers are blocked by T
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to pause |
 | `pausable_authority` | no | no | UncheckedAccount | seeds `["pausable_authority", mint]` (owned by this program); signs the Token-2022 pause CPI |
 | `token_2022_program` | no | no | Program<Token2022> | |
+| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `Paused` |
+| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
 
 ### Execution
 
 1. `verify_deployer(&mint_owner_pda, &deployer.key())`
 2. `require_active(&deactivate_pda)`
 3. `invoke_signed` → `spl_pause(mint, pausable_authority)` signed with `["pausable_authority", mint, bump]`
+4. Emit `Paused { mint, operator: deployer }` via `emit_cpi!`
+
+### Events
+
+| Event | Fields | Emitted |
+|---|---|---|
+| `Paused` | `mint: Pubkey`, `operator: Pubkey` | After the Token-2022 pause CPI succeeds |
+
+See [Emitting events](#emitting-events) below for why `emit_cpi!` is used and how the injected accounts work.
 
 ---
 
@@ -51,7 +62,19 @@ Unpauses the Token-2022 mint. Resumes normal minting, burning, and transfers.
 
 ### Accounts
 
-Same shape as `pause` but calls `spl_resume` (Token-2022 unpause instruction).
+Same shape as `pause` (including the `#[event_cpi]`-injected `event_authority` and `program` accounts) but calls `spl_resume` (Token-2022 unpause instruction).
+
+### Events
+
+| Event | Fields | Emitted |
+|---|---|---|
+| `Unpaused` | `mint: Pubkey`, `operator: Pubkey` | After the Token-2022 resume CPI succeeds |
+
+---
+
+## Emitting events
+
+Both events are emitted with `emit_cpi!` (not `emit!`), which records the event as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on the `PauseMint` / `UnpauseMint` accounts structs (injecting the `event_authority` and `program` accounts) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`).
 
 ---
 

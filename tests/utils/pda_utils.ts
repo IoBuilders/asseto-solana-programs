@@ -194,6 +194,11 @@ export function snapshotHolderBalancePdaWithBump(mint: PublicKey, tokenAccount: 
   );
 }
 
+// Anchor event-CPI authority for the snapshot program (seed "__event_authority").
+export function snapshotTriggeredEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], SNAPSHOT_PROGRAM_ID)[0];
+}
+
 // ── bond ───────────────────────────────────────────────────────────────────────
 
 export function bondTermsPda(mint: PublicKey): PublicKey {

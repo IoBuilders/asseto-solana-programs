@@ -11,6 +11,7 @@ import {
   encodeSnapshotCounter,
   getHolderBalanceSnapshotAt,
   getSnapshotCounterByPda,
+  getSnapshotTriggeredEvent,
   getTotalSupplySnapshotAt,
   takeSnapshot,
   updateHolderBalanceSnapshot,
@@ -119,7 +120,7 @@ describe("snapshot", () => {
 
     // Take snapshot 1 → next mint records pre-mint supply (= initialAmount) at key=1
     const couponId = new anchor.BN(1);
-    await createCoupon({ deployer, mint }, { couponId });
+    const { signature } = await createCoupon({ deployer, mint }, { couponId });
     const additionalAmount = new anchor.BN(500);
     await mintTokens({ deployer, mint, destination }, { amount: additionalAmount });
     // History: [{key=1, value=initialAmount}]. Live supply = initialAmount + additionalAmount.
@@ -127,6 +128,12 @@ describe("snapshot", () => {
     // Query a snapshot_id beyond every recorded entry → lookup_at_or_above returns None → live fallback
     const result = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId.add(new anchor.BN(1)) });
     assert.equal(result.toString(), initialAmount.add(additionalAmount).toString());
+
+    const event = await getSnapshotTriggeredEvent(signature);
+
+    assert.isNotNull(event, "Account frozen event should be emitted");
+    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(event!.snapshotId.toString(), new anchor.BN(1).toString(), "event snapshotId should match the id");
   });
 
   it("get_totalsupply_snapshot_at: returns value of next recorded entry when queried snapshot_id has no exact match", async () => {
