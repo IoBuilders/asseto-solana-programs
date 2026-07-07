@@ -55,6 +55,10 @@ export function metadataUpdateAuthorityPda(mint: PublicKey): PublicKey {
   )[0];
 }
 
+export function metadataUpdateEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], METADATA_UPDATE_PROGRAM_ID)[0];
+}
+
 // ── freeze ─────────────────────────────────────────────────────────────────────
 
 export function freezeAuthorityPda(mint: PublicKey): PublicKey {
