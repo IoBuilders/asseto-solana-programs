@@ -92,6 +92,8 @@ Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when not emp
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
 | `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | created if empty using `SystemProgram.create_account`; seeds `["transfer_control_mode", mint]` |
 | `system_program` | no | no | Program<System> | |
+| `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
+| `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
 
 ---
 
@@ -116,6 +118,8 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
 | `whitelist_pda` | yes | no | Account | `init_if_needed`; seeds `["whitelist", mint, account]` |
 | `system_program` | no | no | Program<System> | |
+| `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
+| `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
 
 ---
 
@@ -132,6 +136,59 @@ Closes the `whitelist_pda` and returns rent to `deployer`. If the PDA does not e
 ### Accounts
 
 Same shape as `add_to_whitelist` but the `whitelist_pda` constraint uses `close = deployer`.
+
+---
+
+## Events
+
+Each instruction emits an event via `emit_cpi!` (requires the `event-cpi` feature on `anchor-lang`
+and the `event_authority` / `program` accounts above on the instruction context).
+
+### `TransferControlModesSet`
+
+Emitted at the end of `set_modes`, after the `transfer_control_mode_pda` has been created, updated,
+or closed.
+
+```rust
+#[event]
+pub struct TransferControlModesSet {
+    pub mint: Pubkey,
+    pub operator: Pubkey,
+    pub modes: Vec<TransferMode>,
+}
+```
+
+`modes` mirrors the deduplicated, sorted list actually written (or, when empty, the fact that all
+controls were just removed) — not the raw, possibly-duplicated instruction argument.
+
+### `AccountWhitelisted`
+
+Emitted at the end of `add_to_whitelist`, including on the no-op path where the `whitelist_pda`
+already existed.
+
+```rust
+#[event]
+pub struct AccountWhitelisted {
+    pub mint: Pubkey,
+    pub account: Pubkey,
+    pub operator: Pubkey,
+}
+```
+
+### `AccountRemovedFromWhitelist`
+
+Emitted at the end of `remove_from_whitelist`, after the `whitelist_pda` close has been queued.
+
+```rust
+#[event]
+pub struct AccountRemovedFromWhitelist {
+    pub mint: Pubkey,
+    pub account: Pubkey,
+    pub operator: Pubkey,
+}
+```
+
+`operator` is the `deployer` that signed the instruction in all three events.
 
 ---
 

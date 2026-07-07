@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
+use crate::events::AccountWhitelisted;
 use crate::state::WhitelistStatus;
 use common::program_ids as constants;
 
@@ -26,9 +27,16 @@ pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
     // ── Record canonical bump in the whitelist marker PDA ─────────────────────
     ctx.accounts.whitelist_pda.bump = ctx.bumps.whitelist_pda;
 
+    emit_cpi!(AccountWhitelisted {
+        mint: ctx.accounts.mint.key(),
+        account: ctx.accounts.account.key(),
+        operator: ctx.accounts.deployer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct AddToWhitelist<'info> {
     /// The deployer recorded as mint owner — must sign and fund PDA creation if needed.
