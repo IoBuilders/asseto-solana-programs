@@ -131,7 +131,7 @@ describe("snapshot", () => {
 
     const event = await getSnapshotTriggeredEvent(signature);
 
-    assert.isNotNull(event, "Account frozen event should be emitted");
+    assert.isNotNull(event, "Snapshot triggered event should be emitted");
     assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
     assert.equal(event!.snapshotId.toString(), new anchor.BN(1).toString(), "event snapshotId should match the id");
   });

@@ -1,3 +1,4 @@
+use crate::events::CouponCreated;
 use anchor_lang::prelude::*;
 use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 use snapshot::cpi::accounts::TakeSnapshot;
@@ -106,9 +107,20 @@ pub fn create_coupon(
     coupon.payment_date = payment_date;
     coupon.set_interest_rate(interest_rate_override, interest_rate_override_decimals)?;
 
+    emit_cpi!(CouponCreated {
+        mint: ctx.accounts.mint.key(),
+        coupon_id,
+        period_start_date,
+        period_end_date,
+        payment_date,
+        interest_rate_override,
+        interest_rate_override_decimals
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(period_start_date: i64, period_end_date: i64, payment_date: i64, coupon_id: u64)]
 pub struct CreateCoupon<'info> {
