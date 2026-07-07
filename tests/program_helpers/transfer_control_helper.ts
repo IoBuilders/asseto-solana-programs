@@ -118,7 +118,7 @@ type AccountWhitelistedEvent = {
   operator: PublicKey;
 };
 
-type AccountUnwhitelistedEvent = {
+type AccountRemovedFromWhitelistEvent = {
   mint: PublicKey;
   account: PublicKey;
   operator: PublicKey;
@@ -143,10 +143,14 @@ export async function getAccountWhitelistedEvent(signature: string) {
 }
 
 /**
- * Decodes the `AccountUnwhitelisted` event from a `remove_from_whitelist` transaction.
- * The coder returns the name in camelCase (`accountUnwhitelisted`). Delegates to
+ * Decodes the `AccountRemovedFromWhitelist` event from a `remove_from_whitelist` transaction.
+ * The coder returns the name in camelCase (`accountRemovedFromWhitelist`). Delegates to
  * the shared, emit!/emit_cpi!-agnostic event helper.
  */
-export async function getAccountUnwhitelistedEvent(signature: string) {
-  return getEvent<AccountUnwhitelistedEvent>(getTransferControlProgram(), signature, "accountUnwhitelisted");
+export async function getAccountRemovedFromWhitelistEvent(signature: string) {
+  return getEvent<AccountRemovedFromWhitelistEvent>(
+    getTransferControlProgram(),
+    signature,
+    "accountRemovedFromWhitelist"
+  );
 }

@@ -9,7 +9,7 @@ import { deactivateMint } from "./program_helpers/deactivate_helper";
 import { createTokenAccount } from "./program_helpers/spl_token_helper";
 import {
   addToWhitelist,
-  getAccountUnwhitelistedEvent,
+  getAccountRemovedFromWhitelistEvent,
   getAccountWhitelistedEvent,
   getTransferControlModeByPda,
   getTransferControlModesSetEvent,
@@ -225,15 +225,23 @@ describe("transfer-control", () => {
     const stateAfterRemove = await getWhitelistStatusByPda(whitelistPda);
     assert.isNull(stateAfterRemove, "whitelist PDA should not exist after remove_from_whitelist");
 
-    const unwhitelistedEvent = await getAccountUnwhitelistedEvent(signature);
-    assert.isNotNull(unwhitelistedEvent, "AccountUnwhitelisted event should be emitted");
-    assert.equal(unwhitelistedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    const accountRemovedFromWhitelistEvent = await getAccountRemovedFromWhitelistEvent(signature);
+    assert.isNotNull(accountRemovedFromWhitelistEvent, "AccountRemovedFromWhitelist event should be emitted");
     assert.equal(
-      unwhitelistedEvent!.account.toBase58(),
-      tokenAccount.toBase58(),
-      "event account should match the unwhitelisted token account"
+      accountRemovedFromWhitelistEvent!.mint.toBase58(),
+      mint.toBase58(),
+      "event mint should match the deployed mint"
     );
-    assert.equal(unwhitelistedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+    assert.equal(
+      accountRemovedFromWhitelistEvent!.account.toBase58(),
+      tokenAccount.toBase58(),
+      "event account should match the token account removed from the whitelist"
+    );
+    assert.equal(
+      accountRemovedFromWhitelistEvent!.operator.toBase58(),
+      deployer.toBase58(),
+      "event operator should match deployer"
+    );
   });
 
   // ── Error case: set_modes — UnauthorizedDeployer ──────────────────────────────

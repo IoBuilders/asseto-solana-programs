@@ -175,13 +175,13 @@ pub struct AccountWhitelisted {
 }
 ```
 
-### `AccountUnwhitelisted`
+### `AccountRemovedFromWhitelist`
 
 Emitted at the end of `remove_from_whitelist`, after the `whitelist_pda` close has been queued.
 
 ```rust
 #[event]
-pub struct AccountUnwhitelisted {
+pub struct AccountRemovedFromWhitelist {
     pub mint: Pubkey,
     pub account: Pubkey,
     pub operator: Pubkey,

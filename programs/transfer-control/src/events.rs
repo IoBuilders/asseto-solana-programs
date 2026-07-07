@@ -17,7 +17,7 @@ pub struct AccountWhitelisted {
 }
 
 #[event]
-pub struct AccountUnwhitelisted {
+pub struct AccountRemovedFromWhitelist {
     pub mint: Pubkey,
     pub account: Pubkey,
     pub operator: Pubkey,
