@@ -84,6 +84,8 @@ pub fn create_coupon(
             mint: ctx.accounts.mint.to_account_info(),
             snapshot_counter: ctx.accounts.snapshot_counter.to_account_info(),
             system_program: ctx.accounts.system_program.to_account_info(),
+            event_authority: ctx.accounts.snapshot_event_authority.to_account_info(),
+            program: ctx.accounts.snapshot_program.to_account_info(),
         },
         &[coupon_authority_signer_seeds.as_slice()],
     ))?;
@@ -196,4 +198,7 @@ pub struct CreateCoupon<'info> {
     pub snapshot_program: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+
+    /// CHECK: Address verified by snapshot program.
+    pub snapshot_event_authority: UncheckedAccount<'info>,
 }

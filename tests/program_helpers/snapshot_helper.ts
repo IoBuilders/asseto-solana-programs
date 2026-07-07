@@ -5,6 +5,7 @@ import { MintContext, MintWriteWithPayerContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Snapshot } from "../../target/types/snapshot";
 import { SYSTEM_PROGRAM_ID } from "../utils/address_utils";
+import { getEvent } from "./event_helper";
 
 function getSnapshotProgram(): Program<Snapshot> {
   return anchor.workspace.Snapshot as Program<Snapshot>;
@@ -132,4 +133,18 @@ export async function getSnapshotCounterByPda(pda: PublicKey) {
  */
 export async function encodeSnapshotCounter(bump: number, count: anchor.BN): Promise<Buffer> {
   return getSnapshotProgram().coder.accounts.encode("snapshotCounter", { bump, count });
+}
+
+type SnapshotTriggeredEvent = {
+  mint: PublicKey;
+  snapshotId: anchor.BN;
+};
+
+/**
+ * Decodes the `SnapshotTriggeredEvent` event from a `take_snapshot` transaction. The coder
+ * returns the name in camelCase (`snapshotTriggered`). Delegates to the shared,
+ * emit!/emit_cpi!-agnostic event helper.
+ */
+export async function getSnapshotTriggeredEvent(signature: string) {
+  return getEvent<SnapshotTriggeredEvent>(getSnapshotProgram(), signature, "snapshotTriggered");
 }

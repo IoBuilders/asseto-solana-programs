@@ -31,13 +31,16 @@ function getDefaultCreateCouponArgs(): Required<CreateCouponArgs> {
   };
 }
 
-export async function createCoupon(callContext: MintWriteWithPayerContext, args?: CreateCouponArgs): Promise<void> {
+export async function createCoupon(
+  callContext: MintWriteWithPayerContext,
+  args?: CreateCouponArgs
+): Promise<{ signature: string }> {
   const effectiveArgs: Required<CreateCouponArgs> = {
     ...getDefaultCreateCouponArgs(),
     ...args,
   };
 
-  await getCouponProgram()
+  const signature = await getCouponProgram()
     .methods.createCoupon(
       effectiveArgs.periodStartDate,
       effectiveArgs.periodEndDate,
@@ -58,9 +61,12 @@ export async function createCoupon(callContext: MintWriteWithPayerContext, args?
       snapshotCounter: pdaUtils.snapshotCounterPda(callContext.mint),
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
+      snapshotEventAuthority: pdaUtils.snapshotTriggeredEventAuthorityPda(),
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });
+
+  return { signature };
 }
 
 type SetCouponRateArgs = {
