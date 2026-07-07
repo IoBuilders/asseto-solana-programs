@@ -171,6 +171,56 @@ If you ever add another deserialised account here, box it too. If you remove eno
 
 ---
 
+## Events
+
+Both instructions emit their event via **`emit_cpi!`** (self-CPI) rather than
+`emit!`, so the payload is carried in an inner instruction and cannot be
+truncated by the ingestion layer — the same pattern `deploy` uses for
+`MintDeployed`.
+
+### `CouponPaid`
+
+Emitted once at the end of a successful `pay_coupon`, after the payment has been
+transferred from the treasury to the holder and the `coupon_paid` marker has
+been created.
+
+```rust
+#[event]
+pub struct CouponPaid {
+    pub mint: Pubkey,
+    pub coupon_id: u64,
+    pub holder_token_account: Pubkey,
+    pub payment_mint: Pubkey,
+    pub amount: u64,  // raw payment-mint units transferred
+    pub payer: Pubkey,
+}
+```
+
+### `PaymentTokenSet`
+
+Emitted once at the end of a successful `set_payment_token`, after
+`treasury_config` has cached the payment mint.
+
+```rust
+#[event]
+pub struct PaymentTokenSet {
+    pub mint: Pubkey,
+    pub payment_mint: Pubkey,
+}
+```
+
+**Consumer notes:**
+- `#[event_cpi]` appends two accounts to each instruction: `event_authority`
+  (PDA `["__event_authority"]`) and `program`. Clients using `.accounts()` get
+  them auto-resolved; `.accountsStrict()` must pass them explicitly.
+- The events are **not** in `Program data:` logs. Read them from the
+  transaction's inner instructions: strip the 8-byte self-CPI tag, then decode
+  with the program event coder (see
+  `tests/program_helpers/treasury_helper.ts::getCouponPaidEvent` /
+  `getPaymentTokenSetEvent`).
+
+---
+
 ## Funding the treasury
 
 `treasury` does not expose a deposit instruction. To fund the treasury, transfer payment-mint tokens to the associated token account of `treasury_authority` for `payment_mint` using a regular `transfer_checked` (classic SPL Token or Token-2022, depending on which program owns the mint) from any source. Once funded, `pay_coupon` can draw against that balance.
