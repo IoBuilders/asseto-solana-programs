@@ -231,6 +231,11 @@ export function couponPda(mint: PublicKey, couponId: BN): PublicKey {
   )[0];
 }
 
+// Anchor event-CPI authority for the coupon program (seed "__event_authority").
+export function couponEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], COUPON_PROGRAM_ID)[0];
+}
+
 // ── treasury ───────────────────────────────────────────────────────────────────
 
 export function treasuryConfigPda(mint: PublicKey): PublicKey {

@@ -6,6 +6,7 @@ import { Program } from "@anchor-lang/core";
 import { Coupon } from "../../target/types/coupon";
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
+import { getEvent } from "./event_helper";
 
 function getCouponProgram(): Program<Coupon> {
   return anchor.workspace.Coupon as Program<Coupon>;
@@ -62,6 +63,8 @@ export async function createCoupon(
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       snapshotEventAuthority: pdaUtils.snapshotTriggeredEventAuthorityPda(),
+      eventAuthority: pdaUtils.couponEventAuthorityPda(),
+      program: getCouponProgram().programId,
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });
@@ -83,13 +86,16 @@ function getDefaultSetCouponRateArgs(): Required<SetCouponRateArgs> {
   };
 }
 
-export async function setCouponRate(context: MintWriteContext, args?: SetCouponRateArgs): Promise<void> {
+export async function setCouponRate(
+  context: MintWriteContext,
+  args?: SetCouponRateArgs
+): Promise<{ signature: string }> {
   const effectiveArgs: Required<SetCouponRateArgs> = {
     ...getDefaultSetCouponRateArgs(),
     ...args,
   };
 
-  await getCouponProgram()
+  const signature = await getCouponProgram()
     .methods.setCouponRate(effectiveArgs.couponId, effectiveArgs.interestRate, effectiveArgs.interestRateDecimals)
     .accountsStrict({
       deployer: context.deployer,
@@ -97,9 +103,13 @@ export async function setCouponRate(context: MintWriteContext, args?: SetCouponR
       mintOwnerPda: pdaUtils.mintOwnerPda(context.mint),
       deactivatePda: pdaUtils.deactivatePda(context.mint),
       coupon: pdaUtils.couponPda(context.mint, effectiveArgs.couponId),
+      eventAuthority: pdaUtils.couponEventAuthorityPda(),
+      program: getCouponProgram().programId,
     })
     .signers(context?.signers ?? [])
     .rpc({ commitment: "confirmed" });
+
+  return { signature };
 }
 
 export async function getCoupon(mint: PublicKey, couponId: BN) {
@@ -125,4 +135,39 @@ export async function encodeCouponCounter(bump: number, count: anchor.BN): Promi
 
 export async function getCouponCounterByPda(pda: PublicKey) {
   return await getCouponProgram().account.couponCounter.fetch(pda, "confirmed");
+}
+
+type CouponCreatedEvent = {
+  mint: PublicKey;
+  couponId: anchor.BN;
+  periodStartDate: anchor.BN;
+  periodEndDate: anchor.BN;
+  paymentDate: anchor.BN;
+  interestRateOverride: anchor.BN | null;
+  interestRateOverrideDecimals: number | null;
+};
+
+type CouponRateSetEvent = {
+  mint: PublicKey;
+  couponId: anchor.BN;
+  interestRateOverride: anchor.BN | null;
+  interestRateOverrideDecimals: number | null;
+};
+
+/**
+ * Decodes the `CouponCreatedEvent` event from a `create_coupon` transaction. The coder
+ * returns the name in camelCase (`couponCreated`). Delegates to the shared,
+ * emit!/emit_cpi!-agnostic event helper.
+ */
+export async function getCouponCreatedEvent(signature: string) {
+  return getEvent<CouponCreatedEvent>(getCouponProgram(), signature, "couponCreated");
+}
+
+/**
+ * Decodes the `CouponRateSetEvent` event from a `set_coupon_rate` transaction. The coder
+ * returns the name in camelCase (`couponRateSet`). Delegates to the shared,
+ * emit!/emit_cpi!-agnostic event helper.
+ */
+export async function getCouponRateSetEvent(signature: string) {
+  return getEvent<CouponRateSetEvent>(getCouponProgram(), signature, "couponRateSet");
 }
