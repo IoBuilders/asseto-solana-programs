@@ -9,7 +9,7 @@ import { deactivateMint } from "./program_helpers/deactivate_helper";
 import { createCoupon } from "./program_helpers/coupon_helper";
 import { createTokenAccount, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint_helper";
-import { burnTokens } from "./program_helpers/operations_helper";
+import { burnTokens, getControllerRedemptionEvent } from "./program_helpers/operations_helper";
 import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
 import { partiallyFreezeAccount } from "./program_helpers/freeze_helper";
 
@@ -32,7 +32,7 @@ describe("operations", () => {
     await mintTokens({ deployer, mint, destination: source }, { amount: mintAmount });
 
     // ── Call burn ──────────────────────────────────────────────────────
-    await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
+    const { signature } = await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
 
     const sourceAfter = (await getTokenAccount(source)).amount;
     assert.equal(
@@ -40,6 +40,14 @@ describe("operations", () => {
       (mintAmount.toNumber() - burnAmount.toNumber()).toString(),
       "source balance should be reduced by the transfer amount"
     );
+
+    // ── Assertions: ControllerRedemption event ─────────────────────────────────
+    const event = await getControllerRedemptionEvent(signature);
+    assert.isNotNull(event, "ControllerRedemption event should be emitted");
+    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the burned mint");
+    assert.equal(event!.controller.toBase58(), deployer.toBase58(), "controller should be the deployer");
+    assert.equal(event!.from.toBase58(), source.toBase58(), "from should be the burned token account");
+    assert.equal(event!.value.toString(), burnAmount.toString(), "value should match the burn amount");
   });
 
   it("burn: holder balance snapshot records full Token-2022 balance (ignoring partial-freeze PDA)", async () => {
