@@ -6,6 +6,14 @@ use crate::state::AssetClassPendingOwner;
 use crate::state::Factory;
 use crate::state::FactoryPendingManager;
 
+/// Errors with `FactoryNotPaused` if the factory's `pause` flag is not set.
+///
+/// Shared by every instruction that must not run while the factory is unpaused.
+pub fn require_paused(factory: &Factory) -> Result<()> {
+    require!(factory.pause, ErrorCode::FactoryNotPaused);
+    Ok(())
+}
+
 /// Errors with `FactoryPaused` if the factory's `pause` flag is set.
 ///
 /// Shared by every instruction that must not run while the factory is paused.
