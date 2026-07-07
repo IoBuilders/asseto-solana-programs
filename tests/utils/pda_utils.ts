@@ -247,3 +247,8 @@ export function couponPaidPda(mint: PublicKey, couponId: BN, holderTokenAccount:
     TREASURY_PROGRAM_ID
   )[0];
 }
+
+// Anchor event-CPI authority for the treasury program (seed "__event_authority").
+export function treasuryEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], TREASURY_PROGRAM_ID)[0];
+}

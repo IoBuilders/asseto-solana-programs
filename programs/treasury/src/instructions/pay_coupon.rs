@@ -6,6 +6,7 @@ use coupon::state::Coupon;
 use snapshot::cpi::accounts::GetHolderBalanceSnapshotAt;
 
 use crate::errors::ErrorCode;
+use crate::events::CouponPaid;
 use crate::state::{CouponPaidMarker, TreasuryConfig};
 use common::program_ids as constants;
 
@@ -178,9 +179,21 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
     marker.bump = ctx.bumps.coupon_paid;
     marker.amount = amount;
 
+    // ── Emit CouponPaid ──────────────────────────────────────────────────────
+    // Emitted last so it only fires when the full payment succeeds.
+    emit_cpi!(CouponPaid {
+        mint: mint_key,
+        coupon_id,
+        holder_token_account: ctx.accounts.holder_token_account.key(),
+        payment_mint: ctx.accounts.payment_mint.key(),
+        amount,
+        payer: ctx.accounts.payer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(coupon_id: u64)]
 pub struct PayCoupon<'info> {
