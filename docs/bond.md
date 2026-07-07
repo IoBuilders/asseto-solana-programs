@@ -84,6 +84,41 @@ Creates the `bond_terms` PDA on the first call (`init_if_needed`) and overwrites
 | `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `require_not_paused` |
 | `bond_terms` | yes | no | `Account<BondTerms>` | `init_if_needed`; seeds `["bond_terms", mint]`, `payer = payer`, `space = BondTerms::LEN` |
 | `system_program` | no | no | Program<System> | |
+| `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
+| `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
+
+`event_authority` signs the self-CPI that carries the emitted event; `program` is the self-CPI's target.
+
+---
+
+## Events
+
+`update_bond_terms` emits an event via `emit_cpi!` (requires the `event-cpi` feature on `anchor-lang`
+and the `event_authority` / `program` accounts above on the instruction context).
+
+### `BondTermsUpdated`
+
+Emitted at the end of `update_bond_terms`, after the `bond_terms` PDA has been written — on both the
+first call (creation) and every subsequent overwrite.
+
+```rust
+#[event]
+pub struct BondTermsUpdated {
+    pub mint: Pubkey,
+    pub operator: Pubkey,
+    pub interest_rate: u64,
+    pub interest_rate_decimals: u8,
+    pub par_value: u64,
+    pub par_value_decimals: u8,
+    pub minimum_denomination: u64,
+    pub issuance_date: i64,
+    pub day_count_convention: DayCountConvention,
+}
+```
+
+`operator` is the `deployer` that signed the instruction. The remaining fields mirror `args` (the full
+term sheet as written), not the account's `bump` — so the event alone is enough to reconstruct the new
+`BondTerms` state without re-fetching the PDA.
 
 ---
 
