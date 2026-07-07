@@ -214,6 +214,11 @@ export function bondTermsPda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("bond_terms"), mint.toBuffer()], BOND_PROGRAM_ID)[0];
 }
 
+// Anchor event-CPI authority for the bond program (seed "__event_authority").
+export function bondEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], BOND_PROGRAM_ID)[0];
+}
+
 // ── coupon ─────────────────────────────────────────────────────────────────────
 
 export function couponAuthorityPda(mint: PublicKey): PublicKey {

@@ -7,7 +7,12 @@ import { deployMint } from "./program_helpers/deploy_helper";
 import * as pdaUtils from "./utils/pda_utils";
 import { pauseMint } from "./program_helpers/pause_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
-import { getCouponCounterByPda, UpdateBondArgs, updateBondTerms } from "./program_helpers/bond_helper";
+import {
+  getBondTermsUpdatedEvent,
+  getCouponCounterByPda,
+  UpdateBondArgs,
+  updateBondTerms,
+} from "./program_helpers/bond_helper";
 import { getAccountInfo } from "./program_helpers/account_helper";
 
 describe("bond", () => {
@@ -36,7 +41,7 @@ describe("bond", () => {
     const before = await getAccountInfo(bondTermsPda);
     assert.isNull(before, "bond_terms PDA should not exist before update");
 
-    await updateBondTerms({ deployer, mint }, updateArgs);
+    const { signature } = await updateBondTerms({ deployer, mint }, updateArgs);
 
     // PDA must now exist and be owned by bond
     const after = await getAccountInfo(bondTermsPda);
@@ -58,6 +63,39 @@ describe("bond", () => {
     );
     assert.equal(stored.issuanceDate.toString(), updateArgs.issuanceDate.toString(), "issuanceDate mismatch");
     assert.deepEqual(stored.dayCountConvention, updateArgs.dayCountConvention, "dayCountConvention mismatch");
+
+    const updatedEvent = await getBondTermsUpdatedEvent(signature);
+
+    assert.isNotNull(updatedEvent, "BondTermsUpdated event should be emitted");
+    assert.equal(updatedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(updatedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+    assert.equal(
+      updatedEvent!.interestRate.toString(),
+      updateArgs.interestRate.toString(),
+      "event interestRate mismatch"
+    );
+    assert.equal(
+      updatedEvent!.interestRateDecimals,
+      updateArgs.interestRateDecimals,
+      "event interestRateDecimals mismatch"
+    );
+    assert.equal(updatedEvent!.parValue.toString(), updateArgs.parValue.toString(), "event parValue mismatch");
+    assert.equal(updatedEvent!.parValueDecimals, updateArgs.parValueDecimals, "event parValueDecimals mismatch");
+    assert.equal(
+      updatedEvent!.minimumDenomination.toString(),
+      updateArgs.minimumDenomination.toString(),
+      "event minimumDenomination mismatch"
+    );
+    assert.equal(
+      updatedEvent!.issuanceDate.toString(),
+      updateArgs.issuanceDate.toString(),
+      "event issuanceDate mismatch"
+    );
+    assert.deepEqual(
+      updatedEvent!.dayCountConvention,
+      updateArgs.dayCountConvention,
+      "event dayCountConvention mismatch"
+    );
   });
 
   // ────────────────────────────────────────────────────────────────────────────
