@@ -19,6 +19,14 @@ use anchor_lang::prelude::*;
 pub struct MintOwner {
     /// The wallet that deployed this mint and is recorded as its owner.
     pub deployer: Pubkey,
+    /// Asset-class config id. First half of the seed that derives the factory
+    /// asset-class PDA (`["asset_class", config_id, version_id]`, owned by
+    /// `factory`) this mint is hooked to.
+    pub asset_class_config_id: u64,
+    /// Asset-class version id. Second half of the asset-class PDA seed.
+    /// May be updated by the deployer when the mint is re-pointed to a newer
+    /// asset-class version.
+    pub asset_class_version_id: u64,
     /// Canonical bump for this PDA — saved to spare a find_program_address call.
     pub bump: u8,
 }

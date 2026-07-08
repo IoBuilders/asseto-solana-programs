@@ -20,6 +20,9 @@ const MINT_SYMBOL = "CMTAT";
 const MINT_URI = "https://example.com/metadata.json";
 const MINT_ISIN_KEY = "isin";
 const MINT_ISIN_VALUE = "CH0012221716";
+// Asset-class PDA seed (config_id, version_id) the mint is hooked to.
+const MINT_ASSET_CLASS_CONFIG_ID = 7;
+const MINT_ASSET_CLASS_VERSION_ID = 3;
 
 describe("deploy", () => {
   const provider = anchor.AnchorProvider.env();
@@ -36,6 +39,8 @@ describe("deploy", () => {
         symbol: MINT_SYMBOL,
         uri: MINT_URI,
         additionalMetadata: [{ key: MINT_ISIN_KEY, value: MINT_ISIN_VALUE }],
+        assetClassConfigId: MINT_ASSET_CLASS_CONFIG_ID,
+        assetClassVersionId: MINT_ASSET_CLASS_VERSION_ID,
       }
     );
     const mintAuthority = pdaUtils.mintAuthorityPda(mint);
@@ -112,6 +117,17 @@ describe("deploy", () => {
     // Verify the stored bump is consistent with the derived PDA address.
     const [, expectedBump] = pdaUtils.mintOwnerPdaWithBump(mint);
     assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
+    // The asset-class PDA seed (config_id, version_id) is persisted verbatim.
+    assert.equal(
+      mintOwnerAccount.assetClassConfigId.toNumber(),
+      MINT_ASSET_CLASS_CONFIG_ID,
+      "mint owner PDA should record the asset-class config id"
+    );
+    assert.equal(
+      mintOwnerAccount.assetClassVersionId.toNumber(),
+      MINT_ASSET_CLASS_VERSION_ID,
+      "mint owner PDA should record the asset-class version id"
+    );
 
     // ── Assertions: MintDeployed event ─────────────────────────────────────────
     const event = await getMintDeployedEvent(signature);

@@ -13,9 +13,11 @@ All logic and types that are shared across programs live here. Adding a dependen
 // because #[account] requires declare_id!, which a library crate cannot have.
 pub struct MintOwner {
     pub deployer: Pubkey,
+    pub asset_class_config_id: u64,   // asset-class PDA seed (1/2)
+    pub asset_class_version_id: u64,  // asset-class PDA seed (2/2)
     pub bump: u8,
 }
-// LEN = 8 (discriminator) + 32 (deployer) + 1 (bump) = 41 bytes
+// LEN = 8 (discriminator) + 32 (deployer) + 8 (asset_class_config_id) + 8 (asset_class_version_id) + 1 (bump) = 57 bytes
 ```
 
 Defined here so downstream programs can deserialize `mint_owner_pda` without importing `deploy`. `deploy` defines its own `#[account] MintOwner` (with the same fields) so it can use `Account<MintOwner>` in its accounts struct.
