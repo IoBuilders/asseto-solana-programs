@@ -417,18 +417,6 @@ type InitAssetClassVersionArgs = {
   version: anchor.BN;
 };
 
-type WriteAssetClassVersionMaskArgs = {
-  configId: anchor.BN;
-  version: anchor.BN;
-  offset: number;
-  chunk: Buffer;
-};
-
-type AssetClassVersionArgs = {
-  configId: anchor.BN;
-  version: anchor.BN;
-};
-
 export type InitAssetClassVersionContext = BaseWriteContext & { owner?: Keypair };
 
 export async function initAssetClassVersion(
@@ -454,6 +442,13 @@ export async function initAssetClassVersion(
 
 export type WriteAssetClassVersionMaskContext = BaseWriteContext & { owner?: Keypair };
 
+type WriteAssetClassVersionMaskArgs = {
+  configId: anchor.BN;
+  version: anchor.BN;
+  offset: number;
+  chunk: Buffer;
+};
+
 export async function writeAssetClassVersionMask(
   callContext: WriteAssetClassVersionMaskContext = {},
   args: WriteAssetClassVersionMaskArgs
@@ -476,9 +471,14 @@ export async function writeAssetClassVersionMask(
 
 export type FinalizeAssetClassVersionContext = BaseWriteContext & { owner?: Keypair };
 
+type FinalizeAssetClassVersionArgs = {
+  configId: anchor.BN;
+  version: anchor.BN;
+};
+
 export async function finalizeAssetClassVersion(
   callContext: FinalizeAssetClassVersionContext = {},
-  args: AssetClassVersionArgs
+  args: FinalizeAssetClassVersionArgs
 ): Promise<void> {
   const program = getFactoryProgram();
   const owner = callContext.owner ?? program.provider.wallet.payer;
@@ -502,9 +502,19 @@ export async function finalizeAssetClassVersion(
  * `finalize`. Mirrors what a real client does when the mask is too large for a
  * single transaction.
  */
+
+export type DeployAssetClassVersionContext = BaseWriteContext & { owner?: Keypair };
+
+type DeployAssetClassVersionArgs = {
+  configId: anchor.BN;
+  version: anchor.BN;
+  mask: Buffer;
+  chunkSize?: number;
+};
+
 export async function deployAssetClassVersion(
-  callContext: InitAssetClassVersionContext = {},
-  args: { configId: anchor.BN; version: anchor.BN; mask: Buffer; chunkSize?: number }
+  callContext: DeployAssetClassVersionContext = {},
+  args: DeployAssetClassVersionArgs
 ): Promise<void> {
   const { configId, version, mask, chunkSize = 800 } = args;
 
