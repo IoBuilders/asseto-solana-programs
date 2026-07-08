@@ -829,7 +829,7 @@ describe("factory", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("init version: fails with InvalidVersion when version is not latest_version + 1", async () => {
+  it("init_asset_class_version: fails with InvalidVersion when version is not latest_version + 1", async () => {
     const cfg = new anchor.BN(103);
     await clearAssetClassVersion(cfg, new anchor.BN(1));
     const owner = Keypair.generate();
@@ -848,7 +848,7 @@ describe("factory", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("init version: cannot create the same (config_id, version) twice", async () => {
+  it("init_asset_class_version: cannot create the same (config_id, version) twice", async () => {
     const cfg = new anchor.BN(109);
     await clearAssetClassVersion(cfg, new anchor.BN(1));
     const owner = Keypair.generate();
@@ -879,7 +879,7 @@ describe("factory", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("init version: fails with NotOwner when called by a non-owner", async () => {
+  it("init_asset_class_version: fails with NotOwner when called by a non-owner", async () => {
     const cfg = new anchor.BN(104);
     await clearAssetClassVersion(cfg, new anchor.BN(1));
     const owner = Keypair.generate().publicKey;
@@ -898,7 +898,7 @@ describe("factory", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("write mask: fails with MaskChunkOutOfBounds when the chunk exceeds the mask capacity", async () => {
+  it("write_asset_class_version_mask: fails with MaskChunkOutOfBounds when the chunk exceeds the mask capacity", async () => {
     const cfg = new anchor.BN(107);
     await clearAssetClassVersion(cfg, new anchor.BN(1));
     const owner = Keypair.generate();
@@ -923,7 +923,7 @@ describe("factory", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
-  it("write mask: fails with VersionNotDraft once the version is sealed (immutability)", async () => {
+  it("write_asset_class_version_mask: fails with VersionNotDraft once the version is sealed (immutability)", async () => {
     const cfg = new anchor.BN(108);
     await clearAssetClassVersion(cfg, new anchor.BN(1));
     const owner = Keypair.generate();
@@ -942,6 +942,128 @@ describe("factory", () => {
     } catch (err) {
       assert.instanceOf(err, AnchorError);
       assert.equal((err as AnchorError).error.errorCode.code, "VersionNotDraft");
+    }
+  });
+
+  // ── finalize_asset_class_version ─────────────────────────────────────────────
+  it("finalize_asset_class_version: seals the version to Ready and advances latest_version", async () => {
+    const cfg = new anchor.BN(110);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    const version = new anchor.BN(1);
+    await initAssetClassVersion({ owner }, { configId: cfg, version });
+
+    const before = await getAssetClassVersion(cfg, version);
+    assert.equal(before.state, 0, "precondition: version should be Draft (0) before finalize");
+
+    await finalizeAssetClassVersion({ owner }, { configId: cfg, version });
+
+    const after = await getAssetClassVersion(cfg, version);
+    assert.equal(after.state, 1, "version should be Ready (1) after finalize");
+    assert.equal(
+      (await getAssetClassOwnership(cfg)).latestVersion.toString(),
+      version.toString(),
+      "latest_version should advance to the finalized version"
+    );
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("finalize_asset_class_version: fails with FactoryPaused when the factory is paused", async () => {
+    const cfg = new anchor.BN(111);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    const version = new anchor.BN(1);
+    await initAssetClassVersion({ owner }, { configId: cfg, version });
+
+    // Pause only after the draft exists, so the failure is isolated to the
+    // finalize call itself, not to some earlier step.
+    await setFactory(Keypair.generate().publicKey, true);
+
+    try {
+      await finalizeAssetClassVersion({ owner }, { configId: cfg, version });
+      assert.fail("Expected FactoryPaused but finalize succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "FactoryPaused");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("finalize_asset_class_version: fails with NotOwner when called by a non-owner", async () => {
+    const cfg = new anchor.BN(112);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    const rogue = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await requestAirdrop(rogue.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    const version = new anchor.BN(1);
+    await initAssetClassVersion({ owner }, { configId: cfg, version });
+
+    try {
+      await finalizeAssetClassVersion({ owner: rogue }, { configId: cfg, version });
+      assert.fail("Expected NotOwner but finalize succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "NotOwner");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("finalize_asset_class_version: fails with VersionNotDraft when the version is already sealed", async () => {
+    const cfg = new anchor.BN(113);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    const version = new anchor.BN(1);
+    await initAssetClassVersion({ owner }, { configId: cfg, version });
+    await finalizeAssetClassVersion({ owner }, { configId: cfg, version });
+
+    try {
+      // Same version, already Ready — must be rejected, not silently re-sealed.
+      await finalizeAssetClassVersion({ owner }, { configId: cfg, version });
+      assert.fail("Expected VersionNotDraft but finalize succeeded on an already-sealed version");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "VersionNotDraft");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("finalize_asset_class_version: fails with InvalidVersion when latest_version no longer matches", async () => {
+    const cfg = new anchor.BN(114);
+    await clearAssetClassVersion(cfg, new anchor.BN(1));
+    const owner = Keypair.generate();
+    await requestAirdrop(owner.publicKey);
+    await setFactory(Keypair.generate().publicKey, false);
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(0));
+
+    const version = new anchor.BN(1);
+    await initAssetClassVersion({ owner }, { configId: cfg, version });
+
+    // Simulate `latest_version` having moved on since this draft was created —
+    // the draft's own `version` field (1) no longer equals `latest_version + 1` (6).
+    await setAssetClassOwnership(cfg, owner.publicKey, new anchor.BN(5));
+
+    try {
+      await finalizeAssetClassVersion({ owner }, { configId: cfg, version });
+      assert.fail("Expected InvalidVersion but finalize succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      assert.equal((err as AnchorError).error.errorCode.code, "InvalidVersion");
     }
   });
 });
