@@ -250,3 +250,14 @@ export function assetClassPendingOwnerPdaWithBump(configId: BN): [PublicKey, num
     FACTORY_PROGRAM_ID
   );
 }
+
+export function assetClassVersionPda(configId: BN, version: BN): PublicKey {
+  return assetClassVersionPdaWithBump(configId, version)[0];
+}
+
+export function assetClassVersionPdaWithBump(configId: BN, version: BN): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("asset_class_version"), configId.toArrayLike(Buffer, "le", 8), version.toArrayLike(Buffer, "le", 8)],
+    FACTORY_PROGRAM_ID
+  );
+}

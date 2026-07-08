@@ -14,4 +14,12 @@ pub enum ErrorCode {
     NotOwner,
     #[msg("Signer is not the pending asset class owner")]
     NotPendingOwner,
+    #[msg("Version must be the asset class's latest version + 1")]
+    InvalidVersion,
+    #[msg("Asset class version is not in Draft state")]
+    VersionNotDraft,
+    #[msg("Mask chunk would write past the mask capacity")]
+    MaskChunkOutOfBounds,
+    #[msg("Arithmetic overflow")]
+    Overflow,
 }

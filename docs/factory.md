@@ -50,6 +50,31 @@ Per-asset-class pending-owner PDA stored at `["asset_class_pending_owner", confi
 | `pending_owner` | `Pubkey` | Account nominated to become the new asset class owner. |
 | `bump` | `u8` | Bump for the `["asset_class_pending_owner", config_id]` PDA. |
 
+### `AssetClassVersion`
+
+Per-version PDA stored at `["asset_class_version", config_id, version]` (`config_id` and `version` as little-endian `u64`). Holds one version of an asset class — its lifecycle `state` and the functionality bit-mask. Created in `Draft` by `init_asset_class_version`; sealed to `Ready` (immutable) by `finalize_asset_class_version`.
+
+**Zero-copy** (`#[account(zero_copy)]` / `AccountLoader`): the account is `#[repr(C)]` and read/written in place via `load()` / `load_mut()`, never deserialised as a whole, so reading a single functionality bit is cheap. The mask is a **fixed-size** `[u8; FUNCTIONALITIES_BYTES_MASK]` field: every version reserves the full global capacity (a single design-time constant, default 8192 bits = 1024 bytes). The header is laid out with explicit `_padding` so there is no implicit padding (a `Pod` requirement).
+
+A version is fully defined by its bit-mask — there is no separate length. Bit `i` is read as `mask[i / 8] >> (i % 8) & 1` (LSB-first within each byte); `1` means "functionality `i` is activated", `0` means disabled (whether reserved-for-the-future or explicitly off — they are indistinguishable, and that's fine).
+
+| Field | Type | Notes |
+|---|---|---|
+| `config_id` | `u64` | Asset class this version belongs to. |
+| `version` | `u64` | Version number (1-based); equals `AssetClassOwnership.latest_version + 1` at `init` time. |
+| `state` | `u8` | `STATE_DRAFT` (0) while writing, `STATE_READY` (1) once sealed. |
+| `bump` | `u8` | Bump for the `["asset_class_version", config_id, version]` PDA. |
+| `_padding` | `[u8; 6]` | Keeps the header at 24 bytes (no implicit padding before `mask`). |
+| `mask` | `[u8; FUNCTIONALITIES_BYTES_MASK]` | Fixed-capacity functionality bit-mask. `1` = activated; unwritten positions are `0`. |
+
+### Constants
+
+| Constant | Value | Notes |
+|---|---|---|
+| `FUNCTIONALITIES_BITS_MASK` | `8192` | Global mask capacity in bits — the single design-time knob for max functionalities. Must be a multiple of 8 and keep `8 + size_of::<AssetClassVersion>() <= 10240` (the `init` limit). All versions share this capacity. |
+| `FUNCTIONALITIES_BYTES_MASK` | `1024` | `FUNCTIONALITIES_BITS_MASK / 8`. |
+| `STATE_DRAFT` / `STATE_READY` | `0` / `1` | `state` values (zero-copy accounts can't hold a Borsh enum). |
+
 ---
 
 ## Instructions
@@ -242,6 +267,82 @@ Callable only by the current asset class `owner`, and only while the factory is 
 
 ---
 
+### Deploying an asset class version (multi-step)
+
+The version account is fixed-size and zero-copy, created at full capacity in one `init` (no `resize`, no rent top-up). Writing the mask is split into chunks only because a chunk's bytes (plus the rest of the instruction) must fit a single transaction (~1232 bytes). Each version is **independent**: it defines its own functionalities from scratch and inherits nothing from previous versions. A version is deployed in three steps, all callable only by the asset class `owner` while the factory is not paused:
+
+1. **`init_asset_class_version`** — creates the version PDA at full capacity in `Draft` with an empty (all-zero) mask.
+2. **`write_asset_class_version_mask`** — called once per chunk; copies the chunk into the mask at a byte `offset`.
+3. **`finalize_asset_class_version`** — flips `state` to `Ready` (immutable) and advances `AssetClassOwnership.latest_version`.
+
+### `init_asset_class_version(config_id: u64, version: u64)`
+
+Starts deploying version `version` of asset class `config_id`, creating the fixed-size `asset_class_version` PDA in `Draft` state with an empty mask. `version` must equal `asset_class_ownership.latest_version + 1`, so only one draft (the next version) can exist at a time.
+
+Callable only by the asset class `owner`, and only while the factory is not paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `owner` | `Signer` (mut) | The asset class owner. Must sign; pays PDA creation. |
+| `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
+| `asset_class_ownership_pda` | `Account<AssetClassOwnership>` | Ownership PDA. Seeds: `["asset_class_ownership", config_id]`. Read to verify the owner and pin `version`. |
+| `asset_class_version_pda` | `AccountLoader<AssetClassVersion>` (init) | Version PDA. Seeds: `["asset_class_version", config_id, version]`. `init` fails if it already exists. |
+| `system_program` | `Program<System>` | Required for account creation. |
+
+**Execution**
+
+1. `require_not_paused` / `verify_owner`.
+2. `require version == latest_version + 1` (`InvalidVersion`).
+3. `load_init()` and write the header (`config_id`, `version`, `state = Draft`, `bump`). The mask is left zeroed.
+
+### `write_asset_class_version_mask(config_id: u64, version: u64, offset: u32, chunk: Vec<u8>)`
+
+Copies `chunk` into the mask at byte `offset` (in place — no resize). While the version is a `Draft` the owner may freely set or clear bits. Positions never written stay `0` (disabled). Rejected once the version is sealed.
+
+Callable only by the asset class `owner`, and only while the factory is not paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `owner` | `Signer` | The asset class owner. Must sign. |
+| `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
+| `asset_class_ownership_pda` | `Account<AssetClassOwnership>` | Ownership PDA. Seeds: `["asset_class_ownership", config_id]`. Read to verify the owner. |
+| `asset_class_version_pda` | `AccountLoader<AssetClassVersion>` (mut) | Version PDA. Seeds: `["asset_class_version", config_id, version]`. Must be `Draft`. |
+
+**Execution**
+
+1. `require_not_paused` / `verify_owner`.
+2. `require state == Draft` (`VersionNotDraft`).
+3. `require offset + chunk.len() <= FUNCTIONALITIES_BYTES_MASK` (`MaskChunkOutOfBounds`).
+4. Copies `chunk` into `mask[offset..]`.
+
+### `finalize_asset_class_version(config_id: u64, version: u64)`
+
+Seals a `Draft` version into `Ready` (immutable) and advances `asset_class_ownership.latest_version` to this version. There is no completeness check — the mask is fully allocated from `init`, and unwritten positions are simply `0` (disabled).
+
+Callable only by the asset class `owner`, and only while the factory is not paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `owner` | `Signer` | The asset class owner. Must sign. |
+| `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
+| `asset_class_ownership_pda` | `Account<AssetClassOwnership>` (mut) | Ownership PDA. Seeds: `["asset_class_ownership", config_id]`. `latest_version` is advanced here. |
+| `asset_class_version_pda` | `AccountLoader<AssetClassVersion>` (mut) | Version PDA. Seeds: `["asset_class_version", config_id, version]`. Must be `Draft`; sealed to `Ready`. |
+
+**Execution**
+
+1. `require_not_paused` / `verify_owner`.
+2. `require state == Draft` (`VersionNotDraft`).
+3. `require version == latest_version + 1` (`InvalidVersion`, defensive).
+4. Sets `state = Ready` and `asset_class_ownership.latest_version = version`.
+
+---
+
 ## Program IDs
 
-Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. The PDA seeds are defined in `common` as `pda_seeds::FACTORY` (`["factory"]`), `pda_seeds::FACTORY_PENDING_MANAGER` (`["factory_pending_manager"]`), `pda_seeds::ASSET_CLASS_OWNERSHIP` (`["asset_class_ownership", config_id]`), and `pda_seeds::ASSET_CLASS_PENDING_OWNER` (`["asset_class_pending_owner", config_id]`). There is no per-program `constants.rs`.
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. The PDA seeds are defined in `common` as `pda_seeds::FACTORY` (`["factory"]`), `pda_seeds::FACTORY_PENDING_MANAGER` (`["factory_pending_manager"]`), `pda_seeds::ASSET_CLASS_OWNERSHIP` (`["asset_class_ownership", config_id]`), `pda_seeds::ASSET_CLASS_PENDING_OWNER` (`["asset_class_pending_owner", config_id]`), and `pda_seeds::ASSET_CLASS_VERSION` (`["asset_class_version", config_id, version]`). There is no per-program `constants.rs`.

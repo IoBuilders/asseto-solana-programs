@@ -404,3 +404,141 @@ export async function setAssetClassPendingOwner(configId: anchor.BN, pendingOwne
 export async function clearAssetClassPendingOwner(configId: anchor.BN): Promise<void> {
   await surfnetSetAccount(pdaUtils.assetClassPendingOwnerPda(configId), { lamports: 0 });
 }
+
+// ── asset class version (deploy) ───────────────────────────────────────────────
+
+/** Global mask capacity in bits (mirrors `FUNCTIONALITIES_BITS_MASK` on-chain). */
+export const FUNCTIONALITIES_BITS_MASK = 8192;
+/** Global mask capacity in bytes. */
+export const FUNCTIONALITIES_BYTES_MASK = FUNCTIONALITIES_BITS_MASK / 8;
+
+type InitAssetClassVersionArgs = {
+  configId: anchor.BN;
+  version: anchor.BN;
+};
+
+type WriteAssetClassVersionMaskArgs = {
+  configId: anchor.BN;
+  version: anchor.BN;
+  offset: number;
+  chunk: Buffer;
+};
+
+type AssetClassVersionArgs = {
+  configId: anchor.BN;
+  version: anchor.BN;
+};
+
+export type InitAssetClassVersionContext = BaseWriteContext & { owner?: Keypair };
+
+export async function initAssetClassVersion(
+  callContext: InitAssetClassVersionContext = {},
+  args: InitAssetClassVersionArgs
+): Promise<void> {
+  const program = getFactoryProgram();
+  const owner = callContext.owner ?? program.provider.wallet.payer;
+  const { configId, version } = args;
+
+  await program.methods
+    .initAssetClassVersion(configId, version)
+    .accountsStrict({
+      owner: owner.publicKey,
+      factory: pdaUtils.factoryPda(),
+      assetClassOwnershipPda: pdaUtils.assetClassOwnershipPda(configId),
+      assetClassVersionPda: pdaUtils.assetClassVersionPda(configId, version),
+      systemProgram: SYSTEM_PROGRAM_ID,
+    })
+    .signers(callContext.signers ?? [owner])
+    .rpc({ commitment: "confirmed" });
+}
+
+export type WriteAssetClassVersionMaskContext = BaseWriteContext & { owner?: Keypair };
+
+export async function writeAssetClassVersionMask(
+  callContext: WriteAssetClassVersionMaskContext = {},
+  args: WriteAssetClassVersionMaskArgs
+): Promise<void> {
+  const program = getFactoryProgram();
+  const owner = callContext.owner ?? program.provider.wallet.payer;
+  const { configId, version, offset, chunk } = args;
+
+  await program.methods
+    .writeAssetClassVersionMask(configId, version, offset, chunk)
+    .accountsStrict({
+      owner: owner.publicKey,
+      factory: pdaUtils.factoryPda(),
+      assetClassOwnershipPda: pdaUtils.assetClassOwnershipPda(configId),
+      assetClassVersionPda: pdaUtils.assetClassVersionPda(configId, version),
+    })
+    .signers(callContext.signers ?? [owner])
+    .rpc({ commitment: "confirmed" });
+}
+
+export type FinalizeAssetClassVersionContext = BaseWriteContext & { owner?: Keypair };
+
+export async function finalizeAssetClassVersion(
+  callContext: FinalizeAssetClassVersionContext = {},
+  args: AssetClassVersionArgs
+): Promise<void> {
+  const program = getFactoryProgram();
+  const owner = callContext.owner ?? program.provider.wallet.payer;
+  const { configId, version } = args;
+
+  await program.methods
+    .finalizeAssetClassVersion(configId, version)
+    .accountsStrict({
+      owner: owner.publicKey,
+      factory: pdaUtils.factoryPda(),
+      assetClassOwnershipPda: pdaUtils.assetClassOwnershipPda(configId),
+      assetClassVersionPda: pdaUtils.assetClassVersionPda(configId, version),
+    })
+    .signers(callContext.signers ?? [owner])
+    .rpc({ commitment: "confirmed" });
+}
+
+/**
+ * High-level convenience: deploys a full asset-class version end to end — `init`,
+ * then one `write` per `chunkSize`-byte slice of `mask` (OR-ed in), then
+ * `finalize`. Mirrors what a real client does when the mask is too large for a
+ * single transaction.
+ */
+export async function deployAssetClassVersion(
+  callContext: InitAssetClassVersionContext = {},
+  args: { configId: anchor.BN; version: anchor.BN; mask: Buffer; chunkSize?: number }
+): Promise<void> {
+  const { configId, version, mask, chunkSize = 800 } = args;
+
+  await initAssetClassVersion(callContext, { configId, version });
+  for (let offset = 0; offset < mask.length; offset += chunkSize) {
+    const chunk = mask.subarray(offset, Math.min(offset + chunkSize, mask.length));
+    await writeAssetClassVersionMask(callContext, { configId, version, offset, chunk: Buffer.from(chunk) });
+  }
+  await finalizeAssetClassVersion(callContext, { configId, version });
+}
+
+export async function getAssetClassVersion(configId: anchor.BN, version: anchor.BN) {
+  return await getFactoryProgram().account.assetClassVersion.fetch(
+    pdaUtils.assetClassVersionPda(configId, version),
+    "confirmed"
+  );
+}
+
+/**
+ * Returns the full fixed-capacity functionality mask (`FUNCTIONALITIES_BYTES_MASK`
+ * bytes) of a version. The zero-copy `mask: [u8; N]` field decodes as a number
+ * array; this packs it back into a Buffer.
+ */
+export async function getAssetClassVersionMask(configId: anchor.BN, version: anchor.BN): Promise<Buffer> {
+  const stored = await getAssetClassVersion(configId, version);
+  return Buffer.from(stored.mask as number[]);
+}
+
+/**
+ * Test-only: removes the `asset_class_version` PDA for `(configId, version)` via
+ * surfpool by zeroing its lamports, so the account reads back as non-existent.
+ * Lets a test re-run from a blank slate (version PDAs are not cleared by the
+ * suite's `beforeEach`).
+ */
+export async function clearAssetClassVersion(configId: anchor.BN, version: anchor.BN): Promise<void> {
+  await surfnetSetAccount(pdaUtils.assetClassVersionPda(configId, version), { lamports: 0 });
+}
