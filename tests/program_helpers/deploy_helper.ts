@@ -18,6 +18,8 @@ type DeployMintArgs = {
   symbol?: string;
   uri?: string;
   additionalMetadata?: { key: string; value: string }[];
+  assetClassConfigId?: anchor.BN | number;
+  assetClassVersionId?: anchor.BN | number;
 };
 
 function getDefaultArgs(): Required<DeployMintArgs> {
@@ -27,6 +29,8 @@ function getDefaultArgs(): Required<DeployMintArgs> {
     symbol: "TEST_TOKEN",
     uri: "https://example.com/metadata.json",
     additionalMetadata: [],
+    assetClassConfigId: new anchor.BN(0),
+    assetClassVersionId: new anchor.BN(0),
   };
 }
 
@@ -50,6 +54,8 @@ export async function deployMint(
       symbol: effectiveArgs.symbol,
       uri: effectiveArgs.uri,
       additionalMetadata: effectiveArgs.additionalMetadata,
+      assetClassConfigId: new anchor.BN(effectiveArgs.assetClassConfigId),
+      assetClassVersionId: new anchor.BN(effectiveArgs.assetClassVersionId),
     })
     .accountsStrict({
       payer: callContext.payer ?? callContext.deployer,
@@ -85,6 +91,8 @@ type MintDeployedEvent = {
   symbol: string;
   uri: string;
   isin: string | null;
+  assetClassConfigId: anchor.BN;
+  assetClassVersionId: anchor.BN;
 };
 
 /**

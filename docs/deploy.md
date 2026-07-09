@@ -13,10 +13,19 @@ Seeds: `["mint_owner", mint]` — one per mint, owned by this program.
 ```rust
 pub struct MintOwner {
     pub deployer: Pubkey,
+    pub asset_class_config_id: u64,   // asset-class PDA seed (1/2)
+    pub asset_class_version_id: u64,  // asset-class PDA seed (2/2)
     pub bump: u8,
 }
-// LEN = 8 (discriminator) + 32 (deployer) + 1 (bump) = 41 bytes
+// LEN = 8 (discriminator) + 32 (deployer) + 8 (asset_class_config_id) + 8 (asset_class_version_id) + 1 (bump) = 57 bytes
 ```
+
+`asset_class_config_id` + `asset_class_version_id` are the seed of the factory asset-class PDA
+(`["asset_class", config_id, version_id]`, owned by `factory`) this mint is
+hooked to. The **seed** is stored — not the derived address — so downstream
+programs re-derive that PDA with `seeds::program = FACTORY_PROGRAM_ID`, matching
+how every other cross-program PDA is referenced in this workspace. The deployer
+can re-point the mint to a newer asset-class version by updating these fields.
 
 The fields are defined in `common::state::MintOwner` so downstream programs can deserialize it without importing `deploy`. This program defines its own `state::MintOwner` with `#[account]` (required for `Account<MintOwner>` usage) whose fields mirror `common`'s version and whose `LEN` delegates to it.
 
@@ -35,6 +44,8 @@ pub struct DeployMintParams {
     pub symbol: String,
     pub uri: String,
     pub additional_metadata: Vec<MetadataField>,  // custom key-value pairs
+    pub asset_class_config_id: u64,   // asset-class PDA seed (1/2) — persisted in mint_owner_pda
+    pub asset_class_version_id: u64,  // asset-class PDA seed (2/2) — persisted in mint_owner_pda
 }
 
 pub struct MetadataField {
@@ -111,7 +122,7 @@ pub struct MetadataField {
 - Transfers mint authority from `temp_mint_authority` to `mint_authority`.
 
 **13 — Record deployer**
-- Writes `deployer` pubkey and PDA bump into `mint_owner_pda`.
+- Writes `deployer` pubkey, `asset_class_config_id`, `asset_class_version_id`, and PDA bump into `mint_owner_pda`.
 
 **14 — CPI → `initialize_extra_account_meta_list`** (signed by `mint_owner_pda`)
 - Calls `transfer_hook::initialize_extra_account_meta_list(deployer.key())`.
@@ -145,6 +156,8 @@ pub struct MintDeployed {
     pub symbol: String,
     pub uri: String,
     pub isin: Option<String>,  // from the additional_metadata entry keyed "isin"
+    pub asset_class_config_id: u64,   // asset-class PDA seed (1/2)
+    pub asset_class_version_id: u64,  // asset-class PDA seed (2/2)
 }
 ```
 

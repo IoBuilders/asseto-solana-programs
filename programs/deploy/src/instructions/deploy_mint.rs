@@ -40,6 +40,12 @@ pub struct DeployMintParams {
     pub uri: String,
     /// Optional custom key-value pairs written to additional_metadata at deploy time.
     pub additional_metadata: Vec<MetadataField>,
+    /// Asset-class config id. First half of the seed that derives the factory
+    /// asset-class PDA (`["asset_class", config_id, version_id]`) this mint is
+    /// hooked to. Persisted in `mint_owner_pda`.
+    pub asset_class_config_id: u64,
+    /// Asset-class version id. Second half of that seed.
+    pub asset_class_version_id: u64,
 }
 
 /// Deploys a new Token-2022 mint with the following extensions, each governed
@@ -318,7 +324,15 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     )?;
 
     // ── 13. Record the deployer as mint owner ────────────────────────────────
+    //
+    // The (config_id, version_id) pair is the seed of the factory asset-class
+    // PDA (`["asset_class", config_id, version_id]`) this mint is hooked to.
+    // Storing the seed — rather than the derived address — lets downstream
+    // programs re-derive that PDA via `seeds::program = FACTORY_PROGRAM_ID`,
+    // matching how every other cross-program PDA is referenced in this workspace.
     ctx.accounts.mint_owner_pda.deployer = ctx.accounts.deployer.key();
+    ctx.accounts.mint_owner_pda.asset_class_config_id = params.asset_class_config_id;
+    ctx.accounts.mint_owner_pda.asset_class_version_id = params.asset_class_version_id;
     ctx.accounts.mint_owner_pda.bump = ctx.bumps.mint_owner_pda;
 
     // ── 14. Initialize the ExtraAccountMetaList for the transfer hook ────────
@@ -355,6 +369,8 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         symbol: event_symbol,
         uri: event_uri,
         isin: event_isin,
+        asset_class_config_id: params.asset_class_config_id,
+        asset_class_version_id: params.asset_class_version_id,
     });
 
     Ok(())

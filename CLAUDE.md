@@ -124,7 +124,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 
 | Seeds | Owner | Purpose |
 |---|---|---|
-| `["mint_owner", mint]` | `deploy` | Stores deployer + bump; type `common::state::MintOwner` |
+| `["mint_owner", mint]` | `deploy` | Stores deployer + asset-class PDA seed (`asset_class_config_id`, `asset_class_version_id`) + bump; type `common::state::MintOwner` |
 | `["temp_mint_authority", mint]` | `deploy` | Ephemeral signing key during `deploy_mint` only |
 | `["mint_authority", mint]` | `mint` | Token-2022 mint authority |
 | `["metadata_update_authority", mint]` | `metadata-update` | Token-2022 metadata update authority |
