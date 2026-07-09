@@ -166,8 +166,10 @@ export const ASSET_CLASS_VERSION_STATE_READY = 1;
 
 /** Global mask capacity in bits (mirrors `FUNCTIONALITIES_BITS_MASK` on-chain). */
 export const FUNCTIONALITIES_BITS_MASK = 8192;
-/** Global mask capacity in bytes. */
-export const FUNCTIONALITIES_BYTES_MASK = FUNCTIONALITIES_BITS_MASK / 8;
+/** Number of bits packed into each mask's chunk (mirrors `FUNCTIONALITIES_MASK_CHUNK_BITS` on-chain). */
+export const FUNCTIONALITIES_MASK_CHUNK_BITS = 8;
+/** Global mask capacity in bytes  (mirrors `FUNCTIONALITIES_BYTES_MASK` on-chain). */
+export const FUNCTIONALITIES_BYTES_MASK = FUNCTIONALITIES_BITS_MASK / FUNCTIONALITIES_MASK_CHUNK_BITS;
 
 export async function getAssetClassVersion(configId: anchor.BN, version: anchor.BN) {
   return await getFactoryProgram().account.assetClassVersion.fetch(
@@ -200,8 +202,8 @@ export async function setAssetClassVersion(
 
   const mask = Buffer.alloc(FUNCTIONALITIES_BYTES_MASK);
   for (const f of functionalities) {
-    const byte = Math.floor(f / 8);
-    const bit = f % 8;
+    const byte = Math.floor(f / FUNCTIONALITIES_MASK_CHUNK_BITS);
+    const bit = f % FUNCTIONALITIES_MASK_CHUNK_BITS;
     mask[byte] |= 1 << bit;
   }
 

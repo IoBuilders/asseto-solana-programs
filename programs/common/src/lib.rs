@@ -1,4 +1,7 @@
+use crate::functionalities::index_of;
+use crate::state::AssetClassVersion;
 use anchor_lang::prelude::*;
+use std::cell::Ref;
 
 pub mod functionalities;
 pub mod pda_seeds;
@@ -14,6 +17,10 @@ pub enum CommonError {
     MintPaused,
     #[msg("The mint has been deactivated")]
     Deactivated,
+    #[msg("Functionality is past the mask capacity")]
+    FunctionalityOutOfBounds,
+    #[msg("The asset class version does not support this functionality")]
+    FunctionalityNotSupportedError,
 }
 
 /// Verifies that `deployer` matches the pubkey stored in a `mint_owner_pda`
@@ -83,5 +90,20 @@ pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()> {
 
     require!(!bool::from(pausable_config.paused), CommonError::MintPaused);
 
+    Ok(())
+}
+
+/// Checks whether `functionality` (one of the constants above) is enabled in an
+/// `AssetClassVersion` account's mask.
+/// Returns `Ok(())` if the bit for `functionality` is set.
+/// Returns `Err(CommonError::FunctionalityNotSupportedError)` if it isn't
+pub fn require_functionality(
+    asset_class_version: Ref<AssetClassVersion>,
+    functionality: u16,
+) -> Result<()> {
+    let (byte, bit) = index_of(functionality)?;
+    let enabled = (asset_class_version.mask[byte] >> bit) & 1 == 1;
+
+    require!(enabled, CommonError::FunctionalityNotSupportedError);
     Ok(())
 }

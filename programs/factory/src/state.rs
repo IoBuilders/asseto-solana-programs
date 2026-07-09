@@ -1,4 +1,7 @@
 use anchor_lang::prelude::*;
+use common::state::{
+    discriminators_eq, AssetClassVersion as AssetClassVersionCommon, FUNCTIONALITIES_BYTES_MASK,
+};
 
 /// Singleton configuration PDA for the factory, stored at `["factory"]`.
 ///
@@ -62,17 +65,6 @@ pub struct AssetClassPendingOwner {
     pub bump: u8,
 }
 
-/// Global capacity, in bits, of every asset-class version's functionality mask.
-///
-/// Every `AssetClassVersion` reserves exactly this many bits (so the
-/// account is fixed-size and zero-copy-friendly), regardless of how many are
-/// actually defined. Must be a multiple of 8 (whole bytes) and keep the account
-/// under the 10 KiB `init` limit (`8 + size_of::<AssetClassVersion>() <= 10240`).
-pub const FUNCTIONALITIES_BITS_MASK: u64 = 8_192;
-
-/// Capacity of the mask in bytes (`FUNCTIONALITIES_BITS_MASK / 8`).
-pub const FUNCTIONALITIES_BYTES_MASK: usize = (FUNCTIONALITIES_BITS_MASK / 8) as usize;
-
 /// Lifecycle state of an asset-class version, stored as a `u8` (zero-copy /
 /// `Pod` accounts cannot hold a Borsh enum).
 pub const STATE_DRAFT: u8 = 0;
@@ -94,7 +86,12 @@ pub const STATE_READY: u8 = 1;
 /// inherited from the previous version. While the version is `Draft`,
 /// `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities`
 /// may freely turn bits on or off; once sealed (`Ready`), the mask is immutable.
-#[account(zero_copy)]
+///
+/// MIRROR: `common::state::AssetClassVersion` holds the same fields, field for
+/// field, so `common::functionalities::require_functionality` can locate the
+/// mask without depending on `factory`. Both must stay in sync — the
+/// compile-time assertion below guards against divergence.
+#[account(zero_copy, discriminator = AssetClassVersionCommon::DISCRIMINATOR)]
 #[repr(C)]
 pub struct AssetClassVersion {
     /// Asset class config this version belongs to.
@@ -112,3 +109,16 @@ pub struct AssetClassVersion {
     /// Positions never set stay `0` (disabled).
     pub mask: [u8; FUNCTIONALITIES_BYTES_MASK],
 }
+
+const _: () = assert!(
+    size_of::<AssetClassVersion>() == size_of::<AssetClassVersionCommon>(),
+    "factory::AssetClassVersion and common::state::AssetClassVersion have diverged — update both together",
+);
+
+const _: () = assert!(
+    discriminators_eq(
+        <AssetClassVersion as Discriminator>::DISCRIMINATOR,
+        <AssetClassVersionCommon as Discriminator>::DISCRIMINATOR
+    ),
+    "factory::AssetClassVersion and common::AssetClassVersion discriminators have diverged — update both together",
+);

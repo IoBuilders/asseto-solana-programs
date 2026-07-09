@@ -17,13 +17,11 @@ no-log-ix-name = []
 anchor-debug = []
 custom-heap = []
 custom-panic = []
-idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+idl-build = ["anchor-lang/idl-build", "common/idl-build"]
 
 [dependencies]
 anchor-lang = { version = "1.0.2", features = ["init-if-needed"] }
-anchor-spl = "1.0.2"
 bytemuck = { version = "1.17", features = ["derive", "min_const_generics"] }
-spl-token-2022 = { version = ">=10.0.0, <11", features = ["no-entrypoint"] }
 common = { path = "../common" }
 
 [lints.rust]

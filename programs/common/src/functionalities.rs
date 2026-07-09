@@ -1,10 +1,15 @@
-//! Flat `u16` identifiers for every instruction in the workspace, excluding
-//! `factory` (which consumes these constants, but doesn't define any of its
-//! own). One continuous counter across the whole file — values are not
-//! scoped per program — so do not reorder or remove an existing constant;
-//! only append new ones at the end.
-//!
-//! Named `<PROGRAM>_<INSTRUCTION>`.
+use anchor_lang::prelude::*;
+
+use crate::state::{FUNCTIONALITIES_BITS_MASK, FUNCTIONALITIES_MASK_CHUNK_BITS};
+use crate::CommonError;
+
+/// Flat `u16` identifiers for every instruction in the workspace, excluding
+/// `factory` (which consumes these constants, but doesn't define any of its
+/// own). One continuous counter across the whole file — values are not
+/// scoped per program — so do not reorder or remove an existing constant;
+/// only append new ones at the end.
+///
+/// Named `<PROGRAM>_<INSTRUCTION>`.
 pub const BOND_UPDATE_BOND_TERMS: u16 = 0;
 pub const COUPON_CREATE_COUPON: u16 = 1;
 pub const COUPON_SET_COUPON_RATE: u16 = 2;
@@ -39,9 +44,15 @@ pub const TREASURY_PAY_COUPON: u16 = 30;
 
 /// Returns `(byte, bit)`: the index of the byte in `AssetClassVersion.mask`
 /// and the bit position within that byte for the given functionality.
-pub fn index(f: u16) -> (usize, usize) {
-    let i = f as usize;
-    (i / 8, i % 8)
+pub fn index_of(functionality: u16) -> Result<(usize, usize)> {
+    let i = functionality as usize;
+    require!(
+        i < FUNCTIONALITIES_BITS_MASK,
+        CommonError::FunctionalityOutOfBounds
+    );
+    let byte = i / FUNCTIONALITIES_MASK_CHUNK_BITS;
+    let bit = i % FUNCTIONALITIES_MASK_CHUNK_BITS;
+    Ok((byte, bit))
 }
 
 #[cfg(test)]

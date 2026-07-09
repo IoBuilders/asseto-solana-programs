@@ -444,6 +444,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "bond",
+ "bytemuck",
  "coupon",
  "deactivate",
  "deploy",
@@ -455,7 +456,6 @@ dependencies = [
  "pause",
  "snapshot",
  "spl-token-2022",
- "spl-token-group-interface",
  "transfer",
  "transfer-control",
  "transfer-hook",
@@ -640,10 +640,8 @@ name = "factory"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
- "anchor-spl",
  "bytemuck",
  "common",
- "spl-token-2022",
 ]
 
 [[package]]
