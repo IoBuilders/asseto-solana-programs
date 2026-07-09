@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use common::pda_seeds;
+use common::{functionalities, pda_seeds};
 
 use crate::errors::ErrorCode;
 use crate::helpers::{require_not_paused, verify_owner};
@@ -7,22 +7,20 @@ use crate::state::{
     AssetClassOwnership, AssetClassVersion, Factory, FUNCTIONALITIES_BYTES_MASK, STATE_DRAFT,
 };
 
-/// Writes a chunk of the functionality mask into a `Draft` asset-class version.
+/// Turns off the given functionality bits in a `Draft` asset-class version's mask.
 ///
-/// Copies `chunk` into the mask at byte `offset` (overwrite — the version is
-/// built from scratch, so while it is a `Draft` the owner may freely set or
-/// clear bits). The mask may be larger than one transaction, so the client
-/// splits it into chunks (one call each); positions never written stay `0`
-/// (disabled). Rejected once the version is sealed (`Ready`).
+/// For each entry in `functionalities`, clears the corresponding bit to `0` via
+/// `mask[byte] &= !(1 << bit)` — a targeted merge, not an overwrite, so bits
+/// outside the given list are left untouched. Rejected once the version is
+/// sealed (`Ready`).
 ///
 /// Operational instruction — only the asset class `owner` may call this, and only
 /// while the factory is not paused.
-pub fn write_asset_class_version_mask(
-    ctx: Context<WriteAssetClassVersionMask>,
+pub fn disable_asset_class_version_functionalities(
+    ctx: Context<DisableAssetClassVersionFunctionalities>,
     _config_id: u64,
     _version: u64,
-    offset: u32,
-    chunk: Vec<u8>,
+    functionalities: Vec<u16>,
 ) -> Result<()> {
     require_not_paused(&ctx.accounts.factory)?;
     verify_owner(
@@ -36,21 +34,21 @@ pub fn write_asset_class_version_mask(
         ErrorCode::VersionNotDraft
     );
 
-    let start = offset as usize;
-    let end = start.checked_add(chunk.len()).ok_or(ErrorCode::Overflow)?;
-    require!(
-        end <= FUNCTIONALITIES_BYTES_MASK,
-        ErrorCode::MaskChunkOutOfBounds
-    );
-
-    version_account.mask[start..end].copy_from_slice(&chunk);
+    for f in functionalities {
+        let (byte, bit) = functionalities::index(f);
+        require!(
+            byte < FUNCTIONALITIES_BYTES_MASK,
+            ErrorCode::MaskChunkOutOfBounds
+        );
+        version_account.mask[byte] &= !(1 << bit);
+    }
 
     Ok(())
 }
 
 #[derive(Accounts)]
 #[instruction(config_id: u64, version: u64)]
-pub struct WriteAssetClassVersionMask<'info> {
+pub struct DisableAssetClassVersionFunctionalities<'info> {
     /// The asset class owner — must sign.
     pub owner: Signer<'info>,
 

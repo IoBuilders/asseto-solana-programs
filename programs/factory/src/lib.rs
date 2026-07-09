@@ -97,30 +97,49 @@ pub mod factory {
     /// Starts deploying version `version` (= `latest_version + 1`) of asset class
     /// `config_id`: creates the fixed-capacity zero-copy `asset_class_version` PDA
     /// in `Draft` state with an empty mask (each version is independent — nothing
-    /// is inherited). The mask is written afterwards via
-    /// `write_asset_class_version_mask`. Callable only by the asset class owner
-    /// while the factory is not paused.
+    /// is inherited). The mask is populated afterwards via
+    /// `enable_asset_class_version_functionalities` /
+    /// `disable_asset_class_version_functionalities`. Callable only by the asset
+    /// class owner while the factory is not paused.
     pub fn init_asset_class_version(
         ctx: Context<InitAssetClassVersion>,
         config_id: u64,
         version: u64,
     ) -> Result<()> {
-        instructions::init_asset_class_version::init_asset_class_version(ctx, config_id, version)
+        init_asset_class_version::init_asset_class_version(ctx, config_id, version)
     }
 
-    /// Writes `chunk` of the functionality mask at byte `offset` into a `Draft`
-    /// asset-class version, growing the account as needed. Called once per chunk
-    /// because the mask can exceed a single transaction. Callable only by the
-    /// asset class owner while the factory is not paused.
-    pub fn write_asset_class_version_mask(
-        ctx: Context<WriteAssetClassVersionMask>,
+    /// Turns on the given functionality bits in a `Draft` asset-class version's
+    /// mask. Callable only by the asset class owner while the factory is not
+    /// paused.
+    pub fn enable_asset_class_version_functionalities(
+        ctx: Context<EnableAssetClassVersionFunctionalities>,
         config_id: u64,
         version: u64,
-        offset: u32,
-        chunk: Vec<u8>,
+        functionalities: Vec<u16>,
     ) -> Result<()> {
-        instructions::write_asset_class_version_mask::write_asset_class_version_mask(
-            ctx, config_id, version, offset, chunk,
+        enable_asset_class_version_functionalities::enable_asset_class_version_functionalities(
+            ctx,
+            config_id,
+            version,
+            functionalities,
+        )
+    }
+
+    /// Turns off the given functionality bits in a `Draft` asset-class version's
+    /// mask. Callable only by the asset class owner while the factory is not
+    /// paused.
+    pub fn disable_asset_class_version_functionalities(
+        ctx: Context<DisableAssetClassVersionFunctionalities>,
+        config_id: u64,
+        version: u64,
+        functionalities: Vec<u16>,
+    ) -> Result<()> {
+        disable_asset_class_version_functionalities::disable_asset_class_version_functionalities(
+            ctx,
+            config_id,
+            version,
+            functionalities,
         )
     }
 
@@ -132,8 +151,6 @@ pub mod factory {
         config_id: u64,
         version: u64,
     ) -> Result<()> {
-        instructions::finalize_asset_class_version::finalize_asset_class_version(
-            ctx, config_id, version,
-        )
+        finalize_asset_class_version::finalize_asset_class_version(ctx, config_id, version)
     }
 }

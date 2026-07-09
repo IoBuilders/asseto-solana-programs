@@ -90,10 +90,10 @@ pub const STATE_READY: u8 = 1;
 ///
 /// A version is fully defined by its bit-mask: bit `i = 1` means "functionality
 /// `i` is activated". The mask is fixed-capacity, so there is no length to track.
-/// Functionalities are append-only across versions: a higher version starts from
-/// the previous version's mask (copied at `init`) and `write` only turns bits
-/// **on** (bitwise OR), so a previously-activated functionality can never be
-/// removed.
+/// Each version starts from a fresh, all-zero mask at `init` — nothing is
+/// inherited from the previous version. While the version is `Draft`,
+/// `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities`
+/// may freely turn bits on or off; once sealed (`Ready`), the mask is immutable.
 #[account(zero_copy)]
 #[repr(C)]
 pub struct AssetClassVersion {

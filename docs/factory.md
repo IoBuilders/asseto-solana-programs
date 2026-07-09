@@ -269,11 +269,12 @@ Callable only by the current asset class `owner`, and only while the factory is 
 
 ### Deploying an asset class version (multi-step)
 
-The version account is fixed-size and zero-copy, created at full capacity in one `init` (no `resize`, no rent top-up). Writing the mask is split into chunks only because a chunk's bytes (plus the rest of the instruction) must fit a single transaction (~1232 bytes). Each version is **independent**: it defines its own functionalities from scratch and inherits nothing from previous versions. A version is deployed in three steps, all callable only by the asset class `owner` while the factory is not paused:
+The version account is fixed-size and zero-copy, created at full capacity in one `init` (no `resize`, no rent top-up). Setting functionality bits is split across as many calls as needed only because the `functionalities` list (plus the rest of the instruction) must fit a single transaction. Each version is **independent**: it defines its own functionalities from scratch and inherits nothing from previous versions. A version is deployed in up to four steps, all callable only by the asset class `owner` while the factory is not paused:
 
 1. **`init_asset_class_version`** — creates the version PDA at full capacity in `Draft` with an empty (all-zero) mask.
-2. **`write_asset_class_version_mask`** — called once per chunk; copies the chunk into the mask at a byte `offset`.
-3. **`finalize_asset_class_version`** — flips `state` to `Ready` (immutable) and advances `AssetClassOwnership.latest_version`.
+2. **`enable_asset_class_version_functionalities`** — called as many times as needed; turns on the given functionality bits (merge, not overwrite).
+3. **`disable_asset_class_version_functionalities`** — called as many times as needed; turns off the given functionality bits (merge, not overwrite).
+4. **`finalize_asset_class_version`** — flips `state` to `Ready` (immutable) and advances `AssetClassOwnership.latest_version`.
 
 ### `init_asset_class_version(config_id: u64, version: u64)`
 
@@ -297,9 +298,9 @@ Callable only by the asset class `owner`, and only while the factory is not paus
 2. `require version == latest_version + 1` (`InvalidVersion`).
 3. `load_init()` and write the header (`config_id`, `version`, `state = Draft`, `bump`). The mask is left zeroed.
 
-### `write_asset_class_version_mask(config_id: u64, version: u64, offset: u32, chunk: Vec<u8>)`
+### `enable_asset_class_version_functionalities(config_id: u64, version: u64, functionalities: Vec<u16>)`
 
-Copies `chunk` into the mask at byte `offset` (in place — no resize). While the version is a `Draft` the owner may freely set or clear bits. Positions never written stay `0` (disabled). Rejected once the version is sealed.
+For each entry in `functionalities`, sets the corresponding bit to `1` (`mask[byte] |= 1 << bit`) — a targeted merge, not an overwrite, so bits outside the given list are left untouched. Rejected once the version is sealed.
 
 Callable only by the asset class `owner`, and only while the factory is not paused.
 
@@ -316,8 +317,19 @@ Callable only by the asset class `owner`, and only while the factory is not paus
 
 1. `require_not_paused` / `verify_owner`.
 2. `require state == Draft` (`VersionNotDraft`).
-3. `require offset + chunk.len() <= FUNCTIONALITIES_BYTES_MASK` (`MaskChunkOutOfBounds`).
-4. Copies `chunk` into `mask[offset..]`.
+3. For each `f` in `functionalities`: `(byte, bit) = common::functionalities::index(f)`, `require byte < FUNCTIONALITIES_BYTES_MASK` (`MaskChunkOutOfBounds`), then `mask[byte] |= 1 << bit`.
+
+### `disable_asset_class_version_functionalities(config_id: u64, version: u64, functionalities: Vec<u16>)`
+
+Same shape as `enable_asset_class_version_functionalities`, but clears each bit instead (`mask[byte] &= !(1 << bit)`).
+
+**Accounts**
+
+Same as `enable_asset_class_version_functionalities`.
+
+**Execution**
+
+Same as `enable_asset_class_version_functionalities`, except the final step is `mask[byte] &= !(1 << bit)`.
 
 ### `finalize_asset_class_version(config_id: u64, version: u64)`
 

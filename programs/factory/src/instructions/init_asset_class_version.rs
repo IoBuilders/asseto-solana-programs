@@ -9,8 +9,10 @@ use crate::state::{AssetClassOwnership, AssetClassVersion, Factory, STATE_DRAFT}
 ///
 /// Creates the fixed-size, zero-copy `asset_class_version_pda` (seeds:
 /// `["asset_class_version", config_id, version]`) in `Draft` with an empty
-/// (all-zero) mask. The mask is then filled by `write_asset_class_version_mask`
-/// and sealed by `finalize_asset_class_version`.
+/// (all-zero) mask. The mask is then filled by
+/// `enable_asset_class_version_functionalities` /
+/// `disable_asset_class_version_functionalities` and sealed by
+/// `finalize_asset_class_version`.
 ///
 /// `version` must be `asset_class_ownership.latest_version + 1`. Each version is
 /// independent — it defines its own functionalities from scratch and inherits
