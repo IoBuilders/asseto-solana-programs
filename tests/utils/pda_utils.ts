@@ -15,7 +15,6 @@ import {
   TRANSFER_HOOK_PROGRAM_ID,
   TRANSFER_PROGRAM_ID,
   TREASURY_PROGRAM_ID,
-  FACTORY_PROGRAM_ID,
 } from "./address_utils";
 
 // ── deploy ─────────────────────────────────────────────────────────────────────
@@ -267,55 +266,4 @@ export function couponPaidPda(mint: PublicKey, couponId: BN, holderTokenAccount:
 // Anchor event-CPI authority for the treasury program (seed "__event_authority").
 export function treasuryEventAuthorityPda(): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], TREASURY_PROGRAM_ID)[0];
-}
-
-// ── factory ──────────────────────────────────────────────────────────────────
-
-export function factoryPda(): PublicKey {
-  return factoryPdaWithBump()[0];
-}
-
-export function factoryPdaWithBump(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("factory")], FACTORY_PROGRAM_ID);
-}
-
-export function factoryPendingManagerPda(): PublicKey {
-  return factoryPendingManagerPdaWithBump()[0];
-}
-
-export function factoryPendingManagerPdaWithBump(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("factory_pending_manager")], FACTORY_PROGRAM_ID);
-}
-
-export function assetClassOwnershipPda(configId: BN): PublicKey {
-  return assetClassOwnershipPdaWithBump(configId)[0];
-}
-
-export function assetClassOwnershipPdaWithBump(configId: BN): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("asset_class_ownership"), configId.toArrayLike(Buffer, "le", 8)],
-    FACTORY_PROGRAM_ID
-  );
-}
-
-export function assetClassPendingOwnerPda(configId: BN): PublicKey {
-  return assetClassPendingOwnerPdaWithBump(configId)[0];
-}
-
-export function assetClassPendingOwnerPdaWithBump(configId: BN): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("asset_class_pending_owner"), configId.toArrayLike(Buffer, "le", 8)],
-    FACTORY_PROGRAM_ID
-  );
-}
-
-export function assetClassVersionPda(configId: BN, version: BN): PublicKey {
-  return assetClassVersionPdaWithBump(configId, version)[0];
-}
-
-export function assetClassVersionPdaWithBump(configId: BN, version: BN): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("asset_class_version"), configId.toArrayLike(Buffer, "le", 8), version.toArrayLike(Buffer, "le", 8)],
-    FACTORY_PROGRAM_ID
-  );
 }

@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 
+pub mod functionalities;
 pub mod pda_seeds;
 pub mod pda_utils;
 pub mod program_ids;
