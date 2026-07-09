@@ -91,6 +91,8 @@ type MintDeployedEvent = {
   symbol: string;
   uri: string;
   isin: string | null;
+  assetClassConfigId: anchor.BN;
+  assetClassVersionId: anchor.BN;
 };
 
 /**

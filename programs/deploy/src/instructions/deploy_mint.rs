@@ -369,6 +369,8 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         symbol: event_symbol,
         uri: event_uri,
         isin: event_isin,
+        asset_class_config_id: params.asset_class_config_id,
+        asset_class_version_id: params.asset_class_version_id,
     });
 
     Ok(())

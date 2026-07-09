@@ -139,6 +139,16 @@ describe("deploy", () => {
     assert.equal(event!.symbol, MINT_SYMBOL);
     assert.equal(event!.uri, MINT_URI);
     assert.equal(event!.isin, MINT_ISIN_VALUE, "isin should be taken from the additional_metadata 'isin' entry");
+    assert.equal(
+      event!.assetClassConfigId.toNumber(),
+      MINT_ASSET_CLASS_CONFIG_ID,
+      "event should carry the asset-class config id"
+    );
+    assert.equal(
+      event!.assetClassVersionId.toNumber(),
+      MINT_ASSET_CLASS_VERSION_ID,
+      "event should carry the asset-class version id"
+    );
   });
 
   it("deploy_mint: MintDeployed event has a null isin when no isin metadata is provided", async () => {

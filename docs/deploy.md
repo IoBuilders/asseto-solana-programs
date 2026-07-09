@@ -156,6 +156,8 @@ pub struct MintDeployed {
     pub symbol: String,
     pub uri: String,
     pub isin: Option<String>,  // from the additional_metadata entry keyed "isin"
+    pub asset_class_config_id: u64,   // asset-class PDA seed (1/2)
+    pub asset_class_version_id: u64,  // asset-class PDA seed (2/2)
 }
 ```
 
