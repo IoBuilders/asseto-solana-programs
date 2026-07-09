@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
+use crate::events::CouponRateSet;
 use crate::state::Coupon;
 use common::program_ids as constants;
 
@@ -34,9 +35,17 @@ pub fn set_coupon_rate(
     let coupon = &mut ctx.accounts.coupon;
     coupon.set_interest_rate(interest_rate, interest_rate_decimals)?;
 
+    emit_cpi!(CouponRateSet {
+        mint: ctx.accounts.mint.key(),
+        coupon_id: _coupon_id,
+        interest_rate_override: interest_rate,
+        interest_rate_override_decimals: interest_rate_decimals
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(coupon_id: u64, interest_rate: Option<u64>, interest_rate_decimals: Option<u8>)]
 pub struct SetCouponRate<'info> {

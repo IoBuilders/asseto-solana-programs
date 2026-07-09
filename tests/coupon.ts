@@ -14,6 +14,8 @@ import {
   getCouponByPda,
   getCouponCounter,
   getCouponCounterByPda,
+  getCouponCreatedEvent,
+  getCouponRateSetEvent,
   setCouponRate,
 } from "./program_helpers/coupon_helper";
 import { getSnapshotCounter, getSnapshotCounterByPda } from "./program_helpers/snapshot_helper";
@@ -42,7 +44,28 @@ describe("coupon", () => {
     assert.isNull(await getAccountInfo(couponCounterPda));
     assert.isNull(await getAccountInfo(snapshotCounterPda));
 
-    await createCoupon({ deployer, mint }, { periodStartDate, periodEndDate, paymentDate, couponId });
+    const { signature } = await createCoupon(
+      { deployer, mint },
+      { periodStartDate, periodEndDate, paymentDate, couponId }
+    );
+
+    const event = await getCouponCreatedEvent(signature);
+
+    assert.isNotNull(event, "Coupon creation event should be emitted");
+    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(event!.couponId.toString(), new anchor.BN(1).toString(), "event couponId should match the id");
+    assert.equal(
+      event!.periodStartDate.toString(),
+      periodStartDate.toString(),
+      "event periodStartDate should match the arg"
+    );
+    assert.equal(event!.periodEndDate.toString(), periodEndDate.toString(), "event periodEndDate should match the arg");
+    assert.equal(event!.paymentDate.toString(), paymentDate.toString(), "event paymentDate should match the arg");
+    assert.isNull(event!.interestRateOverride, "event interestRateOverride should be null when not provided");
+    assert.isNull(
+      event!.interestRateOverrideDecimals,
+      "event interestRateOverrideDecimals should be null when not provided"
+    );
 
     // ── coupon_counter exists with count = 1 ─────────────────────────────────
     const counter = await getCouponCounterByPda(couponCounterPda);
@@ -138,9 +161,27 @@ describe("coupon", () => {
     const overrideRate = new anchor.BN(5275);
     const overrideDecimals = 5;
 
-    await createCoupon(
+    const { signature } = await createCoupon(
       { deployer, mint },
       { couponId, interestRateOverride: overrideRate, interestRateOverrideDecimals: overrideDecimals }
+    );
+
+    const event = await getCouponCreatedEvent(signature);
+
+    assert.isNotNull(event, "Coupon creation event should be emitted");
+    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(event!.couponId.toString(), couponId.toString(), "event couponId should match the id");
+    assert.isNotNull(event!.interestRateOverride, "event interestRateOverride should be set");
+    assert.equal(
+      event!.interestRateOverride!.toString(),
+      overrideRate.toString(),
+      "event interestRateOverride should match the provided value"
+    );
+    assert.isNotNull(event!.interestRateOverrideDecimals, "event interestRateOverrideDecimals should be set");
+    assert.equal(
+      event!.interestRateOverrideDecimals!.toString(),
+      overrideDecimals.toString(),
+      "event interestRateOverrideDecimals should match the provided value"
     );
 
     const coupon = await getCoupon(mint, couponId);
@@ -334,7 +375,7 @@ describe("coupon", () => {
     const overrideRate = new anchor.BN(3500);
     const overrideDecimals = 5;
 
-    await setCouponRate(
+    const { signature } = await setCouponRate(
       { deployer, mint },
       {
         couponId,
@@ -354,6 +395,23 @@ describe("coupon", () => {
       after.interestRateOverrideDecimals,
       overrideDecimals,
       "interest_rate_override_decimals should match the arg"
+    );
+
+    const event = await getCouponRateSetEvent(signature);
+    assert.isNotNull(event, "Coupon rate set event should be emitted");
+    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(event!.couponId.toString(), couponId.toString(), "event couponId should match the id");
+    assert.isNotNull(event!.interestRateOverride, "event interestRateOverride should be set");
+    assert.equal(
+      event!.interestRateOverride!.toString(),
+      overrideRate.toString(),
+      "event interestRateOverride should match the provided value"
+    );
+    assert.isNotNull(event!.interestRateOverrideDecimals, "event interestRateOverrideDecimals should be set");
+    assert.equal(
+      event!.interestRateOverrideDecimals!.toString(),
+      overrideDecimals.toString(),
+      "event interestRateOverrideDecimals should match the provided value"
     );
   });
 

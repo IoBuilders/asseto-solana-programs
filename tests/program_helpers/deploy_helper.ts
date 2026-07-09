@@ -1,10 +1,11 @@
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import { SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "../utils/address_utils";
+import { DEPLOY_PROGRAM_ID, SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "../utils/address_utils";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { Deploy } from "../../target/types/deploy";
 import { DeployerWithPayerContext } from "./base_helper";
+import { getEvent } from "./event_helper";
 import * as pdaUtils from "../utils/pda_utils";
 
 function getDeployProgram(): Program<Deploy> {
@@ -32,7 +33,7 @@ function getDefaultArgs(): Required<DeployMintArgs> {
 export async function deployMint(
   callContext: DeployerWithPayerContext,
   args?: DeployMintArgs
-): Promise<{ mint: PublicKey }> {
+): Promise<{ mint: PublicKey; signature: string }> {
   const effectiveArgs: Required<DeployMintArgs> = {
     ...getDefaultArgs(),
     ...args,
@@ -42,7 +43,7 @@ export async function deployMint(
   const mintKeypair = signers[0];
   const mint = mintKeypair.publicKey;
 
-  await getDeployProgram()
+  const signature = await getDeployProgram()
     .methods.deployMint({
       decimals: effectiveArgs.decimals,
       name: effectiveArgs.name,
@@ -67,11 +68,32 @@ export async function deployMint(
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       rent: SYSVAR_RENT_PUBKEY,
+      eventAuthority: pdaUtils.deployEventAuthorityPda(),
+      program: DEPLOY_PROGRAM_ID,
     })
     .signers([mintKeypair])
     .rpc({ commitment: "confirmed" });
 
-  return { mint };
+  return { mint, signature };
+}
+
+type MintDeployedEvent = {
+  mint: PublicKey;
+  deployer: PublicKey;
+  decimals: number;
+  name: string;
+  symbol: string;
+  uri: string;
+  isin: string | null;
+};
+
+/**
+ * Decodes the `MintDeployed` event from a `deploy_mint` transaction. The coder
+ * returns the name in camelCase (`mintDeployed`). Delegates to the shared,
+ * emit!/emit_cpi!-agnostic event helper.
+ */
+export async function getMintDeployedEvent(signature: string) {
+  return getEvent<MintDeployedEvent>(getDeployProgram(), signature, "mintDeployed");
 }
 
 export async function getMintOwner(mint: PublicKey) {

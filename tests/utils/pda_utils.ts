@@ -32,10 +32,19 @@ export function tempMintAuthorityPda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("temp_mint_authority"), mint.toBuffer()], DEPLOY_PROGRAM_ID)[0];
 }
 
+// Anchor event-CPI authority for the deploy program (seed "__event_authority").
+export function deployEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], DEPLOY_PROGRAM_ID)[0];
+}
+
 // ── mint ───────────────────────────────────────────────────────────────────────
 
 export function mintAuthorityPda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("mint_authority"), mint.toBuffer()], MINT_PROGRAM_ID)[0];
+}
+
+export function mintEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], MINT_PROGRAM_ID)[0];
 }
 
 // ── metadata-update ────────────────────────────────────────────────────────────
@@ -45,6 +54,10 @@ export function metadataUpdateAuthorityPda(mint: PublicKey): PublicKey {
     [Buffer.from("metadata_update_authority"), mint.toBuffer()],
     METADATA_UPDATE_PROGRAM_ID
   )[0];
+}
+
+export function metadataUpdateEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], METADATA_UPDATE_PROGRAM_ID)[0];
 }
 
 // ── freeze ─────────────────────────────────────────────────────────────────────
@@ -75,6 +88,11 @@ export function frozenBalancePdaWithBump(mint: PublicKey, account: PublicKey): [
   );
 }
 
+// Anchor event-CPI authority for the freeze program (seed "__event_authority").
+export function freezeEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], FREEZE_PROGRAM_ID)[0];
+}
+
 // ── operations ─────────────────────────────────────────────────────────────────
 
 export function permanentDelegatePda(mint: PublicKey): PublicKey {
@@ -84,10 +102,20 @@ export function permanentDelegatePda(mint: PublicKey): PublicKey {
   )[0];
 }
 
+// Anchor event-CPI authority for the operations program (seed "__event_authority").
+export function operationsEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], OPERATIONS_PROGRAM_ID)[0];
+}
+
 // ── pause ──────────────────────────────────────────────────────────────────────
 
 export function pausableAuthorityPda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("pausable_authority"), mint.toBuffer()], PAUSE_PROGRAM_ID)[0];
+}
+
+// Anchor event-CPI authority for the pause program (seed "__event_authority").
+export function pauseEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], PAUSE_PROGRAM_ID)[0];
 }
 
 // ── deactivate ─────────────────────────────────────────────────────────────────
@@ -98,6 +126,11 @@ export function deactivatePda(mint: PublicKey): PublicKey {
 
 export function deactivatePdaWithBump(mint: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("deactivate"), mint.toBuffer()], DEACTIVATE_PROGRAM_ID);
+}
+
+// Anchor event-CPI authority for the deactivate program (seed "__event_authority").
+export function deactivateEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], DEACTIVATE_PROGRAM_ID)[0];
 }
 
 // ── transfer-control ───────────────────────────────────────────────────────────
@@ -122,6 +155,11 @@ export function whitelistPdaWithBump(mint: PublicKey, account: PublicKey): [Publ
     [Buffer.from("whitelist"), mint.toBuffer(), account.toBuffer()],
     TRANSFER_CONTROL_PROGRAM_ID
   );
+}
+
+// Anchor event-CPI authority for the transfer-control program (seed "__event_authority").
+export function transferControlEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], TRANSFER_CONTROL_PROGRAM_ID)[0];
 }
 
 // ── transfer ───────────────────────────────────────────────────────────────────
@@ -171,10 +209,20 @@ export function snapshotHolderBalancePdaWithBump(mint: PublicKey, tokenAccount: 
   );
 }
 
+// Anchor event-CPI authority for the snapshot program (seed "__event_authority").
+export function snapshotTriggeredEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], SNAPSHOT_PROGRAM_ID)[0];
+}
+
 // ── bond ───────────────────────────────────────────────────────────────────────
 
 export function bondTermsPda(mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("bond_terms"), mint.toBuffer()], BOND_PROGRAM_ID)[0];
+}
+
+// Anchor event-CPI authority for the bond program (seed "__event_authority").
+export function bondEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], BOND_PROGRAM_ID)[0];
 }
 
 // ── coupon ─────────────────────────────────────────────────────────────────────
@@ -194,6 +242,11 @@ export function couponPda(mint: PublicKey, couponId: BN): PublicKey {
   )[0];
 }
 
+// Anchor event-CPI authority for the coupon program (seed "__event_authority").
+export function couponEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], COUPON_PROGRAM_ID)[0];
+}
+
 // ── treasury ───────────────────────────────────────────────────────────────────
 
 export function treasuryConfigPda(mint: PublicKey): PublicKey {
@@ -209,6 +262,11 @@ export function couponPaidPda(mint: PublicKey, couponId: BN, holderTokenAccount:
     [Buffer.from("coupon_paid"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8), holderTokenAccount.toBuffer()],
     TREASURY_PROGRAM_ID
   )[0];
+}
+
+// Anchor event-CPI authority for the treasury program (seed "__event_authority").
+export function treasuryEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], TREASURY_PROGRAM_ID)[0];
 }
 
 // ── factory ──────────────────────────────────────────────────────────────────

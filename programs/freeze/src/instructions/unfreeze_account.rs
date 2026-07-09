@@ -1,3 +1,4 @@
+use crate::events::AccountUnfrozen;
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
@@ -24,9 +25,16 @@ pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
     // ── Verify mint has not been deactivated ──────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
 
+    emit_cpi!(AccountUnfrozen {
+        mint: ctx.accounts.mint.key(),
+        account: ctx.accounts.account.key(),
+        operator: ctx.accounts.deployer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct UnfreezeAccount<'info> {
     /// The deployer recorded as mint owner — must sign; receives the closed PDA's lamports.

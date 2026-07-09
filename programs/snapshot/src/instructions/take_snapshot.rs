@@ -2,6 +2,7 @@ use crate::errors::ErrorCode;
 use anchor_lang::prelude::*;
 use common::pda_seeds;
 
+use crate::events::SnapshotTriggered;
 use crate::state::{SnapshotCounter, SnapshotHistory};
 
 /// Records a snapshot checkpoint for the mint.
@@ -30,9 +31,15 @@ pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
             .ok_or(ErrorCode::SnapshotCounterOverflow)?;
     }
 
+    emit_cpi!(SnapshotTriggered {
+        mint: mint_key,
+        snapshot_id: counter.count,
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct TakeSnapshot<'info> {
     /// The PDA authorised to call this instruction via CPI — must be

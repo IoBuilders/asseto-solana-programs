@@ -1,3 +1,4 @@
+use crate::events::CouponCreated;
 use anchor_lang::prelude::*;
 use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 use snapshot::cpi::accounts::TakeSnapshot;
@@ -84,6 +85,8 @@ pub fn create_coupon(
             mint: ctx.accounts.mint.to_account_info(),
             snapshot_counter: ctx.accounts.snapshot_counter.to_account_info(),
             system_program: ctx.accounts.system_program.to_account_info(),
+            event_authority: ctx.accounts.snapshot_event_authority.to_account_info(),
+            program: ctx.accounts.snapshot_program.to_account_info(),
         },
         &[coupon_authority_signer_seeds.as_slice()],
     ))?;
@@ -104,9 +107,20 @@ pub fn create_coupon(
     coupon.payment_date = payment_date;
     coupon.set_interest_rate(interest_rate_override, interest_rate_override_decimals)?;
 
+    emit_cpi!(CouponCreated {
+        mint: ctx.accounts.mint.key(),
+        coupon_id,
+        period_start_date,
+        period_end_date,
+        payment_date,
+        interest_rate_override,
+        interest_rate_override_decimals
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(period_start_date: i64, period_end_date: i64, payment_date: i64, coupon_id: u64)]
 pub struct CreateCoupon<'info> {
@@ -196,4 +210,7 @@ pub struct CreateCoupon<'info> {
     pub snapshot_program: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+
+    /// CHECK: Address verified by snapshot program.
+    pub snapshot_event_authority: UncheckedAccount<'info>,
 }

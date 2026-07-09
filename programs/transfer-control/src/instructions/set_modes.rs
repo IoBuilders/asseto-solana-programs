@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
 use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 
+use crate::events::TransferControlModesSet;
 use crate::state::{TransferControlMode, TransferMode};
 use common::program_ids as constants;
 
@@ -51,8 +52,20 @@ pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> 
                 new_space,
             )?;
         }
-        write_pda(pda, TransferControlMode { modes, bump })?;
+        write_pda(
+            pda,
+            TransferControlMode {
+                modes: modes.clone(),
+                bump,
+            },
+        )?;
     }
+
+    emit_cpi!(TransferControlModesSet {
+        mint: ctx.accounts.mint.key(),
+        operator: ctx.accounts.deployer.key(),
+        modes,
+    });
 
     Ok(())
 }
@@ -139,6 +152,7 @@ fn write_pda(pda: &UncheckedAccount, content: TransferControlMode) -> Result<()>
     content.try_serialize(&mut slice)
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct SetMode<'info> {
     /// The deployer recorded as mint owner — must sign and fund PDA creation if needed.

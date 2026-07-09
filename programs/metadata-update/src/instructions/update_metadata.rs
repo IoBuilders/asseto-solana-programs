@@ -14,6 +14,8 @@ use spl_token_metadata_interface::{
 use common::program_ids as constants;
 use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 
+use crate::events::MetadataFieldUpdated;
+
 /// Converts a plain string key into the typed `Field` enum.
 /// "name", "symbol", "uri" map to their dedicated variants;
 /// anything else becomes a custom `Field::Key`.
@@ -83,6 +85,8 @@ pub fn update_metadata_field(
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
+    let event_key = key.clone();
+    let event_value = value.clone();
     let field = to_field(key);
 
     // ── Compute and transfer any additional rent before the CPI ─────────────
@@ -137,9 +141,17 @@ pub fn update_metadata_field(
         &[metadata_update_signer_seeds.as_slice()],
     )?;
 
+    emit_cpi!(MetadataFieldUpdated {
+        mint: mint_key,
+        operator: ctx.accounts.deployer.key(),
+        key: event_key,
+        value: event_value,
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateMetadata<'info> {
     /// Pays for any additional rent when the account needs to grow.

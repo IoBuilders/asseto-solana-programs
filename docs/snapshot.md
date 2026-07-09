@@ -86,6 +86,16 @@ Pause / deactivate / deployer checks live in `coupon::create_coupon` — `take_s
 | `mint` | no | no | UncheckedAccount | Used as the seed for the `coupon_authority` PDA derivation |
 | `snapshot_counter` | yes | no | `Account<SnapshotCounter>` | `init_if_needed`; seeds `["snapshot_counter", mint]` |
 | `system_program` | no | no | Program<System> | |
+| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `SnapshotTriggered` |
+| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+
+### Events
+
+| Event | Fields | Emitted |
+|---|---|---|
+| `SnapshotTriggered` | `mint: Pubkey`, `snapshot_id: u64` | After the counter is created/incremented, with `snapshot_id` set to the new `count` |
+
+Emitted with `emit_cpi!` (not `emit!`), which records the event as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on `TakeSnapshot` (injecting the `event_authority` and `program` accounts above) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`).
 
 ---
 

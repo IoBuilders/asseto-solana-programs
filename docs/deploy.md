@@ -125,6 +125,39 @@ pub struct MetadataField {
 
 ---
 
+## Events
+
+### `MintDeployed`
+
+Emitted once at the end of a successful `deploy_mint` (step 15), after all
+extensions, authorities and the transfer-hook metadata list are initialized.
+Emitted via **`emit_cpi!`** (self-CPI) rather than `emit!` so the payload is
+carried in an inner-instruction and cannot be truncated by the ingestion layer —
+`deploy` is the first program in the workspace to adopt this pattern.
+
+```rust
+#[event]
+pub struct MintDeployed {
+    pub mint: Pubkey,
+    pub deployer: Pubkey,
+    pub decimals: u8,
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
+    pub isin: Option<String>,  // from the additional_metadata entry keyed "isin"
+}
+```
+
+**Consumer notes:**
+- `#[event_cpi]` appends two accounts to `deploy_mint`: `event_authority`
+  (PDA `["__event_authority"]`) and `program`. Clients using `.accounts()` get
+  them auto-resolved; `.accountsStrict()` must pass them explicitly.
+- The event is **not** in `Program data:` logs. Read it from the transaction's
+  inner instructions: strip the 8-byte self-CPI tag, then decode with the
+  program event coder (see `tests/program_helpers/deploy_helper.ts::getMintDeployedEvent`).
+
+---
+
 ## Error Codes
 
 ```rust

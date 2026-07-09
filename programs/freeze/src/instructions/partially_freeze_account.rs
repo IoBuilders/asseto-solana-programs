@@ -1,3 +1,4 @@
+use crate::events::AccountPartiallyFrozen;
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
@@ -27,9 +28,17 @@ pub fn partially_freeze_account(ctx: Context<PartiallyFreezeAccount>, balance: u
     ctx.accounts.frozen_balance_pda.balance = balance;
     ctx.accounts.frozen_balance_pda.bump = ctx.bumps.frozen_balance_pda;
 
+    emit_cpi!(AccountPartiallyFrozen {
+        mint: ctx.accounts.mint.key(),
+        account: ctx.accounts.account.key(),
+        frozen_balance: balance,
+        operator: ctx.accounts.deployer.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct PartiallyFreezeAccount<'info> {
     /// The deployer recorded as mint owner — must sign and fund PDA creation if needed.

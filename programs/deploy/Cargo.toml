@@ -3,6 +3,7 @@ name = "deploy"
 version = "0.1.0"
 description = "Created with Anchor"
 edition = "2021"
+license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -20,7 +21,7 @@ custom-panic = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "1.0.2" }
+anchor-lang = { version = "1.0.2", features = ["event-cpi"] }
 common = { path = "../common" }
 freeze = { path = "../freeze", features = ["cpi"] }
 metadata-update = { path = "../metadata-update", features = ["cpi"] }

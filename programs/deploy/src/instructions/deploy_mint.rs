@@ -21,6 +21,7 @@ use spl_token_metadata_interface::{
 };
 
 use crate::errors::ErrorCode;
+use crate::events::MintDeployed;
 use crate::state::MintOwner;
 
 const TEMP_MINT_AUTHORITY_SEED: &[u8] = b"temp_mint_authority";
@@ -213,6 +214,18 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         &ctx.bumps.temp_mint_authority,
     );
 
+    // Capture the fields for the MintDeployed event before `params.name`,
+    // `params.symbol`, `params.uri` (step 9) and `params.additional_metadata`
+    // (step 10) are moved into the metadata CPIs below.
+    let event_name = params.name.clone();
+    let event_symbol = params.symbol.clone();
+    let event_uri = params.uri.clone();
+    let event_isin = params
+        .additional_metadata
+        .iter()
+        .find(|f| f.key == "isin")
+        .map(|f| f.value.clone());
+
     // ── 9. Initialize token metadata — must follow initialize_mint2 ─────────
     //
     // temp_mint_authority is used as the initial update authority so that this
@@ -332,9 +345,22 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         ctx.accounts.deployer.key(),
     )?;
 
+    // ── 15. Emit MintDeployed ────────────────────────────────────────────────
+    // Emitted last so it only fires when the full deployment succeeds.
+    emit_cpi!(MintDeployed {
+        mint: mint_key,
+        deployer: ctx.accounts.deployer.key(),
+        decimals: params.decimals,
+        name: event_name,
+        symbol: event_symbol,
+        uri: event_uri,
+        isin: event_isin,
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct DeployMint<'info> {
     /// Pays for all rent-exempt accounts created during deployment

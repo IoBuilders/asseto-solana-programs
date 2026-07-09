@@ -5,7 +5,12 @@ import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
-import { removeMetadataField, updateMetadataField } from "./program_helpers/metadata_update_helper";
+import {
+  getMetadataFieldRemovedEvent,
+  getMetadataFieldUpdatedEvent,
+  removeMetadataField,
+  updateMetadataField,
+} from "./program_helpers/metadata_update_helper";
 import { getTokenMetadata } from "./program_helpers/spl_token_helper";
 
 describe("metadata-update", () => {
@@ -36,7 +41,7 @@ describe("metadata-update", () => {
 
     // Add new custom fields — each grows the account by 4+key.len+4+value.len bytes
     await updateMetadataField({ deployer, mint }, { key: ISIN_KEY, value: ISIN_VALUE });
-    await updateMetadataField({ deployer, mint }, { key: CTRY_KEY, value: CTRY_VALUE });
+    const { signature } = await updateMetadataField({ deployer, mint }, { key: CTRY_KEY, value: CTRY_VALUE });
 
     // ── Assertions ─────────────────────────────────────────────────────────────
     const metadataAfter = await getTokenMetadata(mint);
@@ -52,6 +57,48 @@ describe("metadata-update", () => {
       ],
       "custom fields should be present with correct values"
     );
+
+    const updatedEvent = await getMetadataFieldUpdatedEvent(signature);
+
+    assert.isNotNull(updatedEvent, "MetadataFieldUpdated event should be emitted");
+    assert.equal(updatedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(updatedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+    assert.equal(updatedEvent!.key, CTRY_KEY, "event key should match the field that was updated");
+    assert.equal(updatedEvent!.value, CTRY_VALUE, "event value should match the new value");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("update_metadata_field: fails with MintPaused when mint is paused", async () => {
+    const { mint } = await deployMint({ deployer });
+
+    await pauseMint({ deployer, mint });
+
+    try {
+      await updateMetadataField({ deployer, mint });
+      assert.fail("Expected MintPaused error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "MintPaused", "error code should be MintPaused");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("update_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
+    // ── Deploy a fresh mint ────────────────────────────────────────────────
+    const { mint } = await deployMint({ deployer });
+
+    // ── Deactivate the mint ────────────────────────────────────────────────
+    await deactivateMint({ deployer, mint });
+
+    try {
+      await updateMetadataField({ deployer, mint });
+      assert.fail("Expected Deactivated error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+    }
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -90,7 +137,7 @@ describe("metadata-update", () => {
     // ── Remove all custom fields ───────────────────────────────────────────────
     await removeMetadataField({ deployer, mint }, { key: ISIN_KEY, idempotent: false });
     await removeMetadataField({ deployer, mint }, { key: JURIS_KEY, idempotent: false });
-    await removeMetadataField({ deployer, mint }, { key: CAT_KEY, idempotent: false });
+    const { signature } = await removeMetadataField({ deployer, mint }, { key: CAT_KEY, idempotent: false });
 
     // ── Assertions ─────────────────────────────────────────────────────────────
     const metadataAfter = await getTokenMetadata(mint);
@@ -102,22 +149,13 @@ describe("metadata-update", () => {
 
     // All custom fields must be gone
     assert.deepEqual(metadataAfter?.additionalMetadata, [], "all custom metadata fields should be removed");
-  });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  it("update_metadata_field: fails with MintPaused when mint is paused", async () => {
-    const { mint } = await deployMint({ deployer });
+    const removedEvent = await getMetadataFieldRemovedEvent(signature);
 
-    await pauseMint({ deployer, mint });
-
-    try {
-      await updateMetadataField({ deployer, mint });
-      assert.fail("Expected MintPaused error but instruction succeeded");
-    } catch (err) {
-      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-      const anchorErr = err as AnchorError;
-      assert.equal(anchorErr.error.errorCode.code, "MintPaused", "error code should be MintPaused");
-    }
+    assert.isNotNull(removedEvent, "MetadataFieldRemoved event should be emitted");
+    assert.equal(removedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(removedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+    assert.equal(removedEvent!.key, CAT_KEY, "event key should match the field that was removed");
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -137,24 +175,6 @@ describe("metadata-update", () => {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "MintPaused", "error code should be MintPaused");
-    }
-  });
-
-  // ────────────────────────────────────────────────────────────────────────────
-  it("update_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
-    // ── Deploy a fresh mint ────────────────────────────────────────────────
-    const { mint } = await deployMint({ deployer });
-
-    // ── Deactivate the mint ────────────────────────────────────────────────
-    await deactivateMint({ deployer, mint });
-
-    try {
-      await updateMetadataField({ deployer, mint });
-      assert.fail("Expected Deactivated error but instruction succeeded");
-    } catch (err) {
-      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-      const anchorErr = err as AnchorError;
-      assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
     }
   });
 

@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
+use crate::events::BondTermsUpdated;
 use crate::state::{BondTerms, BondTermsArgs};
 use common::program_ids as constants;
 
@@ -29,9 +30,22 @@ pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> 
     bond_terms.issuance_date = args.issuance_date;
     bond_terms.day_count_convention = args.day_count_convention;
 
+    emit_cpi!(BondTermsUpdated {
+        mint: ctx.accounts.mint.key(),
+        operator: ctx.accounts.deployer.key(),
+        interest_rate: args.interest_rate,
+        interest_rate_decimals: args.interest_rate_decimals,
+        par_value: args.par_value,
+        par_value_decimals: args.par_value_decimals,
+        minimum_denomination: args.minimum_denomination,
+        issuance_date: args.issuance_date,
+        day_count_convention: args.day_count_convention,
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateBondTerms<'info> {
     /// Pays for the `bond_terms` PDA on the first call. Distinct from `deployer`

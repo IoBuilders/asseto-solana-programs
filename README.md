@@ -8,6 +8,83 @@ Modular multi-program Anchor workspace extending Token-2022 for compliant token 
 
 ---
 
+## Prerequisites
+
+The exact versions below are pinned by the toolchain config and exercised in CI — other versions may work but are unsupported.
+
+| Tool | Version | Source of truth |
+|---|---|---|
+| Rust | `1.89.0` (with `rustfmt`, `clippy`) | `rust-toolchain.toml` |
+| Solana CLI | `3.1.14` | `Anchor.toml` `[toolchain]` |
+| Anchor CLI | `1.0.2` | `Anchor.toml` `[toolchain]` |
+| Surfpool | `1.3.0` | local validator for integration tests |
+| Node.js | `24.16` | `npm` is the package manager |
+
+---
+
+## Install
+
+```bash
+# Rust — the pinned toolchain in rust-toolchain.toml is selected automatically by rustup.
+rustup component add rustfmt clippy
+
+# Solana CLI (Anza release)
+sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.14/install)"
+export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+# Anchor CLI
+cargo install cargo-binstall
+cargo binstall anchor-cli@1.0.2 --no-confirm
+
+# Surfpool (local validator used by the integration tests)
+curl -sSfL "https://github.com/solana-foundation/surfpool/releases/download/v1.3.0/surfpool-linux-x64.tar.gz" \
+  | tar xz -C "$HOME/.cargo/bin"
+
+# Node dependencies (TypeScript tests + lint)
+npm ci
+```
+
+---
+
+## Build
+
+```bash
+anchor build
+```
+
+Builds every program in the `[workspace]` and regenerates IDLs/types under `target/`.
+
+During this development phase, program IDs stay stable across builds and machines with program keypairs (`target/deploy/*-keypair.json`) being committed to git.
+Command `anchor build` reuses existing keypairs rather than generating new ones, so the regenerated IDLs always carry the same `address`. Each program's `declare_id!` must match its committed keypair; run `anchor keys list` to verify, and `anchor keys sync` if they drift.
+
+---
+
+## Test
+
+A funded local wallet is required once (the provider wallet is `./test-wallet.json`):
+
+```bash
+solana-keygen new --no-bip39-passphrase --force -o test-wallet.json
+```
+
+```bash
+# Rust unit tests
+cargo test
+
+# TypeScript integration suite (boots a local Surfpool validator per Anchor.toml [surfpool])
+anchor test
+
+# Run a single suite (TEST_FILE = filename under tests/ without .ts)
+TEST_FILE=<name> anchor test --skip-build
+
+# Run a single test by name within a suite (GREP = substring of "describe + it" title)
+TEST_FILE=<name> GREP="<partial test name>" anchor test --skip-build
+```
+
+Use `--skip-build` once you've already run a fresh `anchor build`.
+
+---
+
 ## Code Structure
 
 ```
@@ -60,20 +137,20 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 
 | Program | ID |
 |---|---|
-| `deploy` | `2XMEMg7FUxWksDRZQU9vtGHHSyKoSaH9bncj1noe38QK` |
-| `mint` | `AXGtgWoPXfyfQ7o823WG2ip6qSRw1s3wA3RCSdtCyN1P` |
-| `metadata-update` | `Ei1dX3P7N9cBz2Vs28iB8nsWFqUAWTDicGX7YZSc5HXU` |
-| `freeze` | `ERyVR64dpCpoEa335A7LfJZnrEUeL7bxgqfqTogXYoAr` |
-| `operations` | `BANmGRnoLxXCTzKm2aM1Zww8qn7GN2KBkbyY7QpW3vcX` |
-| `pause` | `9GjHsbG5MgerXdyWRmNVMP9uXzi9iZyRyCrKw1LnSw1w` |
-| `deactivate` | `8rds1q4evGug816bswEEmDmJSymq86sq7mgYRcPQP996` |
-| `transfer-control` | `BTLbhoZDCguRqmwhXvQej7pmAqV2TXY3iGdwMPsMBBMw` |
-| `transfer` | `EY3ndaFy8e647firyg1MiyNH9LJkBKfV9VK8CNc4N1MD` |
-| `transfer-hook` | `482AUGU4SbYePPHaV7yvXrGEprHhiWSTRBds4Bdr6CPz` |
-| `snapshot` | `BcuEispMLyXAa44oRbxjgacAJWdEhFXqrBNXQfgHnfWW` |
-| `bond` | `BLA6wUczWivPKBw7wnZbvHfYPxcRWEE2Z5aGRnTdfUcU` |
-| `coupon` | `4pvS3t8wey2MhcgTgBSZZbHRUe6EFUv2pD9jJLFKWZ6u` |
-| `treasury` | `CBxS9txE8qZqZkNXhTaWE42Ur3J3GtYv1ufLfNDNUEct` |
+| `deploy` | `HCe5Um7ThFBzDSyn256EPQvyr6jy6E66ydzZ5hMta3Tq` |
+| `mint` | `BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ` |
+| `metadata-update` | `iShebeGRBZYSBMQYGAg8DbLnbaW2eDvX1Zt8EG9G1ZV` |
+| `freeze` | `8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd` |
+| `operations` | `BHDyg8PeUyVBpmkcjYLdnt3VCmYf4wp8Xeu6TXREiLKp` |
+| `pause` | `5j3F89fmVVusjwy9z3Rv5wLaVj4ovhwctQ7TRBsxNghq` |
+| `deactivate` | `H2iRjVVKsKQMAnJKqiTfW2LGvT1G9tDqQ81DzRjxfX7V` |
+| `transfer-control` | `3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo` |
+| `transfer` | `Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q` |
+| `transfer-hook` | `2qjsucJfrjP93FCwnYjc9EjYzYS8u31eWHhQo1jR9pcg` |
+| `snapshot` | `hgUtrpstViwxutrkoVXwQh3GQC18wHAmuAvYFTNiV2M` |
+| `bond` | `8opYXiWzWBrUEr5vtcvaX1ybzYaMKrndxkW1U9Patk46` |
+| `coupon` | `CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK` |
+| `treasury` | `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA` |
 | `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
 
 ### ID sharing pattern
@@ -205,3 +282,9 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 - [`docs/treasury.md`](docs/treasury.md)
 - [`docs/factory.md`](docs/factory.md)
 - [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
+
+---
+
+## License
+
+Released under the [Apache License 2.0](LICENSE).

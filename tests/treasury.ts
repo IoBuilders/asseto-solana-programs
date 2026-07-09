@@ -12,7 +12,9 @@ import { createMint, createTokenAccount, getTokenAccount, mintTo } from "./progr
 import { mintTokens } from "./program_helpers/mint_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
 import {
+  getCouponPaidEvent,
   getCouponPaidMarker,
+  getPaymentTokenSetEvent,
   getTreasuryConfigByPda,
   payCoupon,
   setPaymentToken,
@@ -133,7 +135,7 @@ describe("treasury", () => {
       signers: Signer[];
     }> = {}
   ) {
-    await payCoupon(
+    return await payCoupon(
       {
         payer: overrides?.payer,
         deployer: overrides.deployer ?? deployer,
@@ -195,11 +197,17 @@ describe("treasury", () => {
     const before = await getTreasuryConfigByPda(treasuryConfigPda);
     assert.isNull(before, "treasury_config PDA should not exist before set_payment_token");
 
-    await setPaymentToken({ deployer, mint, paymentMint });
+    const { signature } = await setPaymentToken({ deployer, mint, paymentMint });
 
     const cfg = await getTreasuryConfigByPda(treasuryConfigPda);
     assert.equal(cfg.paymentMint.toBase58(), paymentMint.toBase58(), "payment_mint should be cached");
     assert.equal(cfg.paymentMintDecimals, paymentDecimals, "payment_mint_decimals should match");
+
+    // ── Assertions: PaymentTokenSet event ─────────────────────────────────────
+    const event = await getPaymentTokenSetEvent(signature);
+    assert.isNotNull(event, "PaymentTokenSet event should be emitted");
+    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the bond mint");
+    assert.equal(event!.paymentMint.toBase58(), paymentMint.toBase58(), "event payment_mint should match");
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -375,7 +383,7 @@ describe("treasury", () => {
     const treasuryBefore = (await getTokenAccount(ctx.treasuryTokenAccount)).amount;
     const holderBefore = (await getTokenAccount(ctx.holderPaymentAccount)).amount;
 
-    await payCouponInternal(ctx);
+    const { signature } = await payCouponInternal(ctx);
 
     const treasuryAfter = (await getTokenAccount(ctx.treasuryTokenAccount)).amount;
     const holderAfter = (await getTokenAccount(ctx.holderPaymentAccount)).amount;
@@ -396,6 +404,20 @@ describe("treasury", () => {
       expectedAmount.toString(),
       "coupon_paid.amount should match transferred amount"
     );
+
+    // ── Assertions: CouponPaid event ──────────────────────────────────────────
+    const event = await getCouponPaidEvent(signature);
+    assert.isNotNull(event, "CouponPaid event should be emitted");
+    assert.equal(event!.mint.toBase58(), ctx.mint.toBase58(), "event mint should match the bond mint");
+    assert.equal(event!.couponId.toString(), ctx.couponId.toString(), "event coupon_id should match");
+    assert.equal(
+      event!.holderTokenAccount.toBase58(),
+      ctx.holderTokenAccount.toBase58(),
+      "event holder_token_account should match"
+    );
+    assert.equal(event!.paymentMint.toBase58(), ctx.paymentMint.toBase58(), "event payment_mint should match");
+    assert.equal(event!.amount.toString(), expectedAmount.toString(), "event amount should match the payout");
+    assert.equal(event!.payer.toBase58(), deployer.toBase58(), "event payer should be the deployer");
   });
 
   // ────────────────────────────────────────────────────────────────────────────

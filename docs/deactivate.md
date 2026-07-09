@@ -43,12 +43,23 @@ Creates the `deactivate_pda` marker. After this call, all calls to `mint::mint`,
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` (checks the Pausable extension) |
 | `deactivate_pda` | yes | no | `Account<DeactivateStatus>` | init; seeds `["deactivate", mint]` |
 | `system_program` | no | no | Program<System> | |
+| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `Deactivated` |
+| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
 
 ### Execution
 
 1. `verify_deployer(&mint_owner_pda, &deployer.key())`
 2. `require_not_paused(&mint)` — ensures the mint is not already paused
 3. Anchor `init` constraint creates and initializes `deactivate_pda` with `bump`
+4. Emit `Deactivated { mint, operator: deployer }` via `emit_cpi!`
+
+### Events
+
+| Event | Fields | Emitted |
+|---|---|---|
+| `Deactivated` | `mint: Pubkey`, `operator: Pubkey` | After the deactivation marker is initialized |
+
+Emitted with `emit_cpi!` (not `emit!`), which records the event as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on `Deactivate` (injecting the `event_authority` and `program` accounts above) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`).
 
 ---
 

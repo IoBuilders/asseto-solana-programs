@@ -3,6 +3,7 @@ use anchor_spl::token_interface::Mint;
 use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
 
 use crate::errors::ErrorCode;
+use crate::events::PaymentTokenSet;
 use crate::state::TreasuryConfig;
 use common::program_ids as constants;
 
@@ -45,9 +46,16 @@ pub fn set_payment_token(ctx: Context<SetPaymentToken>) -> Result<()> {
     cfg.payment_mint = ctx.accounts.payment_mint.key();
     cfg.payment_mint_decimals = ctx.accounts.payment_mint.decimals;
 
+    // ── Emit PaymentTokenSet ─────────────────────────────────────────────────
+    emit_cpi!(PaymentTokenSet {
+        mint: ctx.accounts.mint.key(),
+        payment_mint: ctx.accounts.payment_mint.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct SetPaymentToken<'info> {
     /// Funds rent for `treasury_config` on the first call.

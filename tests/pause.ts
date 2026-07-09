@@ -5,7 +5,7 @@ import { getPausableConfig } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { pauseMint, unpauseMint } from "./program_helpers/pause_helper";
+import { getPausedEvent, getUnpausedEvent, pauseMint, unpauseMint } from "./program_helpers/pause_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
 import { getMint } from "./program_helpers/spl_token_helper";
 
@@ -32,20 +32,32 @@ describe("pause", () => {
     assert.isFalse(pausableConfigInitial!.paused, "mint should not be paused after deployment");
 
     // ── Step 1: Pause the mint ─────────────────────────────────────────────────
-    await pauseMint({ deployer, mint });
+    const { signature: pausedSignature } = await pauseMint({ deployer, mint });
 
     const mintInfoAfterPause = await getMint(mint);
     const pausableConfigAfterPause = getPausableConfig(mintInfoAfterPause);
 
     assert.isTrue(pausableConfigAfterPause!.paused, "mint should be paused after calling pause");
 
+    const pausedEvent = await getPausedEvent(pausedSignature);
+
+    assert.isNotNull(pausedEvent, "Paused event should be emitted");
+    assert.equal(pausedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(pausedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+
     // ── Step 2: Unpause the mint ───────────────────────────────────────────────
-    await unpauseMint({ deployer, mint });
+    const { signature: unpausedSignature } = await unpauseMint({ deployer, mint });
 
     const mintInfoAfterUnpause = await getMint(mint);
     const pausableConfigAfterUnpause = getPausableConfig(mintInfoAfterUnpause);
 
     assert.isFalse(pausableConfigAfterUnpause!.paused, "mint should not be paused after calling unpause");
+
+    const unpausedEvent = await getUnpausedEvent(unpausedSignature);
+
+    assert.isNotNull(unpausedEvent, "Unpaused event should be emitted");
+    assert.equal(unpausedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+    assert.equal(unpausedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
   });
 
   // ────────────────────────────────────────────────────────────────────────────

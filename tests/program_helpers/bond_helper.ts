@@ -1,10 +1,11 @@
 import * as pdaUtils from "../utils/pda_utils";
 import * as anchor from "@anchor-lang/core";
-import { SYSTEM_PROGRAM_ID } from "../utils/address_utils";
+import { BOND_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../utils/address_utils";
 import { Bond } from "../../target/types/bond";
 import { Program } from "@anchor-lang/core";
 import { MintWriteWithPayerContext } from "./base_helper";
 import { PublicKey } from "@solana/web3.js";
+import { getEvent } from "./event_helper";
 
 function getBondProgram(): Program<Bond> {
   return anchor.workspace.Bond as Program<Bond>;
@@ -32,13 +33,16 @@ function getDefaultBondTermsArgs(): Required<UpdateBondArgs> {
   };
 }
 
-export async function updateBondTerms(callContext: MintWriteWithPayerContext, args?: UpdateBondArgs): Promise<void> {
+export async function updateBondTerms(
+  callContext: MintWriteWithPayerContext,
+  args?: UpdateBondArgs
+): Promise<{ signature: string }> {
   const effectiveArgs: Required<UpdateBondArgs> = {
     ...getDefaultBondTermsArgs(),
     ...args,
   };
 
-  await getBondProgram()
+  const signature = await getBondProgram()
     .methods.updateBondTerms({
       interestRate: effectiveArgs.interestRate,
       interestRateDecimals: effectiveArgs.interestRateDecimals,
@@ -56,11 +60,36 @@ export async function updateBondTerms(callContext: MintWriteWithPayerContext, ar
       mint: callContext.mint,
       bondTerms: pdaUtils.bondTermsPda(callContext.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: pdaUtils.bondEventAuthorityPda(),
+      program: BOND_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });
+
+  return { signature };
 }
 
 export async function getCouponCounterByPda(pda: PublicKey) {
   return await getBondProgram().account.bondTerms.fetch(pda, "confirmed");
+}
+
+type BondTermsUpdatedEvent = {
+  mint: PublicKey;
+  operator: PublicKey;
+  interestRate: anchor.BN;
+  interestRateDecimals: number;
+  parValue: anchor.BN;
+  parValueDecimals: number;
+  minimumDenomination: anchor.BN;
+  issuanceDate: anchor.BN;
+  dayCountConvention: any;
+};
+
+/**
+ * Decodes the `BondTermsUpdated` event from an `update_bond_terms` transaction.
+ * The coder returns the name in camelCase (`bondTermsUpdated`). Delegates to
+ * the shared, emit!/emit_cpi!-agnostic event helper.
+ */
+export async function getBondTermsUpdatedEvent(signature: string) {
+  return getEvent<BondTermsUpdatedEvent>(getBondProgram(), signature, "bondTermsUpdated");
 }

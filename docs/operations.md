@@ -54,6 +54,37 @@ The unblock/re-block wrapper is required because all token accounts are frozen b
 
 ---
 
+## Events
+
+### `ControllerRedemption`
+
+Emitted once at the end of a successful `burn` (step 6), after the tokens have
+been burned via the permanent delegate and the account has been re-blocked.
+Emitted via **`emit_cpi!`** (self-CPI) rather than `emit!` so the payload is
+carried in an inner-instruction and cannot be truncated by the ingestion layer —
+the same pattern `deploy` uses for `MintDeployed`.
+
+```rust
+#[event]
+pub struct ControllerRedemption {
+    pub mint: Pubkey,
+    pub controller: Pubkey,  // the deployer that authorized the redemption
+    pub from: Pubkey,        // the token account burned from
+    pub value: u64,          // raw token units burned
+}
+```
+
+**Consumer notes:**
+- `#[event_cpi]` appends two accounts to `burn`: `event_authority`
+  (PDA `["__event_authority"]`) and `program`. Clients using `.accounts()` get
+  them auto-resolved; `.accountsStrict()` must pass them explicitly.
+- The event is **not** in `Program data:` logs. Read it from the transaction's
+  inner instructions: strip the 8-byte self-CPI tag, then decode with the
+  program event coder (see
+  `tests/program_helpers/operations_helper.ts::getControllerRedemptionEvent`).
+
+---
+
 ## Program IDs
 
 Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.

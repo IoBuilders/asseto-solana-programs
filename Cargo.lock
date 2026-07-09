@@ -322,9 +322,7 @@ name = "bond"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
- "anchor-spl",
  "common",
- "spl-token-2022",
 ]
 
 [[package]]
@@ -2452,10 +2450,7 @@ name = "transfer-control"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
- "anchor-spl",
  "common",
- "solana-system-interface 3.2.0",
- "spl-token-2022",
 ]
 
 [[package]]

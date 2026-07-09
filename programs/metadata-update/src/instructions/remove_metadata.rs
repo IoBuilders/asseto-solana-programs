@@ -6,6 +6,8 @@ use spl_token_metadata_interface::instruction::remove_key;
 use common::program_ids as constants;
 use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
 
+use crate::events::MetadataFieldRemoved;
+
 /// Removes a custom key-value pair from `additional_metadata`.
 ///
 /// Note: only custom keys can be removed.  The core fields (name, symbol, uri)
@@ -31,6 +33,7 @@ pub fn remove_metadata_field(
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
+    let event_key = key.clone();
 
     let metadata_update_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::metadata_update_authority_seeds(&mint_key),
@@ -52,9 +55,16 @@ pub fn remove_metadata_field(
         &[metadata_update_signer_seeds.as_slice()],
     )?;
 
+    emit_cpi!(MetadataFieldRemoved {
+        mint: mint_key,
+        operator: ctx.accounts.deployer.key(),
+        key: event_key,
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct RemoveMetadata<'info> {
     /// Pays for any additional rent when the account needs to grow.

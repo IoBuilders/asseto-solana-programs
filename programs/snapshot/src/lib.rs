@@ -5,6 +5,7 @@ use common::program_ids::{
 use common::{pda_seeds, pda_utils};
 
 pub mod errors;
+pub mod events;
 pub mod instructions;
 pub mod state;
 

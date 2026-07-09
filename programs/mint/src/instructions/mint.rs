@@ -8,6 +8,7 @@ use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnap
 use spl_token_2022::instruction::mint_to;
 use transfer_control::{get_transfer_modes, verify_whitelist, TransferMode};
 
+use crate::events::Issued;
 use common::program_ids as constants;
 
 /// Mints `amount` tokens of the given mint to `destination`.
@@ -112,6 +113,13 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         &[mint_authority_signer_seeds.as_slice()],
     )?;
 
+    emit_cpi!(Issued {
+        mint: mint_key,
+        operator: ctx.accounts.deployer.key(),
+        to: ctx.accounts.destination.key(),
+        value: amount,
+    });
+
     // ── 5. Re-block destination (CPI to freeze) ────────────────────────
     freeze::cpi::block_account(CpiContext::new_with_signer(
         constants::FREEZE_PROGRAM_ID,
@@ -128,6 +136,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct MintTokens<'info> {
     /// The deployer recorded as mint owner in mint_owner_pda.
