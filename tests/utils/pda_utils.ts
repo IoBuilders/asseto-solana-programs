@@ -7,7 +7,6 @@ import {
   FREEZE_PROGRAM_ID,
   METADATA_UPDATE_PROGRAM_ID,
   MINT_PROGRAM_ID,
-  OPERATIONS_PROGRAM_ID,
   PAUSE_PROGRAM_ID,
   SNAPSHOT_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
@@ -92,18 +91,7 @@ export function freezeEventAuthorityPda(): PublicKey {
 }
 
 // ── operations ─────────────────────────────────────────────────────────────────
-
-export function permanentDelegatePda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("permanent_delegate"), mint.toBuffer()],
-    OPERATIONS_PROGRAM_ID
-  )[0];
-}
-
-// Anchor event-CPI authority for the operations program (seed "__event_authority").
-export function operationsEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], OPERATIONS_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/burn/burn_pda_helper.ts` (per-program helper layout).
 
 // ── pause ──────────────────────────────────────────────────────────────────────
 

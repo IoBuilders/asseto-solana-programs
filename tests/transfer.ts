@@ -15,7 +15,7 @@ import {
 } from "./program_helpers/freeze_helper";
 import { mintTokens } from "./program_helpers/mint_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
-import { burnTokens } from "./program_helpers/operations_helper";
+import { burnTokens } from "./program_helpers/burn/burn_instruction_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
 import {
   addToWhitelist,

@@ -1,17 +1,24 @@
 import { PublicKey } from "@solana/web3.js";
-import * as pdaUtils from "../utils/pda_utils";
+import * as pdaUtils from "../../utils/pda_utils";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
+import { Program } from "@anchor-lang/core";
 import {
   SYSTEM_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
   SNAPSHOT_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
-} from "../utils/address_utils";
-import { MintWriteContext } from "./base_helper";
-import { getEvent } from "./event_helper";
-import { Program } from "@anchor-lang/core";
-import { Operations } from "../../target/types/operations";
+} from "../../utils/address_utils";
+import { MintWriteContext } from "../base_helper";
+import { getEvent } from "../event_helper";
+import { getMintOwner } from "../deploy_helper";
+import { assetClassVersionPda } from "../factory/factory_pda_helper";
+import { Operations } from "../../../target/types/operations";
+import { permanentDelegatePda, operationsEventAuthorityPda } from "./burn_pda_helper";
+
+export function getOperationsProgram(): Program<Operations> {
+  return anchor.workspace.Operations as Program<Operations>;
+}
 
 export type BurnTokensContext = MintWriteContext & {
   tokenAccount: PublicKey;
@@ -36,26 +43,29 @@ export async function burnTokens(
     ...args,
   };
 
-  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
+  // The asset-class version PDA is derived from the ids recorded in the mint's
+  // `mint_owner` account — the same values the on-chain program reads.
+  const mintOwner = await getMintOwner(callContext.mint);
 
-  const signature = await operationsProgram.methods
-    .burn(effectiveArgs.amount)
+  const signature = await getOperationsProgram()
+    .methods.burn(effectiveArgs.amount)
     .accountsStrict({
       deployer: callContext.deployer,
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: pdaUtils.deactivatePda(callContext.mint),
-      operationsAuthority: pdaUtils.permanentDelegatePda(callContext.mint),
+      operationsAuthority: permanentDelegatePda(callContext.mint),
       freezeAuthority: pdaUtils.freezeAuthorityPda(callContext.mint),
       snapshotCounterPda: pdaUtils.snapshotCounterPda(callContext.mint),
       totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(callContext.mint),
       holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.tokenAccount),
       freezeProgram: FREEZE_PROGRAM_ID,
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
+      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
-      eventAuthority: pdaUtils.operationsEventAuthorityPda(),
+      eventAuthority: operationsEventAuthorityPda(),
       program: OPERATIONS_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
@@ -77,6 +87,5 @@ type ControllerRedemptionEvent = {
  * shared, emit!/emit_cpi!-agnostic event helper.
  */
 export async function getControllerRedemptionEvent(signature: string) {
-  const operationsProgram = anchor.workspace.Operations as Program<Operations>;
-  return getEvent<ControllerRedemptionEvent>(operationsProgram, signature, "controllerRedemption");
+  return getEvent<ControllerRedemptionEvent>(getOperationsProgram(), signature, "controllerRedemption");
 }

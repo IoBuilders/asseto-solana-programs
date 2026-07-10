@@ -10,6 +10,7 @@ import {
 } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
+import { permanentDelegatePda } from "./program_helpers/burn/burn_pda_helper";
 import { deployMint, getMintDeployedEvent, getMintOwner } from "./program_helpers/deploy_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
 
@@ -44,7 +45,7 @@ describe("deploy", () => {
       }
     );
     const mintAuthority = pdaUtils.mintAuthorityPda(mint);
-    const permanentDelegateAuthority = pdaUtils.permanentDelegatePda(mint);
+    const permanentDelegateAuthority = permanentDelegatePda(mint);
     const metadataUpdateAuthority = pdaUtils.metadataUpdateAuthorityPda(mint);
     const pausableAuthority = pdaUtils.pausableAuthorityPda(mint);
     const freezeAuthority = pdaUtils.freezeAuthorityPda(mint);

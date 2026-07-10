@@ -7,6 +7,7 @@ import { Deploy } from "../../target/types/deploy";
 import { DeployerWithPayerContext } from "./base_helper";
 import { getEvent } from "./event_helper";
 import * as pdaUtils from "../utils/pda_utils";
+import { permanentDelegatePda } from "./burn/burn_pda_helper";
 
 function getDeployProgram(): Program<Deploy> {
   return anchor.workspace.Deploy as Program<Deploy>;
@@ -64,7 +65,7 @@ export async function deployMint(
       mintOwnerPda: pdaUtils.mintOwnerPda(mint),
       tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint),
       mintAuthority: pdaUtils.mintAuthorityPda(mint),
-      permanentDelegateAuthority: pdaUtils.permanentDelegatePda(mint),
+      permanentDelegateAuthority: permanentDelegatePda(mint),
       metadataUpdateAuthority: pdaUtils.metadataUpdateAuthorityPda(mint),
       pausableAuthority: pdaUtils.pausableAuthorityPda(mint),
       freezeAuthority: pdaUtils.freezeAuthorityPda(mint),
