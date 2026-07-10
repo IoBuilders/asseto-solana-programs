@@ -16,7 +16,7 @@ import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
-import { OPERATIONS_BURN } from "./utils/functionalities";
+import { OPERATIONS_BURN, PAUSE_PAUSE } from "./utils/functionalities";
 import { beforeEach } from "mocha";
 
 describe("operations", () => {
@@ -32,7 +32,7 @@ describe("operations", () => {
     beforeEach(async () => {
       ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
       mintOwnerPda = pdaUtils.mintOwnerPda(mint);
-      await setAssetClassVersionForMint(mint, { functionalities: [OPERATIONS_BURN] });
+      await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, OPERATIONS_BURN] });
     });
 
     it("burn: removes tokens from the token account via permanent delegate", async () => {

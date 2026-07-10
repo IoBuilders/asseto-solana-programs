@@ -25,6 +25,9 @@ import {
 } from "./program_helpers/transfer_control_helper";
 import { buildVerifyTransferInstruction, transfer } from "./program_helpers/transfer_helper";
 import { requestAirdrop } from "./program_helpers/account_helper";
+import { beforeEach } from "mocha";
+import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
+import { OPERATIONS_BURN, PAUSE_PAUSE } from "./utils/functionalities";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -41,6 +44,12 @@ describe("transfer", () => {
   const destinationOwner = destinationOwnerKeypair.publicKey;
   const deployer = provider.wallet.publicKey;
   const payerKeypair = provider.wallet.payer!;
+  let mint: PublicKey;
+
+  beforeEach(async () => {
+    ({ mint } = await deployMint({ deployer }));
+    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, OPERATIONS_BURN] });
+  });
 
   // ── Helper: fund the transfer hook authority PDA ────────────────────────────
   async function fundTransferHookAuthority(mint: PublicKey): Promise<void> {
@@ -56,8 +65,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: moves tokens from source to destination", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     // Mint 1 000 tokens to the source account (owned by sourceOwner).
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
@@ -94,8 +101,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: snapshot captures pre-transfer balances (source = minted - transferred, destination = transferred)", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
     const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -131,8 +136,6 @@ describe("transfer", () => {
   });
 
   it("transfer: multiple sequential post-snapshot transfers do not corrupt snapshot data", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const FIRST_TRANSFER = new anchor.BN(300 * 10 ** MINT_DECIMALS);
     const SECOND_TRANSFER = new anchor.BN(200 * 10 ** MINT_DECIMALS);
     const THIRD_TRANSFER = new anchor.BN(100 * 10 ** MINT_DECIMALS);
@@ -279,8 +282,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when there is no previous instruction", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     // Mint 1 000 tokens to the source account (owned by sourceOwner).
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
@@ -315,8 +316,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when previous instruction program is not verify program", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     // Mint 1 000 tokens to the source account (owned by sourceOwner).
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
@@ -352,8 +351,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when previous instruction method does not have the proper input arguments", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     // Mint 1 000 tokens to the source account (owned by sourceOwner).
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
@@ -389,8 +386,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when signer is not token holder", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
 
@@ -423,8 +418,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails when mint is paused", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
 
@@ -450,7 +443,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with AccountFrozen when source account has been frozen", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
     const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -470,8 +462,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with Deactivated when mint has been deactivated", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
 
@@ -495,8 +485,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: succeeds when transfer is within unfrozen balance, then fails with InsufficientUnfrozenBalance when it exceeds it", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const TOTAL_AMOUNT = new anchor.BN(100 * 10 ** MINT_DECIMALS);
     const FROZEN_AMOUNT = new anchor.BN(50 * 10 ** MINT_DECIMALS);
     const FIRST_TRANSFER = new anchor.BN(40 * 10 ** MINT_DECIMALS); // 50 available >= 40 ✓
@@ -547,8 +535,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with InsufficientUnfrozenBalance, then succeeds after partial freeze is updated", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const TOTAL_AMOUNT = new anchor.BN(100 * 10 ** MINT_DECIMALS);
     const FROZEN_AMOUNT = new anchor.BN(80 * 10 ** MINT_DECIMALS); // 20 available
     const TRANSFER_AMOUNT = new anchor.BN(50 * 10 ** MINT_DECIMALS); // 50 > 20 → fails
@@ -611,8 +597,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with TransferControlDenied when whitelist mode is active and destination is not whitelisted", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     // Mint tokens to source before activating whitelist mode
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
@@ -664,8 +648,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with TransferControlDenied when whitelist mode is active and source is not whitelisted", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     // Mint tokens to source before activating whitelist mode
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
@@ -716,8 +698,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with TransferControlDenied when clearing mode is active and signer is not the deployer", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     // Mint tokens to source before activating clearing mode
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
@@ -775,8 +755,6 @@ describe("transfer", () => {
   });
 
   it("transfer: succeeds when clearing mode is active and the deployer co-signs verify_transfer", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
 
@@ -828,8 +806,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: succeeds when both Clearing and Whitelist modes are active and both conditions are satisfied", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
 
@@ -885,8 +861,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with TransferControlDenied when both modes active and only whitelist passes (signer is not the deployer)", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
 
@@ -942,8 +916,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: fails with TransferControlDenied when both modes active and only clearing passes (destination not whitelisted)", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
 
@@ -993,8 +965,6 @@ describe("transfer", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("transfer: rule change between transactions takes effect immediately (hot-swap)", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const source = await createTokenAccount({ mint, owner: sourceOwner });
     await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
 
@@ -1074,8 +1044,6 @@ describe("transfer", () => {
 
   // ── burn × partial freeze handled correctly (no panic, transfers stay blocked) ──
   it("transfer: burning below the partial-freeze amount leaves the frozen PDA stale and blocks all outbound transfers", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
-
     const TOTAL_AMOUNT = new anchor.BN(100 * 10 ** MINT_DECIMALS);
     const FROZEN_AMOUNT = new anchor.BN(40 * 10 ** MINT_DECIMALS);
     const BURN_AMOUNT = new anchor.BN(80 * 10 ** MINT_DECIMALS);

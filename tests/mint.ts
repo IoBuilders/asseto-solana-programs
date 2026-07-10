@@ -1,6 +1,6 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, SendTransactionError } from "@solana/web3.js";
+import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
@@ -10,16 +10,23 @@ import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/
 import { mintTokens, getIssuedEvent } from "./program_helpers/mint_helper";
 import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
 import { setTransferControlModes, TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control_helper";
-
-const MINT_DECIMALS = 6;
+import { beforeEach } from "mocha";
+import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
+import { PAUSE_PAUSE } from "./utils/functionalities";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
+  const MINT_DECIMALS = 6;
+  let mint: PublicKey;
+
+  beforeEach(async () => {
+    ({ mint } = await deployMint({ deployer }));
+    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE] });
+  });
 
   it("mint: mints tokens to a destination account and updates balance correctly", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     const accountBefore = await getTokenAccount(destination);
     const balanceBefore = accountBefore.amount;
@@ -49,8 +56,7 @@ describe("mint", () => {
   });
 
   it("mint: snapshot taken before mint records the destination balance previous to the mint and is never overwritten", async () => {
-    // ── Deploy mint + create destination token account + mint an initial balance ────────────────────────
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
+    // ── Create destination token account + mint an initial balance ────────────────────────
     const destination = await createTokenAccount({ mint, owner: deployer });
     const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
     await mintTokens({ deployer, mint, destination }, { amount: balanceBeforeSnapshot });
@@ -84,7 +90,6 @@ describe("mint", () => {
   });
 
   it("mint: fails with MintPaused when mint is paused", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     await pauseMint({ deployer, mint });
 
@@ -102,7 +107,6 @@ describe("mint", () => {
   });
 
   it("mint: fails with Deactivated when mint has been deactivated", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     await deactivateMint({ deployer, mint });
 
@@ -117,7 +121,6 @@ describe("mint", () => {
   });
 
   it("mint: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     const rogueKeypair = Keypair.generate();
 
@@ -132,7 +135,6 @@ describe("mint", () => {
   });
 
   it("mint: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_WHITELIST] });
 

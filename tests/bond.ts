@@ -1,6 +1,6 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { BOND_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
@@ -14,16 +14,16 @@ import {
 import { bondTermsPda, getBondTerms } from "./program_helpers/bond/bond_pda_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
-  ASSET_CLASS_VERSION_STATE_FINALIZED,
-  setAssetClassVersion,
+  setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
-import { BOND_UPDATE_BOND_TERMS } from "./utils/functionalities";
+import { BOND_UPDATE_BOND_TERMS, PAUSE_PAUSE } from "./utils/functionalities";
 import { getAccountInfo } from "./program_helpers/account_helper";
 
 describe("bond", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
+  let mint: PublicKey;
 
   // `deployMint` records config 0 / version 0 on the mint_owner, so every test's
   // update_bond_terms derives the asset-class version PDA at (0, 0). Seed it here
@@ -32,15 +32,12 @@ describe("bond", () => {
   // Anchor loads it (via the `bump = ...load()?.bump` constraint) before the
   // handler body's checks run. Tests that need it disabled re-seed it themselves.
   beforeEach(async () => {
-    await setAssetClassVersion(new anchor.BN(0), new anchor.BN(0), {
-      state: ASSET_CLASS_VERSION_STATE_FINALIZED,
-      functionalities: [BOND_UPDATE_BOND_TERMS],
-    });
+    ({ mint } = await deployMint({ deployer }));
+    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, BOND_UPDATE_BOND_TERMS] });
   });
 
   // ────────────────────────────────────────────────────────────────────────────
   it("update_bond_terms: creates the PDA and stores the supplied args", async () => {
-    const { mint } = await deployMint({ deployer });
     // ── Reference args ──────────────────────────────────────
     // Encodes: 5.275 % coupon, $1,000.00 par, 100-token min denomination,
     //          issued at unix 1_700_000_000, Actual/360 day-count.
@@ -118,12 +115,8 @@ describe("bond", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("update_bond_terms: fails with FunctionalityNotSupportedError when the bond functionality is not enabled", async () => {
-    const { mint } = await deployMint({ deployer });
     // Re-seed the asset-class version WITHOUT the bond functionality.
-    await setAssetClassVersion(new anchor.BN(0), new anchor.BN(0), {
-      state: ASSET_CLASS_VERSION_STATE_FINALIZED,
-      functionalities: [],
-    });
+    await setAssetClassVersionForMint(mint, { functionalities: [] });
 
     try {
       await updateBondTerms({ deployer, mint });
@@ -141,9 +134,8 @@ describe("bond", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("update_bond_terms: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-    const { mint } = await deployMint({ deployer });
     // Re-seed the asset-class version WITHOUT finalizing it.
-    await setAssetClassVersion(new anchor.BN(0), new anchor.BN(0), {
+    await setAssetClassVersionForMint(mint, {
       state: ASSET_CLASS_VERSION_STATE_DRAFT,
       functionalities: [BOND_UPDATE_BOND_TERMS],
     });
@@ -164,7 +156,6 @@ describe("bond", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("update_bond_terms: fails with MintPaused when mint is paused", async () => {
-    const { mint } = await deployMint({ deployer });
     await pauseMint({ deployer, mint });
 
     try {
@@ -179,7 +170,6 @@ describe("bond", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("update_bond_terms: fails with Deactivated when mint has been deactivated", async () => {
-    const { mint } = await deployMint({ deployer });
     await deactivateMint({ deployer, mint });
 
     try {
@@ -194,7 +184,6 @@ describe("bond", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("update_bond_terms: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-    const { mint } = await deployMint({ deployer });
     // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
     const rogueKeypair = Keypair.generate();
 
