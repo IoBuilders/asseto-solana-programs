@@ -7,7 +7,6 @@ import {
   FREEZE_PROGRAM_ID,
   METADATA_UPDATE_PROGRAM_ID,
   MINT_PROGRAM_ID,
-  PAUSE_PROGRAM_ID,
   SNAPSHOT_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
@@ -94,15 +93,7 @@ export function freezeEventAuthorityPda(): PublicKey {
 // Moved to `program_helpers/burn/burn_pda_helper.ts` (per-program helper layout).
 
 // ── pause ──────────────────────────────────────────────────────────────────────
-
-export function pausableAuthorityPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("pausable_authority"), mint.toBuffer()], PAUSE_PROGRAM_ID)[0];
-}
-
-// Anchor event-CPI authority for the pause program (seed "__event_authority").
-export function pauseEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], PAUSE_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/pause/pause_pda_helper.ts` (per-program helper layout).
 
 // ── deactivate ─────────────────────────────────────────────────────────────────
 

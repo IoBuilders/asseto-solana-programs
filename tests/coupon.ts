@@ -5,7 +5,7 @@ import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { COUPON_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { pauseMint } from "./program_helpers/pause_helper";
+import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
 import {
   createCoupon,

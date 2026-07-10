@@ -20,6 +20,8 @@ export function getOperationsProgram(): Program<Operations> {
   return anchor.workspace.Operations as Program<Operations>;
 }
 
+// ── burn ─────────────────────────────────────────────────────────────────────
+
 export type BurnTokensContext = MintWriteContext & {
   tokenAccount: PublicKey;
 };

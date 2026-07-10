@@ -4,7 +4,7 @@ import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { pauseMint } from "./program_helpers/pause_helper";
+import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
 import { createCoupon } from "./program_helpers/coupon_helper";
 import { createTokenAccount, getTokenAccount } from "./program_helpers/spl_token_helper";
