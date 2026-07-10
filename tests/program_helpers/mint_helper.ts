@@ -7,6 +7,7 @@ import { MintWriteContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../target/types/mint";
 import { getEvent } from "./event_helper";
+import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
 
 function getMintProgram(): Program<Mint> {
   return anchor.workspace.Mint as Program<Mint>;
@@ -44,8 +45,8 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       deactivatePda: pdaUtils.deactivatePda(callContext.mint),
       mintAuthority: pdaUtils.mintAuthorityPda(callContext.mint),
       freezeAuthority: pdaUtils.freezeAuthorityPda(callContext.mint),
-      transferControlModePda: pdaUtils.transferControlModePda(callContext.mint),
-      destinationWhitelistPda: pdaUtils.whitelistPda(callContext.mint, callContext.destination),
+      transferControlModePda: transferControlModePda(callContext.mint),
+      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
       snapshotCounterPda: pdaUtils.snapshotCounterPda(callContext.mint),
       totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(callContext.mint),
       holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.destination),

@@ -8,7 +8,6 @@ import {
   METADATA_UPDATE_PROGRAM_ID,
   MINT_PROGRAM_ID,
   SNAPSHOT_PROGRAM_ID,
-  TRANSFER_CONTROL_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   TRANSFER_PROGRAM_ID,
   TREASURY_PROGRAM_ID,
@@ -111,33 +110,7 @@ export function deactivateEventAuthorityPda(): PublicKey {
 }
 
 // ── transfer-control ───────────────────────────────────────────────────────────
-
-export function transferControlModePda(mint: PublicKey): PublicKey {
-  return transferControlModePdaWithBump(mint)[0];
-}
-
-export function transferControlModePdaWithBump(mint: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("transfer_control_mode"), mint.toBuffer()],
-    TRANSFER_CONTROL_PROGRAM_ID
-  );
-}
-
-export function whitelistPda(mint: PublicKey, account: PublicKey): PublicKey {
-  return whitelistPdaWithBump(mint, account)[0];
-}
-
-export function whitelistPdaWithBump(mint: PublicKey, account: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("whitelist"), mint.toBuffer(), account.toBuffer()],
-    TRANSFER_CONTROL_PROGRAM_ID
-  );
-}
-
-// Anchor event-CPI authority for the transfer-control program (seed "__event_authority").
-export function transferControlEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], TRANSFER_CONTROL_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/transfer_control/transfer_control_pda_helper.ts` (per-program helper layout).
 
 // ── transfer ───────────────────────────────────────────────────────────────────
 

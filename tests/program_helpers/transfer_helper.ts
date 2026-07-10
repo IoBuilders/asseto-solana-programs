@@ -11,6 +11,7 @@ import {
 import { MintWriteContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
+import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
@@ -51,9 +52,9 @@ export async function buildVerifyTransferInstruction(
       destination: callContext.destination,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: pdaUtils.deactivatePda(callContext.mint),
-      transferControlModePda: pdaUtils.transferControlModePda(callContext.mint),
-      sourceWhitelistPda: pdaUtils.whitelistPda(callContext.mint, callContext.source),
-      destinationWhitelistPda: pdaUtils.whitelistPda(callContext.mint, callContext.destination),
+      transferControlModePda: transferControlModePda(callContext.mint),
+      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
+      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
       sourceFrozenPda: pdaUtils.frozenAccountPda(callContext.mint, callContext.source),
       sourceFrozenBalancePda: pdaUtils.frozenBalancePda(callContext.mint, callContext.source),
     })

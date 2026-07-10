@@ -2,7 +2,6 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
-import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
@@ -11,17 +10,31 @@ import {
   addToWhitelist,
   getAccountRemovedFromWhitelistEvent,
   getAccountWhitelistedEvent,
-  getTransferControlModeByPda,
   getTransferControlModesSetEvent,
-  getWhitelistStatusByPda,
   removeFromWhitelist,
   setTransferControlModes,
   TRANSFER_CONTROL_CLEARING,
   TRANSFER_CONTROL_WHITELIST,
-} from "./program_helpers/transfer_control_helper";
+} from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { getAccountInfo, getBalanceForRentExeption } from "./program_helpers/account_helper";
-import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { PAUSE_PAUSE } from "./utils/functionalities";
+import {
+  ASSET_CLASS_VERSION_STATE_DRAFT,
+  setAssetClassVersionForMint,
+} from "./program_helpers/factory/factory_pda_helper";
+import {
+  PAUSE_PAUSE,
+  TRANSFER_CONTROL_ADD_TO_WHITELIST,
+  TRANSFER_CONTROL_REMOVE_FROM_WHITELIST,
+  TRANSFER_CONTROL_SET_MODES,
+} from "./utils/functionalities";
+import {
+  getTransferControlModeByPda,
+  getWhitelistStatusByPda,
+  transferControlModePda,
+  transferControlModePdaWithBump,
+  whitelistPda,
+  whitelistPdaWithBump,
+} from "./program_helpers/transfer_control/transfer_control_pda_helper";
 
 describe("transfer-control", () => {
   const provider = anchor.AnchorProvider.env();
@@ -31,30 +44,37 @@ describe("transfer-control", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
-    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE] });
+    await setAssetClassVersionForMint(mint, {
+      functionalities: [
+        PAUSE_PAUSE,
+        TRANSFER_CONTROL_SET_MODES,
+        TRANSFER_CONTROL_ADD_TO_WHITELIST,
+        TRANSFER_CONTROL_REMOVE_FROM_WHITELIST,
+      ],
+    });
   });
 
-  // 8 discriminator + 4 vec-length prefix + 1 byte per TransferMode variant + 1 bump
-  function getSizeOfTransferControlModePda(numModes: number): number {
-    return 8 + 4 + numModes + 1;
-  }
-
   describe("set_modes", async () => {
+    // 8 discriminator + 4 vec-length prefix + 1 byte per TransferMode variant + 1 bump
+    function getSizeOfTransferControlModePda(numModes: number): number {
+      return 8 + 4 + numModes + 1;
+    }
+
     // ── Happy-path: set_modes creates the PDA and sets modes = [Clearing] ───────────
     it("set_modes: creates the transfer_control_mode PDA with modes = [Clearing]", async () => {
       const modes = [TRANSFER_CONTROL_CLEARING];
-      const transferControlModePda = pdaUtils.transferControlModePda(mint);
-      const [, expectedBump] = pdaUtils.transferControlModePdaWithBump(mint);
+      const transferControlMode = transferControlModePda(mint);
+      const [, expectedBump] = transferControlModePdaWithBump(mint);
 
       // ── Verify the PDA does not exist before the instruction ────────────────
-      const stateBefore = await getTransferControlModeByPda(transferControlModePda);
+      const stateBefore = await getTransferControlModeByPda(transferControlMode);
 
       // ── Call set_modes(TRANSFER_CONTROL_CLEARING) ────────────────────────────────────
       const { signature } = await setTransferControlModes({ deployer, mint }, { modes });
 
       // ── Fetch and verify the PDA ─────────────────────────────────────────────
-      const stateAfter = await getTransferControlModeByPda(transferControlModePda);
-      const accountInfo = await getAccountInfo(transferControlModePda);
+      const stateAfter = await getTransferControlModeByPda(transferControlMode);
+      const accountInfo = await getAccountInfo(transferControlMode);
 
       const expectedSize = getSizeOfTransferControlModePda(modes.length);
 
@@ -75,13 +95,13 @@ describe("transfer-control", () => {
     it("set_modes: adds mode to an existing transfer_control_mode PDA", async () => {
       const initialModes = [TRANSFER_CONTROL_CLEARING];
       const newModes = [...initialModes, TRANSFER_CONTROL_WHITELIST];
-      const transferControlModePda = pdaUtils.transferControlModePda(mint);
+      const transferControlMode = transferControlModePda(mint);
 
       // ── First call: create with modes = [Clearing] ────────────────────────────
       await setTransferControlModes({ deployer, mint }, { modes: initialModes });
 
-      const stateAfterFirst = await getTransferControlModeByPda(transferControlModePda);
-      const accountInfoBefore = await getAccountInfo(transferControlModePda);
+      const stateAfterFirst = await getTransferControlModeByPda(transferControlMode);
+      const accountInfoBefore = await getAccountInfo(transferControlMode);
       const dataSizeBefore = accountInfoBefore.data.length;
       const lamportsBefore = accountInfoBefore.lamports;
       const expectedSizeBefore = getSizeOfTransferControlModePda(initialModes.length);
@@ -98,9 +118,9 @@ describe("transfer-control", () => {
       // ── Second call: Add Whitelist to modes ──────────────────
       await setTransferControlModes({ deployer, mint }, { modes: newModes });
 
-      const stateAfterUpdate = await getTransferControlModeByPda(transferControlModePda);
+      const stateAfterUpdate = await getTransferControlModeByPda(transferControlMode);
 
-      const accountInfoAfter = await getAccountInfo(transferControlModePda);
+      const accountInfoAfter = await getAccountInfo(transferControlMode);
       const lamportsAfter = accountInfoAfter.lamports;
       const dataSizeAfter = accountInfoAfter.data.length;
       const expectedSizeAfter = getSizeOfTransferControlModePda(newModes.length);
@@ -121,13 +141,13 @@ describe("transfer-control", () => {
     it("set_modes: removes a mode from an existing transfer_control_mode PDA", async () => {
       const initialModes = [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST] as any[];
       const newModes = [TRANSFER_CONTROL_CLEARING];
-      const transferControlModePda = pdaUtils.transferControlModePda(mint);
+      const transferControlMode = transferControlModePda(mint);
 
       // ── First call: create with modes = [Clearing, Whitelist] ────────────────
       await setTransferControlModes({ deployer, mint }, { modes: initialModes });
 
-      const stateAfterFirst = await getTransferControlModeByPda(transferControlModePda);
-      const accountInfoBefore = await getAccountInfo(transferControlModePda);
+      const stateAfterFirst = await getTransferControlModeByPda(transferControlMode);
+      const accountInfoBefore = await getAccountInfo(transferControlMode);
       const dataSizeBefore = accountInfoBefore.data.length;
       const lamportsBefore = accountInfoBefore.lamports;
       const expectedSizeBefore = getSizeOfTransferControlModePda(initialModes.length);
@@ -144,9 +164,9 @@ describe("transfer-control", () => {
       // ── Second call: remove Whitelist, keeping only [Clearing] ───────────────
       await setTransferControlModes({ deployer, mint }, { modes: newModes });
 
-      const stateAfterUpdate = await getTransferControlModeByPda(transferControlModePda);
+      const stateAfterUpdate = await getTransferControlModeByPda(transferControlMode);
 
-      const accountInfoAfter = await getAccountInfo(transferControlModePda);
+      const accountInfoAfter = await getAccountInfo(transferControlMode);
       const dataSizeAfter = accountInfoAfter.data.length;
       const lamportsAfter = accountInfoAfter.lamports;
       const expectedSizeAfter = getSizeOfTransferControlModePda(newModes.length);
@@ -165,19 +185,19 @@ describe("transfer-control", () => {
 
     // ── Happy-path: set_modes(null) removes an existing transfer_control_mode PDA ──
     it("set_modes: closes the transfer_control_mode PDA when called with empty vector", async () => {
-      const transferControlModePda = pdaUtils.transferControlModePda(mint);
+      const transferControlMode = transferControlModePda(mint);
 
       // ── First: create the PDA with any mode ────────────────────────────────
       await setTransferControlModes({ deployer, mint });
 
-      const stateAfterCreate = await getTransferControlModeByPda(transferControlModePda);
+      const stateAfterCreate = await getTransferControlModeByPda(transferControlMode);
       assert.isNotNull(stateAfterCreate, "transfer_control_mode PDA should exist after set_modes([clearing])");
 
       // ── Then: remove it by passing empty vector ────────────────────
       await setTransferControlModes({ deployer, mint }, { modes: [] });
 
       // ── Verify the PDA has been closed ────────────────────────────────────
-      const stateAfterRemove = await getTransferControlModeByPda(transferControlModePda);
+      const stateAfterRemove = await getTransferControlModeByPda(transferControlMode);
       assert.isNull(stateAfterRemove, "transfer_control_mode PDA should not exist after set_modes([])");
     });
 
@@ -223,23 +243,64 @@ describe("transfer-control", () => {
         assert.equal(anchorErr.error.errorCode.code, "Deactivated");
       }
     });
+
+    // ── Error case: set_modes — FunctionalityNotSupportedError ────────────────────
+    it("set_modes: fails with FunctionalityNotSupportedError when the set_modes functionality is not enabled", async () => {
+      // Re-seed the asset-class version WITHOUT the set_modes functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+      try {
+        await setTransferControlModes({ deployer, mint });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ── Error case: set_modes — AssetClassVersionNotFinalized ─────────────────────
+    it("set_modes: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [TRANSFER_CONTROL_SET_MODES],
+      });
+
+      try {
+        await setTransferControlModes({ deployer, mint });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
   });
 
   describe("add_to_whitelist", async () => {
     // ── Happy-path: add_to_whitelist ─────────────────────────────────────────────
     it("add_to_whitelist: creates the whitelist PDA for a token account", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      const whitelistPda = pdaUtils.whitelistPda(mint, tokenAccount);
-      const [, expectedBump] = pdaUtils.whitelistPdaWithBump(mint, tokenAccount);
+      const whitelist = whitelistPda(mint, tokenAccount);
+      const [, expectedBump] = whitelistPdaWithBump(mint, tokenAccount);
 
       // ── Verify the PDA does not exist before the instruction ────────────────
-      const stateBefore = await getWhitelistStatusByPda(whitelistPda);
+      const stateBefore = await getWhitelistStatusByPda(whitelist);
 
       // ── Call add_to_whitelist ───────────────────────────────────────────────
       const { signature } = await addToWhitelist({ deployer, mint, account: tokenAccount });
 
       // ── Fetch and verify the PDA ─────────────────────────────────────────────
-      const stateAfter = await getWhitelistStatusByPda(whitelistPda);
+      const stateAfter = await getWhitelistStatusByPda(whitelist);
       assert.isNull(stateBefore, "whitelist PDA should not exist before add_to_whitelist");
       assert.isNotNull(stateAfter, "whitelist PDA should exist after add_to_whitelist");
       assert.equal(stateAfter.bump, expectedBump, "bump should match the canonical bump");
@@ -298,25 +359,70 @@ describe("transfer-control", () => {
         assert.equal(anchorErr.error.errorCode.code, "Deactivated");
       }
     });
+
+    // ── Error case: add_to_whitelist — FunctionalityNotSupportedError ─────────────
+    it("add_to_whitelist: fails with FunctionalityNotSupportedError when the add_to_whitelist functionality is not enabled", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+
+      // Re-seed the asset-class version WITHOUT the add_to_whitelist functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+      try {
+        await addToWhitelist({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ── Error case: add_to_whitelist — AssetClassVersionNotFinalized ──────────────
+    it("add_to_whitelist: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [TRANSFER_CONTROL_ADD_TO_WHITELIST],
+      });
+
+      try {
+        await addToWhitelist({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
   });
 
   describe("remove_from_whitelist", async () => {
     // ── Happy-path: remove_from_whitelist ────────────────────────────────────────
     it("remove_from_whitelist: closes the whitelist PDA for a token account", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      const whitelistPda = pdaUtils.whitelistPda(mint, tokenAccount);
+      const whitelist = whitelistPda(mint, tokenAccount);
 
       // ── First: add to whitelist ─────────────────────────────────────────────
       await addToWhitelist({ deployer, mint, account: tokenAccount });
 
-      const stateAfterAdd = await getWhitelistStatusByPda(whitelistPda);
+      const stateAfterAdd = await getWhitelistStatusByPda(whitelist);
       assert.isNotNull(stateAfterAdd, "whitelist PDA should exist after add_to_whitelist");
 
       // ── Then: remove from whitelist ─────────────────────────────────────────
       const { signature } = await removeFromWhitelist({ deployer, mint, account: tokenAccount });
 
       // ── Verify the PDA has been closed ──────────────────────────────────────
-      const stateAfterRemove = await getWhitelistStatusByPda(whitelistPda);
+      const stateAfterRemove = await getWhitelistStatusByPda(whitelist);
       assert.isNull(stateAfterRemove, "whitelist PDA should not exist after remove_from_whitelist");
 
       const accountRemovedFromWhitelistEvent = await getAccountRemovedFromWhitelistEvent(signature);
@@ -388,6 +494,54 @@ describe("transfer-control", () => {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(anchorErr.error.errorCode.code, "Deactivated");
+      }
+    });
+
+    // ── Error case: remove_from_whitelist — FunctionalityNotSupportedError ────────
+    it("remove_from_whitelist: fails with FunctionalityNotSupportedError when the remove_from_whitelist functionality is not enabled", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      await addToWhitelist({ deployer, mint, account: tokenAccount });
+
+      // Re-seed the asset-class version WITH add_to_whitelist (needed to have set up the
+      // fixture above) but WITHOUT the remove_from_whitelist functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [TRANSFER_CONTROL_ADD_TO_WHITELIST] });
+
+      try {
+        await removeFromWhitelist({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ── Error case: remove_from_whitelist — AssetClassVersionNotFinalized ─────────
+    it("remove_from_whitelist: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      await addToWhitelist({ deployer, mint, account: tokenAccount });
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [TRANSFER_CONTROL_REMOVE_FROM_WHITELIST],
+      });
+
+      try {
+        await removeFromWhitelist({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
       }
     });
   });

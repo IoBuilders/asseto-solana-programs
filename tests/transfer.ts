@@ -22,12 +22,17 @@ import {
   setTransferControlModes,
   TRANSFER_CONTROL_CLEARING,
   TRANSFER_CONTROL_WHITELIST,
-} from "./program_helpers/transfer_control_helper";
+} from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { buildVerifyTransferInstruction, transfer } from "./program_helpers/transfer_helper";
 import { requestAirdrop } from "./program_helpers/account_helper";
 import { beforeEach } from "mocha";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { OPERATIONS_BURN, PAUSE_PAUSE } from "./utils/functionalities";
+import {
+  OPERATIONS_BURN,
+  PAUSE_PAUSE,
+  TRANSFER_CONTROL_ADD_TO_WHITELIST,
+  TRANSFER_CONTROL_SET_MODES,
+} from "./utils/functionalities";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -48,7 +53,9 @@ describe("transfer", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
-    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, OPERATIONS_BURN] });
+    await setAssetClassVersionForMint(mint, {
+      functionalities: [PAUSE_PAUSE, OPERATIONS_BURN, TRANSFER_CONTROL_SET_MODES, TRANSFER_CONTROL_ADD_TO_WHITELIST],
+    });
   });
 
   // ── Helper: fund the transfer hook authority PDA ────────────────────────────

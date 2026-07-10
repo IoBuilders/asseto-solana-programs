@@ -9,10 +9,13 @@ import { createCoupon } from "./program_helpers/coupon_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens, getIssuedEvent } from "./program_helpers/mint_helper";
 import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
-import { setTransferControlModes, TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control_helper";
+import {
+  setTransferControlModes,
+  TRANSFER_CONTROL_WHITELIST,
+} from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { beforeEach } from "mocha";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { PAUSE_PAUSE } from "./utils/functionalities";
+import { PAUSE_PAUSE, TRANSFER_CONTROL_SET_MODES } from "./utils/functionalities";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
@@ -23,7 +26,7 @@ describe("mint", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
-    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE] });
+    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, TRANSFER_CONTROL_SET_MODES] });
   });
 
   it("mint: mints tokens to a destination account and updates balance correctly", async () => {
