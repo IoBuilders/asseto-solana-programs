@@ -71,8 +71,6 @@ A version is fully defined by its bit-mask — there is no separate length. Bit 
 
 | Constant | Value | Notes |
 |---|---|---|
-| `FUNCTIONALITIES_BITS_MASK` | `8192` | Global mask capacity in bits — the single design-time knob for max functionalities. Must be a multiple of 8 and keep `8 + size_of::<AssetClassVersion>() <= 10240` (the `init` limit). All versions share this capacity. |
-| `FUNCTIONALITIES_BYTES_MASK` | `1024` | `FUNCTIONALITIES_BITS_MASK / 8`. |
 | `STATE_DRAFT` / `STATE_READY` | `0` / `1` | `state` values (zero-copy accounts can't hold a Borsh enum). |
 
 ---
@@ -317,7 +315,7 @@ Callable only by the asset class `owner`, and only while the factory is not paus
 
 1. `require_not_paused` / `verify_owner`.
 2. `require state == Draft` (`VersionNotDraft`).
-3. For each `f` in `functionalities`: `(byte, bit) = common::functionalities::index(f)`, `require byte < FUNCTIONALITIES_BYTES_MASK` (`MaskChunkOutOfBounds`), then `mask[byte] |= 1 << bit`.
+3. For each `f` in `functionalities`: `(byte, bit) = common::functionalities::index_of(f)?` (bounds-checks `f` internally, erroring with `CommonError::FunctionalityOutOfBounds` if it exceeds `FUNCTIONALITIES_BITS_MASK`), then `mask[byte] |= 1 << bit`.
 
 ### `disable_asset_class_version_functionalities(config_id: u64, version: u64, functionalities: Vec<u16>)`
 

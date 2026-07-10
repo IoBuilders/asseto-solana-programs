@@ -39,7 +39,7 @@ import {
   factoryPdaWithBump,
   factoryPendingManagerPda,
   factoryPendingManagerPdaWithBump,
-  FUNCTIONALITIES_BYTES_MASK,
+  FUNCTIONALITIES_BITS_MASK,
   getAssetClassOwnership,
   getAssetClassPendingOwner,
   getAssetClassVersion,
@@ -914,21 +914,20 @@ describe("factory", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("fails with MaskChunkOutOfBounds when a functionality exceeds the mask capacity", async () => {
+    it("fails with FunctionalityOutOfBounds when a functionality exceeds the mask capacity", async () => {
       try {
-        // The mask holds FUNCTIONALITIES_BYTES_MASK * 8 bits — one past that is out of bounds.
         await enableAssetClassVersionFunctionalities(
           { owner: ASSET_CLASS_OWNER },
           {
             configId: ASSET_CLASS_CONFIG_ID,
             version: ASSET_CLASS_VERSION,
-            functionalities: [FUNCTIONALITIES_BYTES_MASK * 8],
+            functionalities: [FUNCTIONALITIES_BITS_MASK + 1],
           }
         );
-        assert.fail("Expected MaskChunkOutOfBounds but enable succeeded");
+        assert.fail("Expected FunctionalityOutOfBounds but enable succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "MaskChunkOutOfBounds");
+        assert.equal((err as AnchorError).error.errorCode.code, "FunctionalityOutOfBounds");
       }
     });
 
@@ -1038,20 +1037,20 @@ describe("factory", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("fails with MaskChunkOutOfBounds when a functionality exceeds the mask capacity", async () => {
+    it("fails with FunctionalityOutOfBounds when a functionality exceeds the mask capacity", async () => {
       try {
         await disableAssetClassVersionFunctionalities(
           { owner: ASSET_CLASS_OWNER },
           {
             configId: ASSET_CLASS_CONFIG_ID,
             version: ASSET_CLASS_VERSION,
-            functionalities: [FUNCTIONALITIES_BYTES_MASK * 8],
+            functionalities: [FUNCTIONALITIES_BITS_MASK + 1],
           }
         );
-        assert.fail("Expected MaskChunkOutOfBounds but disable succeeded");
+        assert.fail("Expected FunctionalityOutOfBounds but disable succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "MaskChunkOutOfBounds");
+        assert.equal((err as AnchorError).error.errorCode.code, "FunctionalityOutOfBounds");
       }
     });
 

@@ -79,7 +79,7 @@ pub struct InitAssetClassVersion<'info> {
     #[account(
         init,
         payer = owner,
-        space = 8 + std::mem::size_of::<AssetClassVersion>(),
+        space = AssetClassVersion::DISCRIMINATOR.len() + std::mem::size_of::<AssetClassVersion>(),
         seeds = [pda_seeds::ASSET_CLASS_VERSION, &config_id.to_le_bytes(), &version.to_le_bytes()],
         bump,
     )]

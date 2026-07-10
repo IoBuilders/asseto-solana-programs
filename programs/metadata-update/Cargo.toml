@@ -18,7 +18,7 @@ no-log-ix-name = []
 anchor-debug = []
 custom-heap = []
 custom-panic = []
-idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "common/idl-build"]
 
 [dependencies]
 anchor-lang = { version = "1.0.2", features = ["event-cpi"] }

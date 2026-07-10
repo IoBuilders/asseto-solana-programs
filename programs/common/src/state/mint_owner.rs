@@ -1,3 +1,4 @@
+use crate::CommonError::InvalidMintOwnerData;
 use anchor_lang::prelude::*;
 
 /// Persists the deployer (mint owner) for a given mint.
@@ -30,3 +31,40 @@ pub struct MintOwner {
     /// Canonical bump for this PDA — saved to spare a find_program_address call.
     pub bump: u8,
 }
+
+impl Discriminator for MintOwner {
+    /// The 8-byte Anchor account discriminator for `deploy::state::MintOwner`
+    /// Computed here since this crate has no `declare_id!`/`#[account]` to derive it from
+    /// Defined in `common` so all downstream programs can deserialize it
+    const DISCRIMINATOR: &'static [u8] = &[15, 79, 132, 40, 8, 129, 114, 149];
+}
+
+// Defines the owner program of the Account<MintOwner>
+impl Owner for MintOwner {
+    fn owner() -> Pubkey {
+        crate::program_ids::DEPLOY_PROGRAM_ID
+    }
+}
+
+impl AccountDeserialize for MintOwner {
+    fn try_deserialize(buf: &mut &[u8]) -> Result<Self> {
+        // Check that the passed account's discriminator matches the targeted one
+        if buf.len() < Self::DISCRIMINATOR.len() {
+            return Err(ErrorCode::AccountDiscriminatorNotFound.into());
+        }
+        let given_disc = &buf[..Self::DISCRIMINATOR.len()];
+        if given_disc != Self::DISCRIMINATOR {
+            return Err(ErrorCode::AccountDiscriminatorMismatch.into());
+        }
+        Self::try_deserialize_unchecked(buf)
+    }
+
+    fn try_deserialize_unchecked(buf: &mut &[u8]) -> Result<Self> {
+        // Skip the first discriminator bytes and deserialize the rest of the buffer.
+        MintOwner::deserialize(&mut &buf[Self::DISCRIMINATOR.len()..])
+            .map_err(|_| error!(InvalidMintOwnerData))
+    }
+}
+
+// No-op: We can't write to another program's account.
+impl AccountSerialize for MintOwner {}

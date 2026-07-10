@@ -1,11 +1,8 @@
-use anchor_lang::prelude::*;
-use common::{functionalities, pda_seeds};
-
 use crate::errors::ErrorCode;
 use crate::helpers::{require_not_paused, verify_owner};
-use crate::state::{
-    AssetClassOwnership, AssetClassVersion, Factory, FUNCTIONALITIES_BYTES_MASK, STATE_DRAFT,
-};
+use crate::state::{AssetClassOwnership, AssetClassVersion, Factory, STATE_DRAFT};
+use anchor_lang::prelude::*;
+use common::{functionalities, pda_seeds};
 
 /// Turns on the given functionality bits in a `Draft` asset-class version's mask.
 ///
@@ -35,11 +32,7 @@ pub fn enable_asset_class_version_functionalities(
     );
 
     for f in functionalities {
-        let (byte, bit) = functionalities::index(f);
-        require!(
-            byte < FUNCTIONALITIES_BYTES_MASK,
-            ErrorCode::MaskChunkOutOfBounds
-        );
+        let (byte, bit) = functionalities::index_of(f)?;
         version_account.mask[byte] |= 1 << bit;
     }
 
