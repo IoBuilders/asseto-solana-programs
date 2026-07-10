@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use common::state::MintOwner as MintOwnerData;
+use common::state::{discriminators_eq, MintOwner as MintOwnerCommon};
 
 /// Re-exports MintOwner with the `#[account]` attribute so that deploy can use
 /// it as `Account<MintOwner>` (which requires the Owner trait provided by `#[account]`).
@@ -11,7 +11,7 @@ use common::state::MintOwner as MintOwnerData;
 /// so downstream programs can deserialize it without importing deploy.
 /// Both definitions must stay in sync — the compile-time assertion below guards against
 /// divergence by failing the build if the two structs ever differ in size.
-#[account]
+#[account(discriminator = MintOwnerCommon::DISCRIMINATOR)]
 #[derive(InitSpace)]
 pub struct MintOwner {
     pub deployer: Pubkey,
@@ -21,6 +21,14 @@ pub struct MintOwner {
 }
 
 const _: () = assert!(
-    core::mem::size_of::<MintOwner>() == core::mem::size_of::<MintOwnerData>(),
+    size_of::<MintOwner>() == size_of::<MintOwnerCommon>(),
     "deploy::MintOwner and common::MintOwner have diverged — update both structs together",
+);
+
+const _: () = assert!(
+    discriminators_eq(
+        <MintOwner as Discriminator>::DISCRIMINATOR,
+        <MintOwnerCommon as Discriminator>::DISCRIMINATOR
+    ),
+    "deploy::MintOwner and common::MintOwner discriminators have diverged — update both together",
 );

@@ -21,6 +21,8 @@ pub enum CommonError {
     FunctionalityOutOfBounds,
     #[msg("The asset class version does not support this functionality")]
     FunctionalityNotSupportedError,
+    #[msg("Could not read the mint owner account data")]
+    InvalidMintOwnerData,
 }
 
 /// Verifies that `deployer` matches the pubkey stored in a `mint_owner_pda`
