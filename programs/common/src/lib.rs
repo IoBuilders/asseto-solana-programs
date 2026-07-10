@@ -1,5 +1,5 @@
 use crate::functionalities::index_of;
-use crate::state::AssetClassVersion;
+use crate::state::{AssetClassVersion, MintOwner};
 use anchor_lang::prelude::*;
 use std::cell::Ref;
 
@@ -23,6 +23,8 @@ pub enum CommonError {
     FunctionalityNotSupportedError,
     #[msg("Could not read the mint owner account data")]
     InvalidMintOwnerData,
+    #[msg("The asset class version is not finalized")]
+    AssetClassVersionNotFinalized,
 }
 
 /// Verifies that `deployer` matches the pubkey stored in a `mint_owner_pda`
@@ -53,6 +55,14 @@ pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Resul
 
     require!(
         mint_owner.deployer == *deployer,
+        CommonError::UnauthorizedDeployer
+    );
+    Ok(())
+}
+
+pub fn verify_deployer_account(mint_owner_pda: &MintOwner, deployer: &Pubkey) -> Result<()> {
+    require!(
+        mint_owner_pda.deployer == *deployer,
         CommonError::UnauthorizedDeployer
     );
     Ok(())
@@ -103,6 +113,11 @@ pub fn require_functionality(
     asset_class_version: Ref<AssetClassVersion>,
     functionality: u16,
 ) -> Result<()> {
+    require!(
+        asset_class_version.state == state::ASSET_CLASS_VERSION_STATE_FINALIZED,
+        CommonError::AssetClassVersionNotFinalized
+    );
+
     let (byte, bit) = index_of(functionality)?;
     let enabled = (asset_class_version.mask[byte] >> bit) & 1 == 1;
 

@@ -1,8 +1,8 @@
 use crate::errors::ErrorCode;
 use crate::helpers::{require_not_paused, verify_owner};
-use crate::state::{AssetClassOwnership, AssetClassVersion, Factory, STATE_DRAFT};
+use crate::state::{AssetClassOwnership, AssetClassVersion, Factory};
 use anchor_lang::prelude::*;
-use common::{functionalities, pda_seeds};
+use common::{functionalities, pda_seeds, state::ASSET_CLASS_VERSION_STATE_DRAFT};
 
 /// Turns on the given functionality bits in a `Draft` asset-class version's mask.
 ///
@@ -27,7 +27,7 @@ pub fn enable_asset_class_version_functionalities(
 
     let mut version_account = ctx.accounts.asset_class_version_pda.load_mut()?;
     require!(
-        version_account.state == STATE_DRAFT,
+        version_account.state == ASSET_CLASS_VERSION_STATE_DRAFT,
         ErrorCode::VersionNotDraft
     );
 

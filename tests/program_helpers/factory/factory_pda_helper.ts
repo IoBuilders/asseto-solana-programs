@@ -160,9 +160,9 @@ async function encodeAssetClassPendingOwner(pendingOwner: PublicKey, bump: numbe
 
 // ── asset_class_version PDA ───────────────────────────────────────────────────────────────────
 
-/** `AssetClassVersion.state` values (mirrors `STATE_DRAFT`/`STATE_READY` on-chain). */
+/** `AssetClassVersion.state` values (mirrors `STATE_DRAFT`/`STATE_FINALIZED` on-chain). */
 export const ASSET_CLASS_VERSION_STATE_DRAFT = 0;
-export const ASSET_CLASS_VERSION_STATE_READY = 1;
+export const ASSET_CLASS_VERSION_STATE_FINALIZED = 1;
 
 /** Global mask capacity in bits (mirrors `FUNCTIONALITIES_BITS_MASK` on-chain). */
 export const FUNCTIONALITIES_BITS_MASK = 8192;
