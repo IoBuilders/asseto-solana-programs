@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import {
-  BOND_PROGRAM_ID,
   COUPON_PROGRAM_ID,
   DEACTIVATE_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
@@ -214,15 +213,7 @@ export function snapshotTriggeredEventAuthorityPda(): PublicKey {
 }
 
 // ── bond ───────────────────────────────────────────────────────────────────────
-
-export function bondTermsPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("bond_terms"), mint.toBuffer()], BOND_PROGRAM_ID)[0];
-}
-
-// Anchor event-CPI authority for the bond program (seed "__event_authority").
-export function bondEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], BOND_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/bond/bond_pda_helper.ts` (per-program helper layout).
 
 // ── coupon ─────────────────────────────────────────────────────────────────────
 

@@ -8,6 +8,7 @@ import { getEvent } from "./event_helper";
 import { Program } from "@anchor-lang/core";
 import { Treasury } from "../../target/types/treasury";
 import { couponPaidPda } from "../utils/pda_utils";
+import { bondTermsPda } from "./bond/bond_pda_helper";
 import BN from "bn.js";
 
 function getTreasuryProgram(): Program<Treasury> {
@@ -66,7 +67,7 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       deactivatePda: pdaUtils.deactivatePda(callContext.mint),
       treasuryConfig: pdaUtils.treasuryConfigPda(callContext.mint),
       treasuryAuthority: pdaUtils.treasuryAuthorityPda(callContext.mint),
-      bondTerms: pdaUtils.bondTermsPda(callContext.mint),
+      bondTerms: bondTermsPda(callContext.mint),
       coupon: pdaUtils.couponPda(callContext.mint, args.couponId),
       holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
       couponPaid: pdaUtils.couponPaidPda(callContext.mint, args.couponId, callContext.holderTokenAccount),

@@ -10,6 +10,12 @@ pub const FUNCTIONALITIES_MASK_CHUNK_BITS: usize = 8;
 pub const FUNCTIONALITIES_BYTES_MASK: usize =
     FUNCTIONALITIES_BITS_MASK / FUNCTIONALITIES_MASK_CHUNK_BITS;
 
+/// Lifecycle state of an asset-class version, stored as a `u8` (zero-copy /
+/// `Pod` accounts cannot hold a Borsh enum).
+pub const ASSET_CLASS_VERSION_STATE_DRAFT: u8 = 0;
+/// Mask sealed; the version is immutable and usable by `deploy`/`mint`.
+pub const ASSET_CLASS_VERSION_STATE_FINALIZED: u8 = 1;
+
 /// Full field-for-field mirror of `factory::state::AssetClassVersion`,
 /// which must stay in sync with this struct, field for field.
 /// A compile-time size assertion in `factory/src/state.rs` guards against divergence.

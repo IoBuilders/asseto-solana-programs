@@ -1,13 +1,16 @@
-import * as pdaUtils from "../utils/pda_utils";
 import * as anchor from "@anchor-lang/core";
-import { BOND_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../utils/address_utils";
-import { Bond } from "../../target/types/bond";
 import { Program } from "@anchor-lang/core";
-import { MintWriteWithPayerContext } from "./base_helper";
 import { PublicKey } from "@solana/web3.js";
-import { getEvent } from "./event_helper";
+import { Bond } from "../../../target/types/bond";
+import { BOND_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
+import * as pdaUtils from "../../utils/pda_utils";
+import { MintWriteWithPayerContext } from "../base_helper";
+import { getEvent } from "../event_helper";
+import { getMintOwner } from "../deploy_helper";
+import { assetClassVersionPda } from "../factory/factory_pda_helper";
+import { bondEventAuthorityPda, bondTermsPda } from "./bond_pda_helper";
 
-function getBondProgram(): Program<Bond> {
+export function getBondProgram(): Program<Bond> {
   return anchor.workspace.Bond as Program<Bond>;
 }
 
@@ -42,6 +45,10 @@ export async function updateBondTerms(
     ...args,
   };
 
+  // The asset-class version PDA is derived from the ids recorded in the mint's
+  // `mint_owner` account — the same values the on-chain program reads.
+  const mintOwner = await getMintOwner(callContext.mint);
+
   const signature = await getBondProgram()
     .methods.updateBondTerms({
       interestRate: effectiveArgs.interestRate,
@@ -58,19 +65,16 @@ export async function updateBondTerms(
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: pdaUtils.deactivatePda(callContext.mint),
       mint: callContext.mint,
-      bondTerms: pdaUtils.bondTermsPda(callContext.mint),
+      bondTerms: bondTermsPda(callContext.mint),
+      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       systemProgram: SYSTEM_PROGRAM_ID,
-      eventAuthority: pdaUtils.bondEventAuthorityPda(),
+      eventAuthority: bondEventAuthorityPda(),
       program: BOND_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
-}
-
-export async function getCouponCounterByPda(pda: PublicKey) {
-  return await getBondProgram().account.bondTerms.fetch(pda, "confirmed");
 }
 
 type BondTermsUpdatedEvent = {

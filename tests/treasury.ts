@@ -6,7 +6,7 @@ import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
-import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond_helper";
+import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon_helper";
 import { createMint, createTokenAccount, getTokenAccount, mintTo } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint_helper";
@@ -20,6 +20,11 @@ import {
   setPaymentToken,
 } from "./program_helpers/treasury_helper";
 import { treasuryAuthorityPda } from "./utils/pda_utils";
+import {
+  ASSET_CLASS_VERSION_STATE_FINALIZED,
+  setAssetClassVersion,
+} from "./program_helpers/factory/factory_pda_helper";
+import { BOND_UPDATE_BOND_TERMS } from "./utils/functionalities";
 
 // ── Bond mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -86,6 +91,14 @@ describe("treasury", () => {
     const treasuryFunding = opts?.treasuryFunding ?? BigInt(1_000_000_000);
 
     const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
+
+    // Seed the mint's asset-class version (config 0 / version 0, the deployMint
+    // defaults) with the bond functionality enabled so update_bond_terms passes
+    // its require_functionality gate.
+    await setAssetClassVersion(new anchor.BN(0), new anchor.BN(0), {
+      state: ASSET_CLASS_VERSION_STATE_FINALIZED,
+      functionalities: [BOND_UPDATE_BOND_TERMS],
+    });
 
     // 1. Mint bond tokens to a brand-new holder bond-mint token account.
     const holderTokenAccount = await createTokenAccount({ mint, owner: deployer });

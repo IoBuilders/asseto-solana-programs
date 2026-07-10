@@ -1,9 +1,11 @@
 use anchor_lang::prelude::*;
-use common::pda_seeds;
+use common::{
+    pda_seeds, state::ASSET_CLASS_VERSION_STATE_DRAFT, state::ASSET_CLASS_VERSION_STATE_FINALIZED,
+};
 
 use crate::errors::ErrorCode;
 use crate::helpers::{require_not_paused, verify_owner};
-use crate::state::{AssetClassOwnership, AssetClassVersion, Factory, STATE_DRAFT, STATE_READY};
+use crate::state::{AssetClassOwnership, AssetClassVersion, Factory};
 
 /// Seals a `Draft` asset-class version, making it immutable and usable.
 ///
@@ -36,7 +38,7 @@ pub fn finalize_asset_class_version(
     let version = {
         let mut version_account = ctx.accounts.asset_class_version_pda.load_mut()?;
         require!(
-            version_account.state == STATE_DRAFT,
+            version_account.state == ASSET_CLASS_VERSION_STATE_DRAFT,
             ErrorCode::VersionNotDraft
         );
         require_eq!(
@@ -44,7 +46,7 @@ pub fn finalize_asset_class_version(
             expected_version,
             ErrorCode::InvalidVersion
         );
-        version_account.state = STATE_READY;
+        version_account.state = ASSET_CLASS_VERSION_STATE_FINALIZED;
         version_account.version
     };
 

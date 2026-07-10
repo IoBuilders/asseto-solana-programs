@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
+use common::state::{AssetClassVersion, MintOwner};
+use common::{
+    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+};
 
 use crate::events::BondTermsUpdated;
 use crate::state::{BondTerms, BondTermsArgs};
@@ -8,17 +11,20 @@ use common::program_ids as constants;
 /// Creates the `bond_terms_pda` on the first call (init_if_needed) and
 /// overwrites every field with `args` on every call.
 ///
-/// Management instruction — gated by `verify_deployer` + `require_not_paused`
-/// + `require_active`.
+/// Management instruction — gated by `verify_deployer_account` +
+/// `require_not_paused` + `require_active` + `require_functionality`
+/// (`BOND_UPDATE_BOND_TERMS` must be enabled in the asset-class version).
 pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> Result<()> {
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
-    )?;
+    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
 
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::BOND_UPDATE_BOND_TERMS,
+    )?;
 
     let bond_terms = &mut ctx.accounts.bond_terms;
     bond_terms.bump = ctx.bumps.bond_terms;
@@ -62,9 +68,9 @@ pub struct UpdateBondTerms<'info> {
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = mint_owner_pda.bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub mint_owner_pda: Account<'info, MintOwner>,
 
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
@@ -92,6 +98,17 @@ pub struct UpdateBondTerms<'info> {
         bump,
     )]
     pub bond_terms: Account<'info, BondTerms>,
+
+    /// Asset-class version PDA this mint is hooked to (owned by `factory`).
+    /// Read-only: `require_functionality` checks the functionality bit is set.
+    /// Seeds: `["asset_class_version", config_id, version]`, derived with the
+    /// ids stored in `mint_owner_pda`.
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub system_program: Program<'info, System>,
 }

@@ -65,12 +65,6 @@ pub struct AssetClassPendingOwner {
     pub bump: u8,
 }
 
-/// Lifecycle state of an asset-class version, stored as a `u8` (zero-copy /
-/// `Pod` accounts cannot hold a Borsh enum).
-pub const STATE_DRAFT: u8 = 0;
-/// Mask sealed; the version is immutable and usable by `deploy`/`mint`.
-pub const STATE_READY: u8 = 1;
-
 /// One version of an asset class, stored at
 /// `["asset_class_version", config_id, version]`.
 ///

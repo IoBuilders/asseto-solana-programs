@@ -1,9 +1,10 @@
 use anchor_lang::prelude::*;
 use common::pda_seeds;
+use common::state::ASSET_CLASS_VERSION_STATE_DRAFT;
 
 use crate::errors::ErrorCode;
 use crate::helpers::{require_not_paused, verify_owner};
-use crate::state::{AssetClassOwnership, AssetClassVersion, Factory, STATE_DRAFT};
+use crate::state::{AssetClassOwnership, AssetClassVersion, Factory};
 
 /// Starts deploying a new version of asset class `config_id`.
 ///
@@ -45,7 +46,7 @@ pub fn init_asset_class_version(
     let mut version_account = ctx.accounts.asset_class_version_pda.load_init()?;
     version_account.config_id = config_id;
     version_account.version = version;
-    version_account.state = STATE_DRAFT;
+    version_account.state = ASSET_CLASS_VERSION_STATE_DRAFT;
     version_account.bump = bump;
 
     Ok(())
