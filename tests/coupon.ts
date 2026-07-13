@@ -6,7 +6,7 @@ import * as pdaUtils from "./utils/pda_utils";
 import { COUPON_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate_helper";
+import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import {
   createCoupon,
   getCouponCreatedEvent,
@@ -28,7 +28,12 @@ import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
-import { COUPON_CREATE_COUPON, COUPON_SET_COUPON_RATE, PAUSE_PAUSE } from "./utils/functionalities";
+import {
+  COUPON_CREATE_COUPON,
+  COUPON_SET_COUPON_RATE,
+  DEACTIVATE_DEACTIVATE,
+  PAUSE_PAUSE,
+} from "./utils/functionalities";
 
 describe("coupon", () => {
   const provider = anchor.AnchorProvider.env();
@@ -39,7 +44,7 @@ describe("coupon", () => {
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
     await setAssetClassVersionForMint(mint, {
-      functionalities: [PAUSE_PAUSE, COUPON_CREATE_COUPON, COUPON_SET_COUPON_RATE],
+      functionalities: [PAUSE_PAUSE, COUPON_CREATE_COUPON, COUPON_SET_COUPON_RATE, DEACTIVATE_DEACTIVATE],
     });
   });
 

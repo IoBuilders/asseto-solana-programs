@@ -1,5 +1,6 @@
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
+import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import {
@@ -51,7 +52,7 @@ export async function buildVerifyTransferInstruction(
       source: callContext.source,
       destination: callContext.destination,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),

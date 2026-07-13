@@ -5,7 +5,7 @@ import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate_helper";
+import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
   freezeAccount,
@@ -29,6 +29,7 @@ import { beforeEach } from "mocha";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
 import {
   COUPON_CREATE_COUPON,
+  DEACTIVATE_DEACTIVATE,
   OPERATIONS_BURN,
   PAUSE_PAUSE,
   TRANSFER_CONTROL_ADD_TO_WHITELIST,
@@ -61,6 +62,7 @@ describe("transfer", () => {
         TRANSFER_CONTROL_SET_MODES,
         TRANSFER_CONTROL_ADD_TO_WHITELIST,
         COUPON_CREATE_COUPON,
+        DEACTIVATE_DEACTIVATE,
       ],
     });
   });

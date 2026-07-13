@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../../utils/pda_utils";
+import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
@@ -56,7 +57,7 @@ export async function burnTokens(
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
       freezeAuthority: pdaUtils.freezeAuthorityPda(callContext.mint),
       snapshotCounterPda: pdaUtils.snapshotCounterPda(callContext.mint),

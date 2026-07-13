@@ -1,6 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
 import {
-  DEACTIVATE_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
   METADATA_UPDATE_PROGRAM_ID,
@@ -92,19 +91,7 @@ export function freezeEventAuthorityPda(): PublicKey {
 // Moved to `program_helpers/pause/pause_pda_helper.ts` (per-program helper layout).
 
 // ── deactivate ─────────────────────────────────────────────────────────────────
-
-export function deactivatePda(mint: PublicKey): PublicKey {
-  return deactivatePdaWithBump(mint)[0];
-}
-
-export function deactivatePdaWithBump(mint: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("deactivate"), mint.toBuffer()], DEACTIVATE_PROGRAM_ID);
-}
-
-// Anchor event-CPI authority for the deactivate program (seed "__event_authority").
-export function deactivateEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], DEACTIVATE_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/deactivate/deactivate_pda_helper.ts` (per-program helper layout).
 
 // ── transfer-control ───────────────────────────────────────────────────────────
 // Moved to `program_helpers/transfer_control/transfer_control_pda_helper.ts` (per-program helper layout).

@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../../utils/pda_utils";
+import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID } from "../../utils/address_utils";
@@ -48,7 +49,7 @@ export async function setTransferControlModes(
       deployer: callContext.deployer,
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       systemProgram: SYSTEM_PROGRAM_ID,
@@ -94,7 +95,7 @@ export async function addToWhitelist(callContext: AddToWhitelistContext): Promis
       mint: callContext.mint,
       account: callContext.account,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       whitelistPda: whitelistPda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       systemProgram: SYSTEM_PROGRAM_ID,
@@ -140,7 +141,7 @@ export async function removeFromWhitelist(callContext: RemoveFromWhitelistContex
       mint: callContext.mint,
       account: callContext.account,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       whitelistPda: whitelistPda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       eventAuthority: transferControlEventAuthorityPda(),

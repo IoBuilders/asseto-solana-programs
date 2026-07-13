@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
+import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID } from "../utils/address_utils";
 import { MintWriteContext } from "./base_helper";
@@ -23,7 +24,7 @@ export async function freezeAccount(callContext: FreezeAccountContext): Promise<
       mint: callContext.mint,
       account: callContext.account,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       frozenAccountPda: pdaUtils.frozenAccountPda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: pdaUtils.freezeEventAuthorityPda(),
@@ -47,7 +48,7 @@ export async function unfreezeAccount(callContext: UnfreezeAccountContext): Prom
       mint: callContext.mint,
       account: callContext.account,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       frozenAccountPda: pdaUtils.frozenAccountPda(callContext.mint, callContext.account),
       eventAuthority: pdaUtils.freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
@@ -88,7 +89,7 @@ export async function partiallyFreezeAccount(
       mint: callContext.mint,
       account: callContext.account,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       frozenBalancePda: pdaUtils.frozenBalancePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: pdaUtils.freezeEventAuthorityPda(),
@@ -114,7 +115,7 @@ export async function removePartialFreeze(
       mint: callContext.mint,
       account: callContext.account,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       frozenBalancePda: pdaUtils.frozenBalancePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: pdaUtils.freezeEventAuthorityPda(),

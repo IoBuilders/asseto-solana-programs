@@ -4,7 +4,7 @@ import { Keypair, PublicKey, SendTransactionError, Signer } from "@solana/web3.j
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate_helper";
+import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createMint, createTokenAccount, getTokenAccount, mintTo } from "./program_helpers/spl_token_helper";
@@ -29,6 +29,7 @@ import {
 import {
   BOND_UPDATE_BOND_TERMS,
   COUPON_CREATE_COUPON,
+  DEACTIVATE_DEACTIVATE,
   PAUSE_PAUSE,
   TREASURY_PAY_COUPON,
   TREASURY_SET_PAYMENT_TOKEN,
@@ -207,6 +208,7 @@ describe("treasury", () => {
         TREASURY_PAY_COUPON,
         TREASURY_SET_PAYMENT_TOKEN,
         COUPON_CREATE_COUPON,
+        DEACTIVATE_DEACTIVATE,
       ],
     });
   });

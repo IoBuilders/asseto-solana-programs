@@ -5,7 +5,7 @@ import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate_helper";
+import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint_helper";
@@ -16,7 +16,7 @@ import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
-import { COUPON_CREATE_COUPON, OPERATIONS_BURN, PAUSE_PAUSE } from "./utils/functionalities";
+import { COUPON_CREATE_COUPON, DEACTIVATE_DEACTIVATE, OPERATIONS_BURN, PAUSE_PAUSE } from "./utils/functionalities";
 import { beforeEach } from "mocha";
 
 describe("operations", () => {
@@ -33,7 +33,7 @@ describe("operations", () => {
       ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
       mintOwnerPda = pdaUtils.mintOwnerPda(mint);
       await setAssetClassVersionForMint(mint, {
-        functionalities: [PAUSE_PAUSE, OPERATIONS_BURN, COUPON_CREATE_COUPON],
+        functionalities: [PAUSE_PAUSE, OPERATIONS_BURN, COUPON_CREATE_COUPON, DEACTIVATE_DEACTIVATE],
       });
     });
 

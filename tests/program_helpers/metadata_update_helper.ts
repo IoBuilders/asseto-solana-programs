@@ -1,5 +1,6 @@
 import { PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
+import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { METADATA_UPDATE_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../utils/address_utils";
@@ -41,7 +42,7 @@ export async function updateMetadataField(
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       metadataUpdateAuthority: pdaUtils.metadataUpdateAuthorityPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: pdaUtils.metadataUpdateEventAuthorityPda(),
@@ -98,7 +99,7 @@ export async function removeMetadataField(
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       metadataUpdateAuthority: pdaUtils.metadataUpdateAuthorityPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       rent: SYSVAR_RENT_PUBKEY,

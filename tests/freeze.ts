@@ -5,7 +5,7 @@ import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate_helper";
+import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import {
   freezeAccount,
   getFrozenAccountStatusByPda,
@@ -22,7 +22,7 @@ import { createTokenAccount } from "./program_helpers/spl_token_helper";
 import { requestAirdrop } from "./program_helpers/account_helper";
 import { beforeEach } from "mocha";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { PAUSE_PAUSE } from "./utils/functionalities";
+import { DEACTIVATE_DEACTIVATE, PAUSE_PAUSE } from "./utils/functionalities";
 
 describe("freeze", () => {
   const provider = anchor.AnchorProvider.env();
@@ -32,7 +32,7 @@ describe("freeze", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
-    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE] });
+    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, DEACTIVATE_DEACTIVATE] });
   });
 
   describe("freeze_account", () => {

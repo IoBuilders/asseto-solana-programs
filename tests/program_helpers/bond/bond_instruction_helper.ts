@@ -4,6 +4,7 @@ import { PublicKey } from "@solana/web3.js";
 import { Bond } from "../../../target/types/bond";
 import { BOND_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import * as pdaUtils from "../../utils/pda_utils";
+import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { MintWriteWithPayerContext } from "../base_helper";
 import { getEvent } from "../event_helper";
 import { getMintOwner } from "../deploy_helper";
@@ -65,7 +66,7 @@ export async function updateBondTerms(
       payer: callContext.payer ?? callContext.deployer,
       deployer: callContext.deployer,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       bondTerms: bondTermsPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),

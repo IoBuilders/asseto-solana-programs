@@ -1,4 +1,5 @@
 import * as pdaUtils from "../../utils/pda_utils";
+import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, SNAPSHOT_PROGRAM_ID } from "../../utils/address_utils";
 import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
@@ -63,7 +64,7 @@ export async function createCoupon(
       deployer: callContext.deployer,
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       couponAuthority: couponAuthorityPda(callContext.mint),
       couponCounter: couponCounterPda(callContext.mint),
       coupon: couponPda(callContext.mint, effectiveArgs.couponId),
@@ -135,7 +136,7 @@ export async function setCouponRate(
       deployer: context.deployer,
       mint: context.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(context.mint),
-      deactivatePda: pdaUtils.deactivatePda(context.mint),
+      deactivatePda: deactivatePda(context.mint),
       coupon: couponPda(context.mint, effectiveArgs.couponId),
       eventAuthority: couponEventAuthorityPda(),
       program: getCouponProgram().programId,

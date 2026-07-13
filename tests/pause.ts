@@ -11,13 +11,13 @@ import {
   unpauseMint,
 } from "./program_helpers/pause/pause_instruction_helper";
 import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
-import { deactivateMint } from "./program_helpers/deactivate_helper";
+import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { getMint } from "./program_helpers/spl_token_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
-import { PAUSE_PAUSE, PAUSE_UNPAUSE } from "./utils/functionalities";
+import { DEACTIVATE_DEACTIVATE, PAUSE_PAUSE, PAUSE_UNPAUSE } from "./utils/functionalities";
 
 describe("pause", () => {
   const provider = anchor.AnchorProvider.env();
@@ -27,13 +27,10 @@ describe("pause", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
+    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, PAUSE_UNPAUSE, DEACTIVATE_DEACTIVATE] });
   });
 
   describe("pause", async () => {
-    beforeEach(async () => {
-      await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE] });
-    });
-
     // ────────────────────────────────────────────────────────────────────────────
     it("correctly toggles mint pause state to paused", async () => {
       const pausableAuthority = pausableAuthorityPda(mint);
@@ -142,10 +139,6 @@ describe("pause", () => {
   });
 
   describe("unpause", async () => {
-    beforeEach(async () => {
-      await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, PAUSE_UNPAUSE] });
-    });
-
     // ────────────────────────────────────────────────────────────────────────────
     it("correctly toggles mint pause state to unpaused", async () => {
       // ── Step 1. Pause the mint ─────────────────────────────────────────────────

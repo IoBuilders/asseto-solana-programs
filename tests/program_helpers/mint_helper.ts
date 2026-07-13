@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
+import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID, SNAPSHOT_PROGRAM_ID } from "../utils/address_utils";
@@ -42,7 +43,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       mint: callContext.mint,
       destination: callContext.destination,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       mintAuthority: pdaUtils.mintAuthorityPda(callContext.mint),
       freezeAuthority: pdaUtils.freezeAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),

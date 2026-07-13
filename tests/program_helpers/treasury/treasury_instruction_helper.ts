@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../../utils/pda_utils";
+import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
@@ -41,7 +42,7 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
       mint: callContext.mint,
       paymentMint: callContext.paymentMint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       treasuryConfig: treasuryConfigPda(callContext.mint),
       couponCounter: couponCounterPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
@@ -97,7 +98,7 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       holderPaymentAccount: callContext.holderPaymentAccount,
       holderTokenAccount: callContext.holderTokenAccount,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       treasuryConfig: treasuryConfigPda(callContext.mint),
       treasuryAuthority: treasuryAuthorityPda(callContext.mint),
       bondTerms: bondTermsPda(callContext.mint),
