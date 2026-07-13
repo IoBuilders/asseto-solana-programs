@@ -5,7 +5,7 @@ import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
-import { createCoupon } from "./program_helpers/coupon_helper";
+import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens, getIssuedEvent } from "./program_helpers/mint_helper";
 import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
@@ -15,7 +15,7 @@ import {
 } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { beforeEach } from "mocha";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { PAUSE_PAUSE, TRANSFER_CONTROL_SET_MODES } from "./utils/functionalities";
+import { COUPON_CREATE_COUPON, PAUSE_PAUSE, TRANSFER_CONTROL_SET_MODES } from "./utils/functionalities";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
@@ -26,7 +26,9 @@ describe("mint", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
-    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, TRANSFER_CONTROL_SET_MODES] });
+    await setAssetClassVersionForMint(mint, {
+      functionalities: [PAUSE_PAUSE, TRANSFER_CONTROL_SET_MODES, COUPON_CREATE_COUPON],
+    });
   });
 
   it("mint: mints tokens to a destination account and updates balance correctly", async () => {

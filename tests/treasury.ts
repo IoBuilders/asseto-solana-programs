@@ -6,7 +6,7 @@ import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
 import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
-import { createCoupon } from "./program_helpers/coupon_helper";
+import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createMint, createTokenAccount, getTokenAccount, mintTo } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
@@ -28,6 +28,7 @@ import {
 } from "./program_helpers/factory/factory_pda_helper";
 import {
   BOND_UPDATE_BOND_TERMS,
+  COUPON_CREATE_COUPON,
   PAUSE_PAUSE,
   TREASURY_PAY_COUPON,
   TREASURY_SET_PAYMENT_TOKEN,
@@ -200,7 +201,13 @@ describe("treasury", () => {
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
     await setAssetClassVersionForMint(mint, {
-      functionalities: [PAUSE_PAUSE, BOND_UPDATE_BOND_TERMS, TREASURY_PAY_COUPON, TREASURY_SET_PAYMENT_TOKEN],
+      functionalities: [
+        PAUSE_PAUSE,
+        BOND_UPDATE_BOND_TERMS,
+        TREASURY_PAY_COUPON,
+        TREASURY_SET_PAYMENT_TOKEN,
+        COUPON_CREATE_COUPON,
+      ],
     });
   });
 

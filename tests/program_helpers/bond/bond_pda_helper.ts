@@ -16,7 +16,7 @@ export async function getBondTerms(mint: PublicKey) {
   return await getBondProgram().account.bondTerms.fetch(bondTermsPda(mint), "confirmed");
 }
 
-// ── event authority ─────────────────────────────────────────────────────────
+// ── __event_authority PDA ──────────────────────────────────────────────────────
 
 /** Anchor event-CPI authority for the bond program (seed "__event_authority"). */
 export function bondEventAuthorityPda(): PublicKey {

@@ -8,6 +8,7 @@ import { MintWriteWithPayerContext } from "../base_helper";
 import { getEvent } from "../event_helper";
 import { Treasury } from "../../../target/types/treasury";
 import { bondTermsPda } from "../bond/bond_pda_helper";
+import { couponCounterPda, couponPda } from "../coupon/coupon_pda_helper";
 import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import {
@@ -42,7 +43,7 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: pdaUtils.deactivatePda(callContext.mint),
       treasuryConfig: treasuryConfigPda(callContext.mint),
-      couponCounter: pdaUtils.couponCounterPda(callContext.mint),
+      couponCounter: couponCounterPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: treasuryEventAuthorityPda(),
@@ -100,7 +101,7 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       treasuryConfig: treasuryConfigPda(callContext.mint),
       treasuryAuthority: treasuryAuthorityPda(callContext.mint),
       bondTerms: bondTermsPda(callContext.mint),
-      coupon: pdaUtils.couponPda(callContext.mint, args.couponId),
+      coupon: couponPda(callContext.mint, args.couponId),
       holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
       couponPaid: couponPaidPda(callContext.mint, args.couponId, callContext.holderTokenAccount),
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),

@@ -14,6 +14,8 @@ export function getBondProgram(): Program<Bond> {
   return anchor.workspace.Bond as Program<Bond>;
 }
 
+// ── update_bond_terms ──────────────────────────────────────────────────────────
+
 export type UpdateBondArgs = {
   interestRate?: anchor.BN;
   interestRateDecimals?: number;

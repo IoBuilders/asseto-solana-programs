@@ -6,7 +6,7 @@ import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
-import { createCoupon } from "./program_helpers/coupon_helper";
+import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
   freezeAccount,
   getFrozenBalanceByPda,
@@ -28,6 +28,7 @@ import { requestAirdrop } from "./program_helpers/account_helper";
 import { beforeEach } from "mocha";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
 import {
+  COUPON_CREATE_COUPON,
   OPERATIONS_BURN,
   PAUSE_PAUSE,
   TRANSFER_CONTROL_ADD_TO_WHITELIST,
@@ -54,7 +55,13 @@ describe("transfer", () => {
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
     await setAssetClassVersionForMint(mint, {
-      functionalities: [PAUSE_PAUSE, OPERATIONS_BURN, TRANSFER_CONTROL_SET_MODES, TRANSFER_CONTROL_ADD_TO_WHITELIST],
+      functionalities: [
+        PAUSE_PAUSE,
+        OPERATIONS_BURN,
+        TRANSFER_CONTROL_SET_MODES,
+        TRANSFER_CONTROL_ADD_TO_WHITELIST,
+        COUPON_CREATE_COUPON,
+      ],
     });
   });
 

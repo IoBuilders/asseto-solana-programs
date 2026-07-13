@@ -1,12 +1,16 @@
 use crate::events::CouponCreated;
 use anchor_lang::prelude::*;
-use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
+use common::{
+    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused,
+    verify_deployer_account,
+};
 use snapshot::cpi::accounts::TakeSnapshot;
 use snapshot::state::SnapshotCounter;
 
 use crate::errors::ErrorCode;
 use crate::state::{Coupon, CouponCounter};
 use common::program_ids as constants;
+use common::state::{AssetClassVersion, MintOwner};
 
 /// Creates a coupon for the mint:
 /// 1. Verifies the deployer signature, mint not paused, mint not deactivated.
@@ -39,12 +43,13 @@ pub fn create_coupon(
     interest_rate_override_decimals: Option<u8>,
 ) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
-    )?;
+    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::COUPON_CREATE_COUPON,
+    )?;
 
     // ── Date-triple validation ───────────────────────────────────────────────
     require!(
@@ -135,14 +140,12 @@ pub struct CreateCoupon<'info> {
     pub deployer: Signer<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = mint_owner_pda.bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub mint_owner_pda: Account<'info, MintOwner>,
 
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
@@ -213,4 +216,12 @@ pub struct CreateCoupon<'info> {
 
     /// CHECK: Address verified by snapshot program.
     pub snapshot_event_authority: UncheckedAccount<'info>,
+
+    /// Asset-class version PDA this mint is hooked to.
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 }

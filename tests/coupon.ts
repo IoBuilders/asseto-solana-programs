@@ -9,20 +9,26 @@ import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
 import {
   createCoupon,
+  getCouponCreatedEvent,
+  getCouponRateSetEvent,
+  setCouponRate,
+} from "./program_helpers/coupon/coupon_instruction_helper";
+import {
   encodeCouponCounter,
   getCoupon,
   getCouponByPda,
   getCouponCounter,
   getCouponCounterByPda,
-  getCouponCreatedEvent,
-  getCouponRateSetEvent,
-  setCouponRate,
-} from "./program_helpers/coupon_helper";
+} from "./program_helpers/coupon/coupon_pda_helper";
+import * as couponPdaUtils from "./program_helpers/coupon/coupon_pda_helper";
 import { getSnapshotCounter, getSnapshotCounterByPda } from "./program_helpers/snapshot_helper";
 import { getAccountInfo, getBalanceForRentExeption, surfnetSetAccount } from "./program_helpers/account_helper";
 import { U64_MAX } from "./constants";
-import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { PAUSE_PAUSE } from "./utils/functionalities";
+import {
+  ASSET_CLASS_VERSION_STATE_DRAFT,
+  setAssetClassVersionForMint,
+} from "./program_helpers/factory/factory_pda_helper";
+import { COUPON_CREATE_COUPON, COUPON_SET_COUPON_RATE, PAUSE_PAUSE } from "./utils/functionalities";
 
 describe("coupon", () => {
   const provider = anchor.AnchorProvider.env();
@@ -32,7 +38,9 @@ describe("coupon", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
-    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE] });
+    await setAssetClassVersionForMint(mint, {
+      functionalities: [PAUSE_PAUSE, COUPON_CREATE_COUPON, COUPON_SET_COUPON_RATE],
+    });
   });
 
   describe("create_coupon", async () => {
@@ -43,8 +51,8 @@ describe("coupon", () => {
       const periodEndDate = new anchor.BN(1_750_000_000);
       const paymentDate = new anchor.BN(1_800_000_000);
 
-      const couponPda = pdaUtils.couponPda(mint, couponId);
-      const couponCounterPda = pdaUtils.couponCounterPda(mint);
+      const couponPda = couponPdaUtils.couponPda(mint, couponId);
+      const couponCounterPda = couponPdaUtils.couponCounterPda(mint);
       const snapshotCounterPda = pdaUtils.snapshotCounterPda(mint);
 
       // Sanity: nothing exists yet
@@ -348,167 +356,258 @@ describe("coupon", () => {
         assert.equal((err as AnchorError).error.errorCode.code, "InvalidPaymentDate");
       }
     });
-  });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  it("set_coupon_rate: sets the rate override on an existing coupon that had none", async () => {
-    const couponId = new anchor.BN(1);
-    const couponPda = pdaUtils.couponPda(mint, couponId);
+    // ────────────────────────────────────────────────────────────────────────────
+    it("create_coupon: fails with FunctionalityNotSupportedError when the create_coupon functionality is not enabled", async () => {
+      // Re-seed the asset-class version WITHOUT the create_coupon functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
 
-    // Create coupon without an override
-    await createCoupon(
-      { deployer, mint },
-      { couponId, interestRateOverride: null, interestRateOverrideDecimals: null }
-    );
-
-    // Verify no override yet
-    const before = await getCouponByPda(couponPda);
-    assert.isNull(before.interestRateOverride);
-    assert.isNull(before.interestRateOverrideDecimals);
-
-    // Set the override: 3.5 % → rate = 3500, decimals = 5
-    const overrideRate = new anchor.BN(3500);
-    const overrideDecimals = 5;
-
-    const { signature } = await setCouponRate(
-      { deployer, mint },
-      {
-        couponId,
-        interestRate: overrideRate,
-        interestRateDecimals: overrideDecimals,
+      try {
+        await createCoupon({ deployer, mint });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
       }
-    );
+    });
 
-    const after = await getCouponByPda(couponPda);
-    assert.isNotNull(after.interestRateOverride, "interest_rate_override should be set after call");
-    assert.equal(
-      (after.interestRateOverride as anchor.BN).toString(),
-      overrideRate.toString(),
-      "interest_rate_override should match the arg"
-    );
-    assert.equal(
-      after.interestRateOverrideDecimals,
-      overrideDecimals,
-      "interest_rate_override_decimals should match the arg"
-    );
+    // ────────────────────────────────────────────────────────────────────────────
+    it("create_coupon: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [COUPON_CREATE_COUPON],
+      });
 
-    const event = await getCouponRateSetEvent(signature);
-    assert.isNotNull(event, "Coupon rate set event should be emitted");
-    assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-    assert.equal(event!.couponId.toString(), couponId.toString(), "event couponId should match the id");
-    assert.isNotNull(event!.interestRateOverride, "event interestRateOverride should be set");
-    assert.equal(
-      event!.interestRateOverride!.toString(),
-      overrideRate.toString(),
-      "event interestRateOverride should match the provided value"
-    );
-    assert.isNotNull(event!.interestRateOverrideDecimals, "event interestRateOverrideDecimals should be set");
-    assert.equal(
-      event!.interestRateOverrideDecimals!.toString(),
-      overrideDecimals.toString(),
-      "event interestRateOverrideDecimals should match the provided value"
-    );
-  });
-
-  // ────────────────────────────────────────────────────────────────────────────
-  it("set_coupon_rate: replaces an existing override with a new one", async () => {
-    const couponId = new anchor.BN(1);
-
-    // Create coupon with an initial override: 5 %
-    await createCoupon(
-      { deployer, mint },
-      { couponId, interestRateOverride: new anchor.BN(5000), interestRateOverrideDecimals: 5 }
-    );
-
-    // Replace with a lower rate: 2.5 %
-    const overrideRate = new anchor.BN(2500);
-    const overrideDecimals = 5;
-
-    await setCouponRate(
-      { deployer, mint },
-      {
-        couponId,
-        interestRate: overrideRate,
-        interestRateDecimals: overrideDecimals,
+      try {
+        await createCoupon({ deployer, mint });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
       }
-    );
-
-    const coupon = await getCoupon(mint, couponId);
-    assert.equal(
-      (coupon.interestRateOverride as anchor.BN).toString(),
-      overrideRate.toString(),
-      "interest_rate_override should reflect the replacement"
-    );
-    assert.equal(coupon.interestRateOverrideDecimals, overrideDecimals);
+    });
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  it("set_coupon_rate: clears an existing override when both args are null", async () => {
-    const couponId = new anchor.BN(1);
+  describe("set_coupon_rate", async () => {
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_coupon_rate: sets the rate override on an existing coupon that had none", async () => {
+      const couponId = new anchor.BN(1);
+      const couponPda = couponPdaUtils.couponPda(mint, couponId);
 
-    // Create coupon with an initial override: 5 %
-    await createCoupon(
-      { deployer, mint },
-      { couponId, interestRateOverride: new anchor.BN(5000), interestRateOverrideDecimals: 5 }
-    );
+      // Create coupon without an override
+      await createCoupon(
+        { deployer, mint },
+        { couponId, interestRateOverride: null, interestRateOverrideDecimals: null }
+      );
 
-    // Clear the override — coupon reverts to the asset-level rate
-    await setCouponRate(
-      { deployer, mint },
-      {
-        couponId,
-        interestRate: null,
-        interestRateDecimals: null,
+      // Verify no override yet
+      const before = await getCouponByPda(couponPda);
+      assert.isNull(before.interestRateOverride);
+      assert.isNull(before.interestRateOverrideDecimals);
+
+      // Set the override: 3.5 % → rate = 3500, decimals = 5
+      const overrideRate = new anchor.BN(3500);
+      const overrideDecimals = 5;
+
+      const { signature } = await setCouponRate(
+        { deployer, mint },
+        {
+          couponId,
+          interestRate: overrideRate,
+          interestRateDecimals: overrideDecimals,
+        }
+      );
+
+      const after = await getCouponByPda(couponPda);
+      assert.isNotNull(after.interestRateOverride, "interest_rate_override should be set after call");
+      assert.equal(
+        (after.interestRateOverride as anchor.BN).toString(),
+        overrideRate.toString(),
+        "interest_rate_override should match the arg"
+      );
+      assert.equal(
+        after.interestRateOverrideDecimals,
+        overrideDecimals,
+        "interest_rate_override_decimals should match the arg"
+      );
+
+      const event = await getCouponRateSetEvent(signature);
+      assert.isNotNull(event, "Coupon rate set event should be emitted");
+      assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+      assert.equal(event!.couponId.toString(), couponId.toString(), "event couponId should match the id");
+      assert.isNotNull(event!.interestRateOverride, "event interestRateOverride should be set");
+      assert.equal(
+        event!.interestRateOverride!.toString(),
+        overrideRate.toString(),
+        "event interestRateOverride should match the provided value"
+      );
+      assert.isNotNull(event!.interestRateOverrideDecimals, "event interestRateOverrideDecimals should be set");
+      assert.equal(
+        event!.interestRateOverrideDecimals!.toString(),
+        overrideDecimals.toString(),
+        "event interestRateOverrideDecimals should match the provided value"
+      );
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_coupon_rate: replaces an existing override with a new one", async () => {
+      const couponId = new anchor.BN(1);
+
+      // Create coupon with an initial override: 5 %
+      await createCoupon(
+        { deployer, mint },
+        { couponId, interestRateOverride: new anchor.BN(5000), interestRateOverrideDecimals: 5 }
+      );
+
+      // Replace with a lower rate: 2.5 %
+      const overrideRate = new anchor.BN(2500);
+      const overrideDecimals = 5;
+
+      await setCouponRate(
+        { deployer, mint },
+        {
+          couponId,
+          interestRate: overrideRate,
+          interestRateDecimals: overrideDecimals,
+        }
+      );
+
+      const coupon = await getCoupon(mint, couponId);
+      assert.equal(
+        (coupon.interestRateOverride as anchor.BN).toString(),
+        overrideRate.toString(),
+        "interest_rate_override should reflect the replacement"
+      );
+      assert.equal(coupon.interestRateOverrideDecimals, overrideDecimals);
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_coupon_rate: clears an existing override when both args are null", async () => {
+      const couponId = new anchor.BN(1);
+
+      // Create coupon with an initial override: 5 %
+      await createCoupon(
+        { deployer, mint },
+        { couponId, interestRateOverride: new anchor.BN(5000), interestRateOverrideDecimals: 5 }
+      );
+
+      // Clear the override — coupon reverts to the asset-level rate
+      await setCouponRate(
+        { deployer, mint },
+        {
+          couponId,
+          interestRate: null,
+          interestRateDecimals: null,
+        }
+      );
+
+      const coupon = await getCoupon(mint, couponId);
+      assert.isNull(coupon.interestRateOverride, "interest_rate_override should be cleared");
+      assert.isNull(coupon.interestRateOverrideDecimals, "interest_rate_override_decimals should be cleared");
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_coupon_rate: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+      const couponId = new anchor.BN(1);
+      await createCoupon({ deployer, mint }, { couponId });
+      const rogueKeypair = Keypair.generate();
+
+      try {
+        await setCouponRate({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] }, { couponId });
+        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError);
+        assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
       }
-    );
+    });
 
-    const coupon = await getCoupon(mint, couponId);
-    assert.isNull(coupon.interestRateOverride, "interest_rate_override should be cleared");
-    assert.isNull(coupon.interestRateOverrideDecimals, "interest_rate_override_decimals should be cleared");
-  });
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_coupon_rate: fails with MintPaused when mint is paused", async () => {
+      const couponId = new anchor.BN(1);
+      await createCoupon({ deployer, mint }, { couponId });
+      await pauseMint({ deployer, mint });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  it("set_coupon_rate: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-    const couponId = new anchor.BN(1);
-    await createCoupon({ deployer, mint }, { couponId });
-    const rogueKeypair = Keypair.generate();
+      try {
+        await setCouponRate({ deployer, mint }, { couponId });
+        assert.fail("Expected MintPaused error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError);
+        assert.equal((err as AnchorError).error.errorCode.code, "MintPaused");
+      }
+    });
 
-    try {
-      await setCouponRate({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] }, { couponId });
-      assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
-    } catch (err) {
-      assert.instanceOf(err, AnchorError);
-      assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
-    }
-  });
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_coupon_rate: fails with Deactivated when mint has been deactivated", async () => {
+      const couponId = new anchor.BN(1);
+      await createCoupon({ deployer, mint }, { couponId });
+      await deactivateMint({ deployer, mint });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  it("set_coupon_rate: fails with MintPaused when mint is paused", async () => {
-    const couponId = new anchor.BN(1);
-    await createCoupon({ deployer, mint }, { couponId });
-    await pauseMint({ deployer, mint });
+      try {
+        await setCouponRate({ deployer, mint }, { couponId });
+        assert.fail("Expected Deactivated error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError);
+        assert.equal((err as AnchorError).error.errorCode.code, "Deactivated");
+      }
+    });
 
-    try {
-      await setCouponRate({ deployer, mint }, { couponId });
-      assert.fail("Expected MintPaused error but instruction succeeded");
-    } catch (err) {
-      assert.instanceOf(err, AnchorError);
-      assert.equal((err as AnchorError).error.errorCode.code, "MintPaused");
-    }
-  });
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_coupon_rate: fails with FunctionalityNotSupportedError when the set_coupon_rate functionality is not enabled", async () => {
+      const couponId = new anchor.BN(1);
+      await createCoupon({ deployer, mint }, { couponId });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  it("set_coupon_rate: fails with Deactivated when mint has been deactivated", async () => {
-    const couponId = new anchor.BN(1);
-    await createCoupon({ deployer, mint }, { couponId });
-    await deactivateMint({ deployer, mint });
+      // Re-seed the asset-class version WITH create_coupon (needed for the fixture
+      // above to have already succeeded) but WITHOUT set_coupon_rate.
+      await setAssetClassVersionForMint(mint, { functionalities: [COUPON_CREATE_COUPON] });
 
-    try {
-      await setCouponRate({ deployer, mint }, { couponId });
-      assert.fail("Expected Deactivated error but instruction succeeded");
-    } catch (err) {
-      assert.instanceOf(err, AnchorError);
-      assert.equal((err as AnchorError).error.errorCode.code, "Deactivated");
-    }
+      try {
+        await setCouponRate({ deployer, mint }, { couponId });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_coupon_rate: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const couponId = new anchor.BN(1);
+      await createCoupon({ deployer, mint }, { couponId });
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [COUPON_SET_COUPON_RATE],
+      });
+
+      try {
+        await setCouponRate({ deployer, mint }, { couponId });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
   });
 });

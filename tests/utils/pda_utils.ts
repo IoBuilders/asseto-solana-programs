@@ -1,7 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import BN from "bn.js";
 import {
-  COUPON_PROGRAM_ID,
   DEACTIVATE_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
@@ -167,26 +165,7 @@ export function snapshotTriggeredEventAuthorityPda(): PublicKey {
 // Moved to `program_helpers/bond/bond_pda_helper.ts` (per-program helper layout).
 
 // ── coupon ─────────────────────────────────────────────────────────────────────
-
-export function couponAuthorityPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("coupon_authority"), mint.toBuffer()], COUPON_PROGRAM_ID)[0];
-}
-
-export function couponCounterPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("coupon_counter"), mint.toBuffer()], COUPON_PROGRAM_ID)[0];
-}
-
-export function couponPda(mint: PublicKey, couponId: BN): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("coupon"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8)],
-    COUPON_PROGRAM_ID
-  )[0];
-}
-
-// Anchor event-CPI authority for the coupon program (seed "__event_authority").
-export function couponEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], COUPON_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/coupon/coupon_pda_helper.ts` (per-program helper layout).
 
 // ── treasury ───────────────────────────────────────────────────────────────────
 // Moved to `program_helpers/treasury/treasury_pda_helper.ts` (per-program helper layout).
