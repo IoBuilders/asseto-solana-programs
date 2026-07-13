@@ -8,7 +8,7 @@ import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount, getTokenAccount } from "./program_helpers/spl_token_helper";
-import { mintTokens } from "./program_helpers/mint_helper";
+import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
 import { burnTokens, getControllerRedemptionEvent } from "./program_helpers/burn/burn_instruction_helper";
 import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
 import { partiallyFreezeAccount } from "./program_helpers/freeze/freeze_instruction_helper";
@@ -20,6 +20,7 @@ import {
   COUPON_CREATE_COUPON,
   DEACTIVATE_DEACTIVATE,
   FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+  MINT_MINT,
   OPERATIONS_BURN,
   PAUSE_PAUSE,
 } from "./utils/functionalities";
@@ -45,6 +46,7 @@ describe("operations", () => {
           COUPON_CREATE_COUPON,
           DEACTIVATE_DEACTIVATE,
           FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+          MINT_MINT,
         ],
       });
     });

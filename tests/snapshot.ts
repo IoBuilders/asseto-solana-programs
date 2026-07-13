@@ -6,7 +6,7 @@ import { SNAPSHOT_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount } from "./program_helpers/spl_token_helper";
-import { mintTokens } from "./program_helpers/mint_helper";
+import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
 import {
   encodeSnapshotCounter,
   getHolderBalanceSnapshotAt,

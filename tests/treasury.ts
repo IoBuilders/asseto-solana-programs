@@ -8,7 +8,7 @@ import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruct
 import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createMint, createTokenAccount, getTokenAccount, mintTo } from "./program_helpers/spl_token_helper";
-import { mintTokens } from "./program_helpers/mint_helper";
+import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
 import {
   getCouponPaidEvent,
@@ -30,6 +30,7 @@ import {
   BOND_UPDATE_BOND_TERMS,
   COUPON_CREATE_COUPON,
   DEACTIVATE_DEACTIVATE,
+  MINT_MINT,
   PAUSE_PAUSE,
   TREASURY_PAY_COUPON,
   TREASURY_SET_PAYMENT_TOKEN,
@@ -209,6 +210,7 @@ describe("treasury", () => {
         TREASURY_SET_PAYMENT_TOKEN,
         COUPON_CREATE_COUPON,
         DEACTIVATE_DEACTIVATE,
+        MINT_MINT,
       ],
     });
   });

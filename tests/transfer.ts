@@ -14,7 +14,7 @@ import {
 } from "./program_helpers/freeze/freeze_instruction_helper";
 import { getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
 import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
-import { mintTokens } from "./program_helpers/mint_helper";
+import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { burnTokens } from "./program_helpers/burn/burn_instruction_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
@@ -34,6 +34,7 @@ import {
   FREEZE_FREEZE_ACCOUNT,
   FREEZE_PARTIALLY_FREEZE_ACCOUNT,
   FREEZE_REMOVE_PARTIAL_FREEZE,
+  MINT_MINT,
   OPERATIONS_BURN,
   PAUSE_PAUSE,
   TRANSFER_CONTROL_ADD_TO_WHITELIST,
@@ -70,6 +71,7 @@ describe("transfer", () => {
         FREEZE_FREEZE_ACCOUNT,
         FREEZE_PARTIALLY_FREEZE_ACCOUNT,
         FREEZE_REMOVE_PARTIAL_FREEZE,
+        MINT_MINT,
       ],
     });
   });

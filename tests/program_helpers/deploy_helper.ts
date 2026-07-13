@@ -10,6 +10,7 @@ import * as pdaUtils from "../utils/pda_utils";
 import { permanentDelegatePda } from "./burn/burn_pda_helper";
 import { pausableAuthorityPda } from "./pause/pause_pda_helper";
 import { freezeAuthorityPda } from "./freeze/freeze_pda_helper";
+import { mintAuthorityPda } from "./mint/mint_pda_helper";
 
 function getDeployProgram(): Program<Deploy> {
   return anchor.workspace.Deploy as Program<Deploy>;
@@ -66,7 +67,7 @@ export async function deployMint(
       mint: mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(mint),
       tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint),
-      mintAuthority: pdaUtils.mintAuthorityPda(mint),
+      mintAuthority: mintAuthorityPda(mint),
       permanentDelegateAuthority: permanentDelegatePda(mint),
       metadataUpdateAuthority: pdaUtils.metadataUpdateAuthorityPda(mint),
       pausableAuthority: pausableAuthorityPda(mint),

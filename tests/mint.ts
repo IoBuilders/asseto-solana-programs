@@ -7,17 +7,21 @@ import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
-import { mintTokens, getIssuedEvent } from "./program_helpers/mint_helper";
+import { mintTokens, getIssuedEvent } from "./program_helpers/mint/mint_instruction_helper";
 import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
 import {
   setTransferControlModes,
   TRANSFER_CONTROL_WHITELIST,
 } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { beforeEach } from "mocha";
-import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
+import {
+  ASSET_CLASS_VERSION_STATE_DRAFT,
+  setAssetClassVersionForMint,
+} from "./program_helpers/factory/factory_pda_helper";
 import {
   COUPON_CREATE_COUPON,
   DEACTIVATE_DEACTIVATE,
+  MINT_MINT,
   PAUSE_PAUSE,
   TRANSFER_CONTROL_SET_MODES,
 } from "./utils/functionalities";
@@ -32,7 +36,13 @@ describe("mint", () => {
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
     await setAssetClassVersionForMint(mint, {
-      functionalities: [PAUSE_PAUSE, TRANSFER_CONTROL_SET_MODES, COUPON_CREATE_COUPON, DEACTIVATE_DEACTIVATE],
+      functionalities: [
+        PAUSE_PAUSE,
+        TRANSFER_CONTROL_SET_MODES,
+        COUPON_CREATE_COUPON,
+        DEACTIVATE_DEACTIVATE,
+        MINT_MINT,
+      ],
     });
   });
 
@@ -155,6 +165,51 @@ describe("mint", () => {
       assert.instanceOf(err, AnchorError);
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "NotWhitelisted");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: fails with FunctionalityNotSupportedError when the mint functionality is not enabled", async () => {
+    const destination = await createTokenAccount({ mint, owner: deployer });
+
+    // Re-seed the asset-class version WITHOUT the mint functionality.
+    await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+    try {
+      await mintTokens({ deployer, mint, destination });
+      assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "FunctionalityNotSupportedError",
+        "error code should be FunctionalityNotSupportedError"
+      );
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+    const destination = await createTokenAccount({ mint, owner: deployer });
+
+    // Re-seed the asset-class version WITHOUT finalizing it.
+    await setAssetClassVersionForMint(mint, {
+      state: ASSET_CLASS_VERSION_STATE_DRAFT,
+      functionalities: [MINT_MINT],
+    });
+
+    try {
+      await mintTokens({ deployer, mint, destination });
+      assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "AssetClassVersionNotFinalized",
+        "error code should be AssetClassVersionNotFinalized"
+      );
     }
   });
 });

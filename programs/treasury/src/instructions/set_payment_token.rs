@@ -1,8 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer,
-    verify_deployer_account,
+    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
 };
 
 use crate::errors::ErrorCode;

@@ -2,7 +2,6 @@ import { PublicKey } from "@solana/web3.js";
 import {
   DEPLOY_PROGRAM_ID,
   METADATA_UPDATE_PROGRAM_ID,
-  MINT_PROGRAM_ID,
   SNAPSHOT_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   TRANSFER_PROGRAM_ID,
@@ -28,14 +27,7 @@ export function deployEventAuthorityPda(): PublicKey {
 }
 
 // ── mint ───────────────────────────────────────────────────────────────────────
-
-export function mintAuthorityPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("mint_authority"), mint.toBuffer()], MINT_PROGRAM_ID)[0];
-}
-
-export function mintEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], MINT_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/mint/mint_pda_helper.ts` (per-program helper layout).
 
 // ── metadata-update ────────────────────────────────────────────────────────────
 
