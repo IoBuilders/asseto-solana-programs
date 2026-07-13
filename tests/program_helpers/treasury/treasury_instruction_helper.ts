@@ -1,25 +1,37 @@
 import { PublicKey } from "@solana/web3.js";
-import * as pdaUtils from "../utils/pda_utils";
+import * as pdaUtils from "../../utils/pda_utils";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
-import { SYSTEM_PROGRAM_ID, SNAPSHOT_PROGRAM_ID, TREASURY_PROGRAM_ID } from "../utils/address_utils";
-import { MintWriteWithPayerContext } from "./base_helper";
-import { getEvent } from "./event_helper";
 import { Program } from "@anchor-lang/core";
-import { Treasury } from "../../target/types/treasury";
-import { couponPaidPda } from "../utils/pda_utils";
-import { bondTermsPda } from "./bond/bond_pda_helper";
-import BN from "bn.js";
+import { SYSTEM_PROGRAM_ID, SNAPSHOT_PROGRAM_ID, TREASURY_PROGRAM_ID } from "../../utils/address_utils";
+import { MintWriteWithPayerContext } from "../base_helper";
+import { getEvent } from "../event_helper";
+import { Treasury } from "../../../target/types/treasury";
+import { bondTermsPda } from "../bond/bond_pda_helper";
+import { getMintOwner } from "../deploy_helper";
+import { assetClassVersionPda } from "../factory/factory_pda_helper";
+import {
+  treasuryConfigPda,
+  treasuryAuthorityPda,
+  couponPaidPda,
+  treasuryEventAuthorityPda,
+} from "./treasury_pda_helper";
 
-function getTreasuryProgram(): Program<Treasury> {
+export function getTreasuryProgram(): Program<Treasury> {
   return anchor.workspace.Treasury as Program<Treasury>;
 }
+
+// ── set_payment_token ──────────────────────────────────────────────────────────
 
 export type SetPaymentTokenContext = MintWriteWithPayerContext & {
   paymentMint: PublicKey;
 };
 
 export async function setPaymentToken(callContext: SetPaymentTokenContext): Promise<{ signature: string }> {
+  // The asset-class version PDA is derived from the ids recorded in the mint's
+  // `mint_owner` account — the same values the on-chain program reads.
+  const mintOwner = await getMintOwner(callContext.mint);
+
   const signature = await getTreasuryProgram()
     .methods.setPaymentToken()
     .accountsStrict({
@@ -29,10 +41,11 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
       paymentMint: callContext.paymentMint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: pdaUtils.deactivatePda(callContext.mint),
-      treasuryConfig: pdaUtils.treasuryConfigPda(callContext.mint),
+      treasuryConfig: treasuryConfigPda(callContext.mint),
       couponCounter: pdaUtils.couponCounterPda(callContext.mint),
+      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       systemProgram: SYSTEM_PROGRAM_ID,
-      eventAuthority: pdaUtils.treasuryEventAuthorityPda(),
+      eventAuthority: treasuryEventAuthorityPda(),
       program: TREASURY_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
@@ -40,6 +53,21 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
 
   return { signature };
 }
+
+type PaymentTokenSetEvent = {
+  mint: PublicKey;
+  paymentMint: PublicKey;
+};
+
+/**
+ * Decodes the `PaymentTokenSet` event from a `set_payment_token` transaction.
+ * The coder returns the name in camelCase (`paymentTokenSet`).
+ */
+export async function getPaymentTokenSetEvent(signature: string) {
+  return getEvent<PaymentTokenSetEvent>(getTreasuryProgram(), signature, "paymentTokenSet");
+}
+
+// ── pay_coupon ─────────────────────────────────────────────────────────────────
 
 export type PayCouponContext = MintWriteWithPayerContext & {
   paymentMint: PublicKey;
@@ -53,6 +81,10 @@ type PayCouponArgs = {
 };
 
 export async function payCoupon(callContext: PayCouponContext, args: PayCouponArgs): Promise<{ signature: string }> {
+  // The asset-class version PDA is derived from the ids recorded in the mint's
+  // `mint_owner` account — the same values the on-chain program reads.
+  const mintOwner = await getMintOwner(callContext.mint);
+
   const signature = await getTreasuryProgram()
     .methods.payCoupon(args.couponId)
     .accountsStrict({
@@ -65,31 +97,23 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       holderTokenAccount: callContext.holderTokenAccount,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: pdaUtils.deactivatePda(callContext.mint),
-      treasuryConfig: pdaUtils.treasuryConfigPda(callContext.mint),
-      treasuryAuthority: pdaUtils.treasuryAuthorityPda(callContext.mint),
+      treasuryConfig: treasuryConfigPda(callContext.mint),
+      treasuryAuthority: treasuryAuthorityPda(callContext.mint),
       bondTerms: bondTermsPda(callContext.mint),
       coupon: pdaUtils.couponPda(callContext.mint, args.couponId),
       holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
-      couponPaid: pdaUtils.couponPaidPda(callContext.mint, args.couponId, callContext.holderTokenAccount),
+      couponPaid: couponPaidPda(callContext.mint, args.couponId, callContext.holderTokenAccount),
+      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
-      eventAuthority: pdaUtils.treasuryEventAuthorityPda(),
+      eventAuthority: treasuryEventAuthorityPda(),
       program: TREASURY_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
-}
-
-export async function getTreasuryConfigByPda(pda: PublicKey) {
-  return getTreasuryProgram().account.treasuryConfig.fetchNullable(pda);
-}
-
-export async function getCouponPaidMarker(mint: PublicKey, couponId: BN, holderTokenAccount: PublicKey) {
-  const pda = couponPaidPda(mint, couponId, holderTokenAccount);
-  return getTreasuryProgram().account.couponPaidMarker.fetchNullable(pda);
 }
 
 type CouponPaidEvent = {
@@ -108,17 +132,4 @@ type CouponPaidEvent = {
  */
 export async function getCouponPaidEvent(signature: string) {
   return getEvent<CouponPaidEvent>(getTreasuryProgram(), signature, "couponPaid");
-}
-
-type PaymentTokenSetEvent = {
-  mint: PublicKey;
-  paymentMint: PublicKey;
-};
-
-/**
- * Decodes the `PaymentTokenSet` event from a `set_payment_token` transaction.
- * The coder returns the name in camelCase (`paymentTokenSet`).
- */
-export async function getPaymentTokenSetEvent(signature: string) {
-  return getEvent<PaymentTokenSetEvent>(getTreasuryProgram(), signature, "paymentTokenSet");
 }

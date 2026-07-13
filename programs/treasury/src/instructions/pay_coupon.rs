@@ -1,7 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 use bond::state::{BondTerms, DayCountConvention};
-use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
+use common::{
+    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused,
+    verify_deployer, verify_deployer_account,
+};
 use coupon::state::Coupon;
 use snapshot::cpi::accounts::GetHolderBalanceSnapshotAt;
 
@@ -9,6 +12,7 @@ use crate::errors::ErrorCode;
 use crate::events::CouponPaid;
 use crate::state::{CouponPaidMarker, TreasuryConfig};
 use common::program_ids as constants;
+use common::state::{AssetClassVersion, MintOwner};
 
 /// Computes and pays the coupon to a single holder.
 ///
@@ -51,12 +55,13 @@ use common::program_ids as constants;
 ///   (`token::token_program` / `mint::token_program`)
 pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
-    )?;
+    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::TREASURY_PAY_COUPON,
+    )?;
 
     // ── Maturity check: cluster clock must have reached payment_date ─────────
     let coupon = &ctx.accounts.coupon;
@@ -208,9 +213,9 @@ pub struct PayCoupon<'info> {
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = mint_owner_pda.bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub mint_owner_pda: Account<'info, MintOwner>,
 
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
@@ -335,6 +340,13 @@ pub struct PayCoupon<'info> {
         bump,
     )]
     pub coupon_paid: Box<Account<'info, CouponPaidMarker>>,
+
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     /// Either `spl-token` or `spl-token-2022`. Anchor's `Interface` accepts
     /// both. The mint and both token accounts must be owned by this program.

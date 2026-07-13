@@ -2,7 +2,6 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey, SendTransactionError, Signer } from "@solana/web3.js";
 import { assert } from "chai";
-import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate_helper";
@@ -13,15 +12,26 @@ import { mintTokens } from "./program_helpers/mint_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
 import {
   getCouponPaidEvent,
-  getCouponPaidMarker,
   getPaymentTokenSetEvent,
-  getTreasuryConfigByPda,
   payCoupon,
   setPaymentToken,
-} from "./program_helpers/treasury_helper";
-import { treasuryAuthorityPda } from "./utils/pda_utils";
-import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { BOND_UPDATE_BOND_TERMS, PAUSE_PAUSE } from "./utils/functionalities";
+} from "./program_helpers/treasury/treasury_instruction_helper";
+import {
+  getCouponPaidMarker,
+  getTreasuryConfigByPda,
+  treasuryAuthorityPda,
+} from "./program_helpers/treasury/treasury_pda_helper";
+import * as treasuryPdaUtils from "./program_helpers/treasury/treasury_pda_helper";
+import {
+  ASSET_CLASS_VERSION_STATE_DRAFT,
+  setAssetClassVersionForMint,
+} from "./program_helpers/factory/factory_pda_helper";
+import {
+  BOND_UPDATE_BOND_TERMS,
+  PAUSE_PAUSE,
+  TREASURY_PAY_COUPON,
+  TREASURY_SET_PAYMENT_TOKEN,
+} from "./utils/functionalities";
 import { beforeEach } from "mocha";
 
 // ── Bond mint parameters ───────────────────────────────────────────────────────
@@ -189,12 +199,14 @@ describe("treasury", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
-    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, BOND_UPDATE_BOND_TERMS] });
+    await setAssetClassVersionForMint(mint, {
+      functionalities: [PAUSE_PAUSE, BOND_UPDATE_BOND_TERMS, TREASURY_PAY_COUPON, TREASURY_SET_PAYMENT_TOKEN],
+    });
   });
 
   describe("set_payment_token", async () => {
     it("set_payment_token: creates treasury_config with the correct payment_mint and decimals", async () => {
-      const treasuryConfigPda = pdaUtils.treasuryConfigPda(mint);
+      const treasuryConfigPda = treasuryPdaUtils.treasuryConfigPda(mint);
       const paymentDecimals = 5;
       const paymentMint = await createMint({ decimals: paymentDecimals });
 
@@ -216,7 +228,7 @@ describe("treasury", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("set_payment_token: a second call overwrites the cached payment_mint and decimals", async () => {
-      const treasuryConfigPda = pdaUtils.treasuryConfigPda(mint);
+      const treasuryConfigPda = treasuryPdaUtils.treasuryConfigPda(mint);
       const firstMintDecimals = 8;
       const secondMintDecimals = 9;
       const firstMint = await createMint({ decimals: firstMintDecimals });
@@ -326,6 +338,51 @@ describe("treasury", () => {
       } catch (err) {
         assert.instanceOf(err, AnchorError);
         assert.equal((err as AnchorError).error.errorCode.code, "ClaimsInProgress");
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_payment_token: fails with FunctionalityNotSupportedError when the set_payment_token functionality is not enabled", async () => {
+      const paymentMint = await createMint();
+
+      // Re-seed the asset-class version WITHOUT the set_payment_token functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+      try {
+        await setPaymentToken({ deployer, mint, paymentMint });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("set_payment_token: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const paymentMint = await createMint();
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [TREASURY_SET_PAYMENT_TOKEN],
+      });
+
+      try {
+        await setPaymentToken({ deployer, mint, paymentMint });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
       }
     });
   });
@@ -667,6 +724,51 @@ describe("treasury", () => {
       } catch (err) {
         assert.instanceOf(err, AnchorError);
         assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("pay_coupon: fails with FunctionalityNotSupportedError when the pay_coupon functionality is not enabled", async () => {
+      const ctx = await deployBondAndCoupon();
+
+      // Re-seed the asset-class version WITHOUT the pay_coupon functionality.
+      await setAssetClassVersionForMint(ctx.mint, { functionalities: [] });
+
+      try {
+        await payCouponInternal(ctx);
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("pay_coupon: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const ctx = await deployBondAndCoupon();
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(ctx.mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [TREASURY_PAY_COUPON],
+      });
+
+      try {
+        await payCouponInternal(ctx);
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
       }
     });
   });

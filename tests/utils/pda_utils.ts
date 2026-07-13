@@ -10,7 +10,6 @@ import {
   SNAPSHOT_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   TRANSFER_PROGRAM_ID,
-  TREASURY_PROGRAM_ID,
 } from "./address_utils";
 
 // ── deploy ─────────────────────────────────────────────────────────────────────
@@ -190,23 +189,4 @@ export function couponEventAuthorityPda(): PublicKey {
 }
 
 // ── treasury ───────────────────────────────────────────────────────────────────
-
-export function treasuryConfigPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("treasury_config"), mint.toBuffer()], TREASURY_PROGRAM_ID)[0];
-}
-
-export function treasuryAuthorityPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("treasury_authority"), mint.toBuffer()], TREASURY_PROGRAM_ID)[0];
-}
-
-export function couponPaidPda(mint: PublicKey, couponId: BN, holderTokenAccount: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("coupon_paid"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8), holderTokenAccount.toBuffer()],
-    TREASURY_PROGRAM_ID
-  )[0];
-}
-
-// Anchor event-CPI authority for the treasury program (seed "__event_authority").
-export function treasuryEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], TREASURY_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/treasury/treasury_pda_helper.ts` (per-program helper layout).
