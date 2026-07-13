@@ -16,6 +16,7 @@ import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, operationsEventAuthorityPda } from "./burn_pda_helper";
+import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
 
 export function getOperationsProgram(): Program<Operations> {
   return anchor.workspace.Operations as Program<Operations>;
@@ -59,7 +60,7 @@ export async function burnTokens(
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
-      freezeAuthority: pdaUtils.freezeAuthorityPda(callContext.mint),
+      freezeAuthority: freezeAuthorityPda(callContext.mint),
       snapshotCounterPda: pdaUtils.snapshotCounterPda(callContext.mint),
       totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(callContext.mint),
       holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.tokenAccount),

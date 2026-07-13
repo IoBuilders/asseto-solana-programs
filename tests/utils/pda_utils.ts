@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import {
   DEPLOY_PROGRAM_ID,
-  FREEZE_PROGRAM_ID,
   METADATA_UPDATE_PROGRAM_ID,
   MINT_PROGRAM_ID,
   SNAPSHOT_PROGRAM_ID,
@@ -52,37 +51,7 @@ export function metadataUpdateEventAuthorityPda(): PublicKey {
 }
 
 // ── freeze ─────────────────────────────────────────────────────────────────────
-
-export function freezeAuthorityPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("freeze_authority"), mint.toBuffer()], FREEZE_PROGRAM_ID)[0];
-}
-
-export function frozenAccountPda(mint: PublicKey, account: PublicKey): PublicKey {
-  return frozenAccountPdaWithBump(mint, account)[0];
-}
-
-export function frozenAccountPdaWithBump(mint: PublicKey, account: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("frozen_account"), mint.toBuffer(), account.toBuffer()],
-    FREEZE_PROGRAM_ID
-  );
-}
-
-export function frozenBalancePda(mint: PublicKey, account: PublicKey): PublicKey {
-  return frozenBalancePdaWithBump(mint, account)[0];
-}
-
-export function frozenBalancePdaWithBump(mint: PublicKey, account: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("frozen_balance"), mint.toBuffer(), account.toBuffer()],
-    FREEZE_PROGRAM_ID
-  );
-}
-
-// Anchor event-CPI authority for the freeze program (seed "__event_authority").
-export function freezeEventAuthorityPda(): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], FREEZE_PROGRAM_ID)[0];
-}
+// Moved to `program_helpers/freeze/freeze_pda_helper.ts` (per-program helper layout).
 
 // ── operations ─────────────────────────────────────────────────────────────────
 // Moved to `program_helpers/burn/burn_pda_helper.ts` (per-program helper layout).

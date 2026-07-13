@@ -9,10 +9,11 @@ import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruct
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
   freezeAccount,
-  getFrozenBalanceByPda,
   partiallyFreezeAccount,
   removePartialFreeze,
-} from "./program_helpers/freeze_helper";
+} from "./program_helpers/freeze/freeze_instruction_helper";
+import { getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
+import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
 import { mintTokens } from "./program_helpers/mint_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { burnTokens } from "./program_helpers/burn/burn_instruction_helper";
@@ -30,6 +31,9 @@ import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_p
 import {
   COUPON_CREATE_COUPON,
   DEACTIVATE_DEACTIVATE,
+  FREEZE_FREEZE_ACCOUNT,
+  FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+  FREEZE_REMOVE_PARTIAL_FREEZE,
   OPERATIONS_BURN,
   PAUSE_PAUSE,
   TRANSFER_CONTROL_ADD_TO_WHITELIST,
@@ -63,6 +67,9 @@ describe("transfer", () => {
         TRANSFER_CONTROL_ADD_TO_WHITELIST,
         COUPON_CREATE_COUPON,
         DEACTIVATE_DEACTIVATE,
+        FREEZE_FREEZE_ACCOUNT,
+        FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+        FREEZE_REMOVE_PARTIAL_FREEZE,
       ],
     });
   });
@@ -562,7 +569,7 @@ describe("transfer", () => {
 
     const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-    const frozenBalancePda = pdaUtils.frozenBalancePda(mint, source);
+    const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, source);
 
     // ── Partially freeze 80 tokens (only 20 available) ───────────────────────
     await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: FROZEN_AMOUNT });
@@ -1073,7 +1080,7 @@ describe("transfer", () => {
     // ── Create destination token account ──────────────────────────────────────
     const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-    const frozenBalancePda = pdaUtils.frozenBalancePda(mint, source);
+    const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, source);
 
     // ── Partially freeze 40 tokens (available = 60 of 100) ────────────────────
     await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: FROZEN_AMOUNT });

@@ -9,6 +9,7 @@ import { Program } from "@anchor-lang/core";
 import { Mint } from "../../target/types/mint";
 import { getEvent } from "./event_helper";
 import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
+import { freezeAuthorityPda } from "./freeze/freeze_pda_helper";
 
 function getMintProgram(): Program<Mint> {
   return anchor.workspace.Mint as Program<Mint>;
@@ -45,7 +46,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mintAuthority: pdaUtils.mintAuthorityPda(callContext.mint),
-      freezeAuthority: pdaUtils.freezeAuthorityPda(callContext.mint),
+      freezeAuthority: freezeAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
       snapshotCounterPda: pdaUtils.snapshotCounterPda(callContext.mint),

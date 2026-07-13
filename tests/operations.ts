@@ -11,12 +11,18 @@ import { createTokenAccount, getTokenAccount } from "./program_helpers/spl_token
 import { mintTokens } from "./program_helpers/mint_helper";
 import { burnTokens, getControllerRedemptionEvent } from "./program_helpers/burn/burn_instruction_helper";
 import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
-import { partiallyFreezeAccount } from "./program_helpers/freeze_helper";
+import { partiallyFreezeAccount } from "./program_helpers/freeze/freeze_instruction_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
-import { COUPON_CREATE_COUPON, DEACTIVATE_DEACTIVATE, OPERATIONS_BURN, PAUSE_PAUSE } from "./utils/functionalities";
+import {
+  COUPON_CREATE_COUPON,
+  DEACTIVATE_DEACTIVATE,
+  FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+  OPERATIONS_BURN,
+  PAUSE_PAUSE,
+} from "./utils/functionalities";
 import { beforeEach } from "mocha";
 
 describe("operations", () => {
@@ -33,7 +39,13 @@ describe("operations", () => {
       ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
       mintOwnerPda = pdaUtils.mintOwnerPda(mint);
       await setAssetClassVersionForMint(mint, {
-        functionalities: [PAUSE_PAUSE, OPERATIONS_BURN, COUPON_CREATE_COUPON, DEACTIVATE_DEACTIVATE],
+        functionalities: [
+          PAUSE_PAUSE,
+          OPERATIONS_BURN,
+          COUPON_CREATE_COUPON,
+          DEACTIVATE_DEACTIVATE,
+          FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+        ],
       });
     });
 

@@ -13,6 +13,7 @@ import { MintWriteContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
+import { frozenAccountPda, frozenBalancePda, freezeAuthorityPda } from "./freeze/freeze_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
@@ -56,8 +57,8 @@ export async function buildVerifyTransferInstruction(
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
-      sourceFrozenPda: pdaUtils.frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: pdaUtils.frozenBalancePda(callContext.mint, callContext.source),
+      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
+      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
     })
     .instruction();
 }
@@ -109,7 +110,7 @@ export function getTransferAccounts(callContext: Omit<TransferContext, "deployer
     source: callContext.source,
     transferAuthority: pdaUtils.transferAuthorityPda(callContext.mint),
     transferHookAuthority: pdaUtils.transferHookAuthorityPda(callContext.mint),
-    freezeAuthority: pdaUtils.freezeAuthorityPda(callContext.mint),
+    freezeAuthority: freezeAuthorityPda(callContext.mint),
     extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
     transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
     freezeProgram: FREEZE_PROGRAM_ID,

@@ -2,14 +2,11 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
-import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import {
   freezeAccount,
-  getFrozenAccountStatusByPda,
-  getFrozenBalanceByPda,
   partiallyFreezeAccount,
   removePartialFreeze,
   unfreezeAccount,
@@ -17,12 +14,24 @@ import {
   getAccountUnfrozenEvent,
   getAccountPartiallyFrozenEvent,
   getAccountPartialFreezeRemovedEvent,
-} from "./program_helpers/freeze_helper";
+} from "./program_helpers/freeze/freeze_instruction_helper";
+import { getFrozenAccountStatusByPda, getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
+import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
 import { createTokenAccount } from "./program_helpers/spl_token_helper";
 import { requestAirdrop } from "./program_helpers/account_helper";
 import { beforeEach } from "mocha";
-import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { DEACTIVATE_DEACTIVATE, PAUSE_PAUSE } from "./utils/functionalities";
+import {
+  ASSET_CLASS_VERSION_STATE_DRAFT,
+  setAssetClassVersionForMint,
+} from "./program_helpers/factory/factory_pda_helper";
+import {
+  DEACTIVATE_DEACTIVATE,
+  FREEZE_FREEZE_ACCOUNT,
+  FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+  FREEZE_REMOVE_PARTIAL_FREEZE,
+  FREEZE_UNFREEZE_ACCOUNT,
+  PAUSE_PAUSE,
+} from "./utils/functionalities";
 
 describe("freeze", () => {
   const provider = anchor.AnchorProvider.env();
@@ -32,7 +41,16 @@ describe("freeze", () => {
 
   beforeEach(async () => {
     ({ mint } = await deployMint({ deployer }));
-    await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, DEACTIVATE_DEACTIVATE] });
+    await setAssetClassVersionForMint(mint, {
+      functionalities: [
+        PAUSE_PAUSE,
+        DEACTIVATE_DEACTIVATE,
+        FREEZE_FREEZE_ACCOUNT,
+        FREEZE_UNFREEZE_ACCOUNT,
+        FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+        FREEZE_REMOVE_PARTIAL_FREEZE,
+      ],
+    });
   });
 
   describe("freeze_account", () => {
@@ -42,7 +60,7 @@ describe("freeze", () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
 
       // ── Verify the PDA does not exist before the instruction ────────────────
-      const [frozenAccountPda, expectedBump] = pdaUtils.frozenAccountPdaWithBump(mint, tokenAccount);
+      const [frozenAccountPda, expectedBump] = freezePdaUtils.frozenAccountPdaWithBump(mint, tokenAccount);
       const statusBefore = await getFrozenAccountStatusByPda(frozenAccountPda);
 
       // ── Call freeze_account ──────────────────────────────────────────────────
@@ -92,7 +110,7 @@ describe("freeze", () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
 
       // ── First: freeze the account ────────────────────────────────────────────
-      const frozenAccountPda = pdaUtils.frozenAccountPda(mint, tokenAccount);
+      const frozenAccountPda = freezePdaUtils.frozenAccountPda(mint, tokenAccount);
       await freezeAccount({ deployer, mint, account: tokenAccount });
 
       const statusAfterFreeze = await getFrozenAccountStatusByPda(frozenAccountPda);
@@ -166,6 +184,51 @@ describe("freeze", () => {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+      }
+    });
+
+    // ── Error case: freeze_account — FunctionalityNotSupportedError ─────────────
+    it("freeze_account: fails with FunctionalityNotSupportedError when the freeze_account functionality is not enabled", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+
+      // Re-seed the asset-class version WITHOUT the freeze_account functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+      try {
+        await freezeAccount({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ── Error case: freeze_account — AssetClassVersionNotFinalized ──────────────
+    it("freeze_account: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [FREEZE_FREEZE_ACCOUNT],
+      });
+
+      try {
+        await freezeAccount({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
       }
     });
   });
@@ -245,13 +308,61 @@ describe("freeze", () => {
         assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
       }
     });
+
+    // ── Error case: unfreeze_account — FunctionalityNotSupportedError ───────────
+    it("unfreeze_account: fails with FunctionalityNotSupportedError when the unfreeze_account functionality is not enabled", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      await freezeAccount({ deployer, mint, account: tokenAccount });
+
+      // Re-seed the asset-class version WITH freeze_account (needed for the fixture
+      // above) but WITHOUT unfreeze_account.
+      await setAssetClassVersionForMint(mint, { functionalities: [FREEZE_FREEZE_ACCOUNT] });
+
+      try {
+        await unfreezeAccount({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ── Error case: unfreeze_account — AssetClassVersionNotFinalized ────────────
+    it("unfreeze_account: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      await freezeAccount({ deployer, mint, account: tokenAccount });
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [FREEZE_UNFREEZE_ACCOUNT],
+      });
+
+      try {
+        await unfreezeAccount({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
   });
 
   describe("partially_freeze_account", () => {
     // ── Happy-path: partially_freeze_account ────────────────────────────────────
     it("partially_freeze_account: creates the frozen_balance PDA with the given balance", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      const [frozenBalancePda, expectedBump] = pdaUtils.frozenBalancePdaWithBump(mint, tokenAccount);
+      const [frozenBalancePda, expectedBump] = freezePdaUtils.frozenBalancePdaWithBump(mint, tokenAccount);
 
       // ── Verify the PDA does not exist before the instruction ─────────────────
       const statusBefore = await getFrozenBalanceByPda(frozenBalancePda);
@@ -328,13 +439,58 @@ describe("freeze", () => {
         assert.equal(anchorErr.error.errorCode.code, "MintPaused", "error code should be MintPaused");
       }
     });
+
+    // ── Error case: partially_freeze_account — FunctionalityNotSupportedError ───
+    it("partially_freeze_account: fails with FunctionalityNotSupportedError when the partially_freeze_account functionality is not enabled", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+
+      // Re-seed the asset-class version WITHOUT the partially_freeze_account functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+      try {
+        await partiallyFreezeAccount({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ── Error case: partially_freeze_account — AssetClassVersionNotFinalized ────
+    it("partially_freeze_account: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [FREEZE_PARTIALLY_FREEZE_ACCOUNT],
+      });
+
+      try {
+        await partiallyFreezeAccount({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
   });
 
   describe("remove_partial_freeze", async () => {
     // ── Happy-path: remove_partial_freeze ───────────────────────────────────────
     it("remove_partial_freeze: closes the frozen_balance PDA for a token account", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      const frozenBalancePda = pdaUtils.frozenBalancePda(mint, tokenAccount);
+      const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, tokenAccount);
 
       // ── First: partially freeze the account ──────────────────────────────────
       const frozenBalance = new anchor.BN(500_000_000);
@@ -418,6 +574,54 @@ describe("freeze", () => {
         assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
       }
     });
+
+    // ── Error case: remove_partial_freeze — FunctionalityNotSupportedError ──────
+    it("remove_partial_freeze: fails with FunctionalityNotSupportedError when the remove_partial_freeze functionality is not enabled", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      await partiallyFreezeAccount({ deployer, mint, account: tokenAccount });
+
+      // Re-seed the asset-class version WITH partially_freeze_account (needed for the
+      // fixture above) but WITHOUT remove_partial_freeze.
+      await setAssetClassVersionForMint(mint, { functionalities: [FREEZE_PARTIALLY_FREEZE_ACCOUNT] });
+
+      try {
+        await removePartialFreeze({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ── Error case: remove_partial_freeze — AssetClassVersionNotFinalized ───────
+    it("remove_partial_freeze: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      await partiallyFreezeAccount({ deployer, mint, account: tokenAccount });
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [FREEZE_REMOVE_PARTIAL_FREEZE],
+      });
+
+      try {
+        await removePartialFreeze({ deployer, mint, account: tokenAccount });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
   });
 
   describe("partially_freeze_account account", async () => {
@@ -439,7 +643,7 @@ describe("freeze", () => {
     // ── partially_freeze_account overwrites without prior unfreeze ──
     it("partially_freeze_account: a second call on the same account overwrites the balance without remove_partial_freeze", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      const [frozenBalancePda, expectedBump] = pdaUtils.frozenBalancePdaWithBump(mint, tokenAccount);
+      const [frozenBalancePda, expectedBump] = freezePdaUtils.frozenBalancePdaWithBump(mint, tokenAccount);
       const FIRST_BALANCE = new anchor.BN(500_000_000);
       const SECOND_BALANCE = new anchor.BN(300_000_000);
 
