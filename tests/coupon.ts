@@ -2,7 +2,6 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
-import * as pdaUtils from "./utils/pda_utils";
 import { COUPON_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
@@ -21,7 +20,8 @@ import {
   getCouponCounterByPda,
 } from "./program_helpers/coupon/coupon_pda_helper";
 import * as couponPdaUtils from "./program_helpers/coupon/coupon_pda_helper";
-import { getSnapshotCounter, getSnapshotCounterByPda } from "./program_helpers/snapshot_helper";
+import { getSnapshotCounter, getSnapshotCounterByPda } from "./program_helpers/snapshot/snapshot_pda_helper";
+import * as snapshotPdaUtils from "./program_helpers/snapshot/snapshot_pda_helper";
 import { getAccountInfo, getBalanceForRentExeption, surfnetSetAccount } from "./program_helpers/account_helper";
 import { U64_MAX } from "./constants";
 import {
@@ -58,7 +58,7 @@ describe("coupon", () => {
 
       const couponPda = couponPdaUtils.couponPda(mint, couponId);
       const couponCounterPda = couponPdaUtils.couponCounterPda(mint);
-      const snapshotCounterPda = pdaUtils.snapshotCounterPda(mint);
+      const snapshotCounterPda = snapshotPdaUtils.snapshotCounterPda(mint);
 
       // Sanity: nothing exists yet
       assert.isNull(await getAccountInfo(couponPda));

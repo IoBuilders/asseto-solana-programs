@@ -8,7 +8,10 @@ import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruct
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens, getIssuedEvent } from "./program_helpers/mint/mint_instruction_helper";
-import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
+import {
+  getHolderBalanceSnapshotAt,
+  getTotalSupplySnapshotAt,
+} from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
   setTransferControlModes,
   TRANSFER_CONTROL_WHITELIST,

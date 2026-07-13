@@ -18,6 +18,7 @@ import {
   couponPaidPda,
   treasuryEventAuthorityPda,
 } from "./treasury_pda_helper";
+import { snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
 
 export function getTreasuryProgram(): Program<Treasury> {
   return anchor.workspace.Treasury as Program<Treasury>;
@@ -103,7 +104,7 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       treasuryAuthority: treasuryAuthorityPda(callContext.mint),
       bondTerms: bondTermsPda(callContext.mint),
       coupon: couponPda(callContext.mint, args.couponId),
-      holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
+      holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
       couponPaid: couponPaidPda(callContext.mint, args.couponId, callContext.holderTokenAccount),
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       tokenProgram: TOKEN_2022_PROGRAM_ID,

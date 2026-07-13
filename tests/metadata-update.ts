@@ -10,11 +10,19 @@ import {
   getMetadataFieldUpdatedEvent,
   removeMetadataField,
   updateMetadataField,
-} from "./program_helpers/metadata_update_helper";
+} from "./program_helpers/metadata_update/metadata_update_instruction_helper";
 import { getTokenMetadata } from "./program_helpers/spl_token_helper";
 import { beforeEach } from "mocha";
-import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { DEACTIVATE_DEACTIVATE, PAUSE_PAUSE } from "./utils/functionalities";
+import {
+  ASSET_CLASS_VERSION_STATE_DRAFT,
+  setAssetClassVersionForMint,
+} from "./program_helpers/factory/factory_pda_helper";
+import {
+  DEACTIVATE_DEACTIVATE,
+  METADATA_UPDATE_REMOVE_METADATA_FIELD,
+  METADATA_UPDATE_UPDATE_METADATA_FIELD,
+  PAUSE_PAUSE,
+} from "./utils/functionalities";
 
 describe("metadata-update", () => {
   const provider = anchor.AnchorProvider.env();
@@ -26,7 +34,9 @@ describe("metadata-update", () => {
     let mint: PublicKey;
     beforeEach(async () => {
       ({ mint } = await deployMint({ deployer }));
-      await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, DEACTIVATE_DEACTIVATE] });
+      await setAssetClassVersionForMint(mint, {
+        functionalities: [PAUSE_PAUSE, DEACTIVATE_DEACTIVATE, METADATA_UPDATE_UPDATE_METADATA_FIELD],
+      });
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -103,6 +113,47 @@ describe("metadata-update", () => {
         assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
       }
     });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("update_metadata_field: fails with FunctionalityNotSupportedError when the update_metadata_field functionality is not enabled", async () => {
+      // Re-seed the asset-class version WITHOUT the update_metadata_field functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+      try {
+        await updateMetadataField({ deployer, mint });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("update_metadata_field: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [METADATA_UPDATE_UPDATE_METADATA_FIELD],
+      });
+
+      try {
+        await updateMetadataField({ deployer, mint });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
   });
 
   describe("remove_metadata_field", async () => {
@@ -126,6 +177,7 @@ describe("metadata-update", () => {
           ],
         }
       );
+      await setAssetClassVersionForMint(mint, { functionalities: [METADATA_UPDATE_REMOVE_METADATA_FIELD] });
 
       // Sanity-check that all three fields landed before we remove them
       const metadataBefore = await getTokenMetadata(mint);
@@ -170,6 +222,9 @@ describe("metadata-update", () => {
 
       // Deploy with a custom field present so there is something to remove
       const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
+      await setAssetClassVersionForMint(mint, {
+        functionalities: [PAUSE_PAUSE, METADATA_UPDATE_REMOVE_METADATA_FIELD],
+      });
 
       await pauseMint({ deployer, mint });
 
@@ -187,6 +242,9 @@ describe("metadata-update", () => {
     it("remove_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
       // ── Deploy a fresh mint ────────────────────────────────────────────────
       const { mint } = await deployMint({ deployer });
+      await setAssetClassVersionForMint(mint, {
+        functionalities: [DEACTIVATE_DEACTIVATE, METADATA_UPDATE_REMOVE_METADATA_FIELD],
+      });
 
       // ── Deactivate the mint ────────────────────────────────────────────────
       await deactivateMint({ deployer, mint });
@@ -209,6 +267,7 @@ describe("metadata-update", () => {
 
       // Deploy with a custom field present so there is something to remove.
       const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
+      await setAssetClassVersionForMint(mint, { functionalities: [METADATA_UPDATE_UPDATE_METADATA_FIELD] });
 
       try {
         await updateMetadataField({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
@@ -223,13 +282,66 @@ describe("metadata-update", () => {
         );
       }
     });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("remove_metadata_field: fails with FunctionalityNotSupportedError when the remove_metadata_field functionality is not enabled", async () => {
+      const ISIN_KEY = "isin";
+      const ISIN_VALUE = "CH0012221716";
+
+      const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
+
+      // Re-seed the asset-class version WITHOUT the remove_metadata_field functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+      try {
+        await removeMetadataField({ deployer, mint });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("remove_metadata_field: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const ISIN_KEY = "isin";
+      const ISIN_VALUE = "CH0012221716";
+
+      const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
+
+      // Re-seed the asset-class version WITHOUT finalizing it.
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [METADATA_UPDATE_REMOVE_METADATA_FIELD],
+      });
+
+      try {
+        await removeMetadataField({ deployer, mint });
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
   });
 
   describe("update_metadata_field", async () => {
     let mint: PublicKey;
     beforeEach(async () => {
       ({ mint } = await deployMint({ deployer }));
-      await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE] });
+      await setAssetClassVersionForMint(mint, {
+        functionalities: [PAUSE_PAUSE, METADATA_UPDATE_UPDATE_METADATA_FIELD],
+      });
     });
 
     // ────────────────────────────────────────────────────────────────────────────

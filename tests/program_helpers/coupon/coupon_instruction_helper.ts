@@ -10,6 +10,7 @@ import { getEvent } from "../event_helper";
 import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { couponAuthorityPda, couponCounterPda, couponPda, couponEventAuthorityPda } from "./coupon_pda_helper";
+import { snapshotCounterPda, snapshotTriggeredEventAuthorityPda } from "../snapshot/snapshot_pda_helper";
 
 export function getCouponProgram(): Program<Coupon> {
   return anchor.workspace.Coupon as Program<Coupon>;
@@ -68,10 +69,10 @@ export async function createCoupon(
       couponAuthority: couponAuthorityPda(callContext.mint),
       couponCounter: couponCounterPda(callContext.mint),
       coupon: couponPda(callContext.mint, effectiveArgs.couponId),
-      snapshotCounter: pdaUtils.snapshotCounterPda(callContext.mint),
+      snapshotCounter: snapshotCounterPda(callContext.mint),
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
-      snapshotEventAuthority: pdaUtils.snapshotTriggeredEventAuthorityPda(),
+      snapshotEventAuthority: snapshotTriggeredEventAuthorityPda(),
       eventAuthority: couponEventAuthorityPda(),
       program: getCouponProgram().programId,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),

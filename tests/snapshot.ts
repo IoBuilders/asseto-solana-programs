@@ -8,15 +8,14 @@ import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper
 import { createTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
 import {
-  encodeSnapshotCounter,
   getHolderBalanceSnapshotAt,
-  getSnapshotCounterByPda,
   getSnapshotTriggeredEvent,
   getTotalSupplySnapshotAt,
   takeSnapshot,
   updateHolderBalanceSnapshot,
   updateTotalSupplySnapshot,
-} from "./program_helpers/snapshot_helper";
+} from "./program_helpers/snapshot/snapshot_instruction_helper";
+import { encodeSnapshotCounter, getSnapshotCounterByPda } from "./program_helpers/snapshot/snapshot_pda_helper";
 import { getBalanceForRentExeption, surfnetSetAccount } from "./program_helpers/account_helper";
 import { U64_MAX } from "./constants";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";

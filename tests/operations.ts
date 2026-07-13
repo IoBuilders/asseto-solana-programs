@@ -10,7 +10,10 @@ import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper
 import { createTokenAccount, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
 import { burnTokens, getControllerRedemptionEvent } from "./program_helpers/burn/burn_instruction_helper";
-import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
+import {
+  getHolderBalanceSnapshotAt,
+  getTotalSupplySnapshotAt,
+} from "./program_helpers/snapshot/snapshot_instruction_helper";
 import { partiallyFreezeAccount } from "./program_helpers/freeze/freeze_instruction_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,

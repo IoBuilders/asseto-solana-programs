@@ -14,6 +14,7 @@ import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
 import { frozenAccountPda, frozenBalancePda, freezeAuthorityPda } from "./freeze/freeze_pda_helper";
+import { snapshotCounterPda, snapshotHolderBalancePda } from "./snapshot/snapshot_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
@@ -115,9 +116,9 @@ export function getTransferAccounts(callContext: Omit<TransferContext, "deployer
     transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
     freezeProgram: FREEZE_PROGRAM_ID,
     snapshotProgram: SNAPSHOT_PROGRAM_ID,
-    snapshotCounterPda: pdaUtils.snapshotCounterPda(callContext.mint),
-    senderSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.source),
-    receiverSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.destination),
+    snapshotCounterPda: snapshotCounterPda(callContext.mint),
+    senderSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.source),
+    receiverSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
     instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
     token2022Program: TOKEN_2022_PROGRAM_ID,
     systemProgram: SYSTEM_PROGRAM_ID,

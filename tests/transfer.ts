@@ -17,7 +17,7 @@ import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
 import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { burnTokens } from "./program_helpers/burn/burn_instruction_helper";
-import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
+import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
   addToWhitelist,
   setTransferControlModes,

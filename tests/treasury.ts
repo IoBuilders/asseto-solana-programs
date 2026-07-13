@@ -9,7 +9,7 @@ import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_ins
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createMint, createTokenAccount, getTokenAccount, mintTo } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
-import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
+import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
   getCouponPaidEvent,
   getPaymentTokenSetEvent,

@@ -13,6 +13,7 @@ import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
 import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
+import { snapshotCounterPda, snapshotTotalSupplyPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
 
 export function getMintProgram(): Program<Mint> {
   return anchor.workspace.Mint as Program<Mint>;
@@ -58,9 +59,9 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       freezeAuthority: freezeAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
-      snapshotCounterPda: pdaUtils.snapshotCounterPda(callContext.mint),
-      totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(callContext.mint),
-      holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.destination),
+      snapshotCounterPda: snapshotCounterPda(callContext.mint),
+      totalSupplySnapshot: snapshotTotalSupplyPda(callContext.mint),
+      holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
       freezeProgram: FREEZE_PROGRAM_ID,
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,

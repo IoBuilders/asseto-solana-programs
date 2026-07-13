@@ -1,15 +1,22 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
-import * as pdaUtils from "../utils/pda_utils";
 import * as anchor from "@anchor-lang/core";
-import { MintContext, MintWriteWithPayerContext } from "./base_helper";
+import { MintContext, MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
-import { Snapshot } from "../../target/types/snapshot";
-import { SYSTEM_PROGRAM_ID } from "../utils/address_utils";
-import { getEvent } from "./event_helper";
+import { Snapshot } from "../../../target/types/snapshot";
+import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
+import { getEvent } from "../event_helper";
+import {
+  snapshotCounterPda,
+  snapshotTotalSupplyPda,
+  snapshotHolderBalancePda,
+  snapshotTriggeredEventAuthorityPda,
+} from "./snapshot_pda_helper";
 
-function getSnapshotProgram(): Program<Snapshot> {
+export function getSnapshotProgram(): Program<Snapshot> {
   return anchor.workspace.Snapshot as Program<Snapshot>;
 }
+
+// ── take_snapshot ──────────────────────────────────────────────────────────────
 
 export async function takeSnapshot(callContext: MintWriteWithPayerContext): Promise<void> {
   await getSnapshotProgram()
@@ -18,13 +25,29 @@ export async function takeSnapshot(callContext: MintWriteWithPayerContext): Prom
       callingAuthority: callContext.deployer,
       payer: callContext.payer ?? callContext.deployer,
       mint: callContext.mint,
-      snapshotCounter: pdaUtils.snapshotCounterPda(callContext.mint),
+      snapshotCounter: snapshotCounterPda(callContext.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
-      eventAuthority: pdaUtils.snapshotTriggeredEventAuthorityPda(),
+      eventAuthority: snapshotTriggeredEventAuthorityPda(),
       program: getSnapshotProgram().programId,
     })
     .rpc({ commitment: "confirmed" });
 }
+
+type SnapshotTriggeredEvent = {
+  mint: PublicKey;
+  snapshotId: anchor.BN;
+};
+
+/**
+ * Decodes the `SnapshotTriggeredEvent` event from a `take_snapshot` transaction. The coder
+ * returns the name in camelCase (`snapshotTriggered`). Delegates to the shared,
+ * emit!/emit_cpi!-agnostic event helper.
+ */
+export async function getSnapshotTriggeredEvent(signature: string) {
+  return getEvent<SnapshotTriggeredEvent>(getSnapshotProgram(), signature, "snapshotTriggered");
+}
+
+// ── get_totalsupply_snapshot_at ────────────────────────────────────────────────
 
 export type GetTotalSupplySnapshotAtArgs = {
   snapshotId: anchor.BN;
@@ -38,10 +61,12 @@ export async function getTotalSupplySnapshotAt(
     .methods.getTotalsupplySnapshotAt(args.snapshotId)
     .accountsStrict({
       mint: callContext.mint,
-      totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(callContext.mint),
+      totalSupplySnapshot: snapshotTotalSupplyPda(callContext.mint),
     })
     .view();
 }
+
+// ── get_holderbalance_snapshot_at ──────────────────────────────────────────────
 
 export type GetHolderBalanceSnapshotAtContext = MintContext & {
   holderTokenAccount: PublicKey;
@@ -60,10 +85,12 @@ export async function getHolderBalanceSnapshotAt(
     .accountsStrict({
       mint: callContext.mint,
       holderTokenAccount: callContext.holderTokenAccount,
-      holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
+      holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
     })
     .view();
 }
+
+// ── update_totalsupply_snapshot ────────────────────────────────────────────────
 
 export async function updateTotalSupplySnapshot(ctx: MintWriteWithPayerContext): Promise<void> {
   const callingAuthority = ctx.deployer;
@@ -74,12 +101,14 @@ export async function updateTotalSupplySnapshot(ctx: MintWriteWithPayerContext):
       callingAuthority: callingAuthority,
       payer: ctx.payer ?? ctx.deployer,
       mint: ctx.mint,
-      snapshotCounter: pdaUtils.snapshotCounterPda(ctx.mint),
-      totalSupplySnapshot: pdaUtils.snapshotTotalSupplyPda(ctx.mint),
+      snapshotCounter: snapshotCounterPda(ctx.mint),
+      totalSupplySnapshot: snapshotTotalSupplyPda(ctx.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .rpc({ commitment: "confirmed" });
 }
+
+// ── update_holderbalance_snapshot ──────────────────────────────────────────────
 
 type UpdateHolderBalanceSnapshotArgs = {
   delta: anchor.BN;
@@ -111,42 +140,10 @@ export async function updateHolderBalanceSnapshot(
       callingAuthority: callingAuthority,
       payer: ctx.payer ?? ctx.deployer,
       mint: ctx.mint,
-      snapshotCounter: pdaUtils.snapshotCounterPda(ctx.mint),
-      holderBalanceSnapshot: pdaUtils.snapshotHolderBalancePda(ctx.mint, holderTokenAccount),
+      snapshotCounter: snapshotCounterPda(ctx.mint),
+      holderBalanceSnapshot: snapshotHolderBalancePda(ctx.mint, holderTokenAccount),
       holderTokenAccount: holderTokenAccount,
       systemProgram: SYSTEM_PROGRAM_ID,
     })
     .rpc({ commitment: "confirmed" });
-}
-
-export async function getSnapshotCounter(mint: PublicKey) {
-  const pda = pdaUtils.snapshotCounterPda(mint);
-  return getSnapshotCounterByPda(pda);
-}
-
-export async function getSnapshotCounterByPda(pda: PublicKey) {
-  return await getSnapshotProgram().account.snapshotCounter.fetch(pda, "confirmed");
-}
-
-/**
- * Borsh-encodes a `SnapshotCounter` (8-byte discriminator + bump + count) the
- * way the program stores it on-chain. Used by tests that plant counter state
- * directly via a surfpool cheatcode.
- */
-export async function encodeSnapshotCounter(bump: number, count: anchor.BN): Promise<Buffer> {
-  return getSnapshotProgram().coder.accounts.encode("snapshotCounter", { bump, count });
-}
-
-type SnapshotTriggeredEvent = {
-  mint: PublicKey;
-  snapshotId: anchor.BN;
-};
-
-/**
- * Decodes the `SnapshotTriggeredEvent` event from a `take_snapshot` transaction. The coder
- * returns the name in camelCase (`snapshotTriggered`). Delegates to the shared,
- * emit!/emit_cpi!-agnostic event helper.
- */
-export async function getSnapshotTriggeredEvent(signature: string) {
-  return getEvent<SnapshotTriggeredEvent>(getSnapshotProgram(), signature, "snapshotTriggered");
 }
