@@ -4,6 +4,7 @@ import BN from "bn.js";
 import { getFactoryProgram } from "./factory_instruction_helper";
 import * as anchor from "@anchor-lang/core";
 import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
+import { getMintOwner } from "../deploy_helper";
 
 // ── factory PDA ───────────────────────────────────────────────────────────────────
 
@@ -193,12 +194,20 @@ export async function clearAssetClassVersion(configId: anchor.BN, version: ancho
   await surfnetSetAccount(assetClassVersionPda(configId, version), { lamports: 0 });
 }
 
+export async function setAssetClassVersionForMint(
+  mint: PublicKey,
+  args: { state?: number; functionalities?: number[] } = {}
+): Promise<void> {
+  const mintOwner = await getMintOwner(mint);
+  return setAssetClassVersion(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId, args);
+}
+
 export async function setAssetClassVersion(
   configId: anchor.BN,
   version: anchor.BN,
   args: { state?: number; functionalities?: number[] } = {}
 ): Promise<void> {
-  const { state = ASSET_CLASS_VERSION_STATE_DRAFT, functionalities = [] } = args;
+  const { state = ASSET_CLASS_VERSION_STATE_FINALIZED, functionalities = [] } = args;
 
   const mask = Buffer.alloc(FUNCTIONALITIES_BYTES_MASK);
   for (const f of functionalities) {

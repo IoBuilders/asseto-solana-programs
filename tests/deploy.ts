@@ -10,6 +10,11 @@ import {
 } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
+import { permanentDelegatePda } from "./program_helpers/burn/burn_pda_helper";
+import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
+import { freezeAuthorityPda } from "./program_helpers/freeze/freeze_pda_helper";
+import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
+import { metadataUpdateAuthorityPda } from "./program_helpers/metadata_update/metadata_update_pda_helper";
 import { deployMint, getMintDeployedEvent, getMintOwner } from "./program_helpers/deploy_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
 
@@ -43,11 +48,11 @@ describe("deploy", () => {
         assetClassVersionId: MINT_ASSET_CLASS_VERSION_ID,
       }
     );
-    const mintAuthority = pdaUtils.mintAuthorityPda(mint);
-    const permanentDelegateAuthority = pdaUtils.permanentDelegatePda(mint);
-    const metadataUpdateAuthority = pdaUtils.metadataUpdateAuthorityPda(mint);
-    const pausableAuthority = pdaUtils.pausableAuthorityPda(mint);
-    const freezeAuthority = pdaUtils.freezeAuthorityPda(mint);
+    const mintAuthority = mintAuthorityPda(mint);
+    const permanentDelegateAuthority = permanentDelegatePda(mint);
+    const metadataUpdateAuthority = metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pausableAuthorityPda(mint);
+    const freezeAuthority = freezeAuthorityPda(mint);
     const mintInfo = await getMint(mint);
     const mintOwnerAccount = await getMintOwner(mint);
     const metadataPointerState = getMetadataPointerState(mintInfo);

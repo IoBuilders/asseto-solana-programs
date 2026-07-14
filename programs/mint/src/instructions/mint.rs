@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::pda_utils;
-use common::{pda_seeds, require_active, verify_deployer};
+use common::{pda_seeds, require_active, require_functionality, verify_deployer_account};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
 use spl_token_2022::instruction::mint_to;
@@ -10,6 +10,7 @@ use transfer_control::{get_transfer_modes, verify_whitelist, TransferMode};
 
 use crate::events::Issued;
 use common::program_ids as constants;
+use common::state::{AssetClassVersion, MintOwner};
 
 /// Mints `amount` tokens of the given mint to `destination`.
 ///
@@ -25,13 +26,15 @@ use common::program_ids as constants;
 /// `mint_authority` PDA, which is the only caller freeze accepts.
 pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     // ── Verify deployer is the recorded mint owner ───────────────────────────
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
-    )?;
+    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::MINT_MINT,
+    )?;
 
     // ── If whitelist mode is active, verify destination is whitelisted ────────
     if get_transfer_modes(&ctx.accounts.transfer_control_mode_pda.to_account_info())?
@@ -145,19 +148,12 @@ pub struct MintTokens<'info> {
     pub deployer: Signer<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
-    /// The seeds constraint guarantees this is the canonical PDA for the mint;
-    /// the instruction body checks that `deployer` matches the stored pubkey via
-    /// Anchor deserialization (MintOwner::try_deserialize) inside verify_deployer.
-    /// UncheckedAccount is used because Account<MintOwner> would enforce ownership
-    /// by the current program, but this account is owned by deploy.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = mint_owner_pda.bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub mint_owner_pda: Account<'info, MintOwner>,
 
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
@@ -265,6 +261,14 @@ pub struct MintTokens<'info> {
     /// CHECK: Address verified by constraint.
     #[account(address = constants::SNAPSHOT_PROGRAM_ID)]
     pub snapshot_program: UncheckedAccount<'info>,
+
+    /// Asset-class version PDA this mint is hooked to.
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,

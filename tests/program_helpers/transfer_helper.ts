@@ -1,5 +1,6 @@
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
+import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import {
@@ -11,6 +12,9 @@ import {
 import { MintWriteContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
+import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
+import { frozenAccountPda, frozenBalancePda, freezeAuthorityPda } from "./freeze/freeze_pda_helper";
+import { snapshotCounterPda, snapshotHolderBalancePda } from "./snapshot/snapshot_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
@@ -50,12 +54,12 @@ export async function buildVerifyTransferInstruction(
       source: callContext.source,
       destination: callContext.destination,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
-      transferControlModePda: pdaUtils.transferControlModePda(callContext.mint),
-      sourceWhitelistPda: pdaUtils.whitelistPda(callContext.mint, callContext.source),
-      destinationWhitelistPda: pdaUtils.whitelistPda(callContext.mint, callContext.destination),
-      sourceFrozenPda: pdaUtils.frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: pdaUtils.frozenBalancePda(callContext.mint, callContext.source),
+      deactivatePda: deactivatePda(callContext.mint),
+      transferControlModePda: transferControlModePda(callContext.mint),
+      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
+      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
+      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
+      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
     })
     .instruction();
 }
@@ -107,14 +111,14 @@ export function getTransferAccounts(callContext: Omit<TransferContext, "deployer
     source: callContext.source,
     transferAuthority: pdaUtils.transferAuthorityPda(callContext.mint),
     transferHookAuthority: pdaUtils.transferHookAuthorityPda(callContext.mint),
-    freezeAuthority: pdaUtils.freezeAuthorityPda(callContext.mint),
+    freezeAuthority: freezeAuthorityPda(callContext.mint),
     extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
     transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
     freezeProgram: FREEZE_PROGRAM_ID,
     snapshotProgram: SNAPSHOT_PROGRAM_ID,
-    snapshotCounterPda: pdaUtils.snapshotCounterPda(callContext.mint),
-    senderSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.source),
-    receiverSnapshot: pdaUtils.snapshotHolderBalancePda(callContext.mint, callContext.destination),
+    snapshotCounterPda: snapshotCounterPda(callContext.mint),
+    senderSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.source),
+    receiverSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
     instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
     token2022Program: TOKEN_2022_PROGRAM_ID,
     systemProgram: SYSTEM_PROGRAM_ID,

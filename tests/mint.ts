@@ -1,25 +1,55 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, SendTransactionError } from "@solana/web3.js";
+import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { pauseMint } from "./program_helpers/pause_helper";
-import { deactivateMint } from "./program_helpers/deactivate_helper";
-import { createCoupon } from "./program_helpers/coupon_helper";
+import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
+import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
+import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
-import { mintTokens, getIssuedEvent } from "./program_helpers/mint_helper";
-import { getHolderBalanceSnapshotAt, getTotalSupplySnapshotAt } from "./program_helpers/snapshot_helper";
-import { setTransferControlModes, TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control_helper";
-
-const MINT_DECIMALS = 6;
+import { mintTokens, getIssuedEvent } from "./program_helpers/mint/mint_instruction_helper";
+import {
+  getHolderBalanceSnapshotAt,
+  getTotalSupplySnapshotAt,
+} from "./program_helpers/snapshot/snapshot_instruction_helper";
+import {
+  setTransferControlModes,
+  TRANSFER_CONTROL_WHITELIST,
+} from "./program_helpers/transfer_control/transfer_control_instruction_helper";
+import { beforeEach } from "mocha";
+import {
+  ASSET_CLASS_VERSION_STATE_DRAFT,
+  setAssetClassVersionForMint,
+} from "./program_helpers/factory/factory_pda_helper";
+import {
+  COUPON_CREATE_COUPON,
+  DEACTIVATE_DEACTIVATE,
+  MINT_MINT,
+  PAUSE_PAUSE,
+  TRANSFER_CONTROL_SET_MODES,
+} from "./utils/functionalities";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
+  const MINT_DECIMALS = 6;
+  let mint: PublicKey;
+
+  beforeEach(async () => {
+    ({ mint } = await deployMint({ deployer }));
+    await setAssetClassVersionForMint(mint, {
+      functionalities: [
+        PAUSE_PAUSE,
+        TRANSFER_CONTROL_SET_MODES,
+        COUPON_CREATE_COUPON,
+        DEACTIVATE_DEACTIVATE,
+        MINT_MINT,
+      ],
+    });
+  });
 
   it("mint: mints tokens to a destination account and updates balance correctly", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     const accountBefore = await getTokenAccount(destination);
     const balanceBefore = accountBefore.amount;
@@ -49,8 +79,7 @@ describe("mint", () => {
   });
 
   it("mint: snapshot taken before mint records the destination balance previous to the mint and is never overwritten", async () => {
-    // ── Deploy mint + create destination token account + mint an initial balance ────────────────────────
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
+    // ── Create destination token account + mint an initial balance ────────────────────────
     const destination = await createTokenAccount({ mint, owner: deployer });
     const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
     await mintTokens({ deployer, mint, destination }, { amount: balanceBeforeSnapshot });
@@ -84,7 +113,6 @@ describe("mint", () => {
   });
 
   it("mint: fails with MintPaused when mint is paused", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     await pauseMint({ deployer, mint });
 
@@ -102,7 +130,6 @@ describe("mint", () => {
   });
 
   it("mint: fails with Deactivated when mint has been deactivated", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     await deactivateMint({ deployer, mint });
 
@@ -117,7 +144,6 @@ describe("mint", () => {
   });
 
   it("mint: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     const rogueKeypair = Keypair.generate();
 
@@ -132,7 +158,6 @@ describe("mint", () => {
   });
 
   it("mint: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
-    const { mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS });
     const destination = await createTokenAccount({ mint, owner: deployer });
     await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_WHITELIST] });
 
@@ -143,6 +168,51 @@ describe("mint", () => {
       assert.instanceOf(err, AnchorError);
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "NotWhitelisted");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: fails with FunctionalityNotSupportedError when the mint functionality is not enabled", async () => {
+    const destination = await createTokenAccount({ mint, owner: deployer });
+
+    // Re-seed the asset-class version WITHOUT the mint functionality.
+    await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+    try {
+      await mintTokens({ deployer, mint, destination });
+      assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "FunctionalityNotSupportedError",
+        "error code should be FunctionalityNotSupportedError"
+      );
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+    const destination = await createTokenAccount({ mint, owner: deployer });
+
+    // Re-seed the asset-class version WITHOUT finalizing it.
+    await setAssetClassVersionForMint(mint, {
+      state: ASSET_CLASS_VERSION_STATE_DRAFT,
+      functionalities: [MINT_MINT],
+    });
+
+    try {
+      await mintTokens({ deployer, mint, destination });
+      assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "AssetClassVersionNotFinalized",
+        "error code should be AssetClassVersionNotFinalized"
+      );
     }
   });
 });

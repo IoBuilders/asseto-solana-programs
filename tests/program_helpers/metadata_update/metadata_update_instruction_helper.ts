@@ -1,16 +1,22 @@
 import { PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import * as pdaUtils from "../utils/pda_utils";
+import * as pdaUtils from "../../utils/pda_utils";
+import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
-import { METADATA_UPDATE_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../utils/address_utils";
-import { MintWriteWithPayerContext } from "./base_helper";
+import { METADATA_UPDATE_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
+import { MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
-import { MetadataUpdate } from "../../target/types/metadata_update";
-import { getEvent } from "./event_helper";
+import { MetadataUpdate } from "../../../target/types/metadata_update";
+import { getEvent } from "../event_helper";
+import { getMintOwner } from "../deploy_helper";
+import { assetClassVersionPda } from "../factory/factory_pda_helper";
+import { metadataUpdateAuthorityPda, metadataUpdateEventAuthorityPda } from "./metadata_update_pda_helper";
 
 function getMetadataUpdateProgram(): Program<MetadataUpdate> {
   return anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
 }
+
+// ── update_metadata_field ──────────────────────────────────────────────────────
 
 type UpdateMetadataFieldArgs = {
   key?: string;
@@ -33,6 +39,10 @@ export async function updateMetadataField(
     ...args,
   };
 
+  // The asset-class version PDA is derived from the ids recorded in the mint's
+  // `mint_owner` account — the same values the on-chain program reads.
+  const mintOwner = await getMintOwner(callContext.mint);
+
   const signature = await getMetadataUpdateProgram()
     .methods.updateMetadataField(effectiveArgs.key, effectiveArgs.value)
     .accountsStrict({
@@ -40,12 +50,13 @@ export async function updateMetadataField(
       deployer: callContext.deployer,
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      metadataUpdateAuthority: pdaUtils.metadataUpdateAuthorityPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      metadataUpdateAuthority: metadataUpdateAuthorityPda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
-      eventAuthority: pdaUtils.metadataUpdateEventAuthorityPda(),
+      eventAuthority: metadataUpdateEventAuthorityPda(),
       program: METADATA_UPDATE_PROGRAM_ID,
+      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });
@@ -69,6 +80,8 @@ export async function getMetadataFieldUpdatedEvent(signature: string) {
   return getEvent<MetadataFieldUpdatedEvent>(getMetadataUpdateProgram(), signature, "metadataFieldUpdated");
 }
 
+// ── remove_metadata_field ──────────────────────────────────────────────────────
+
 type RemoveMetadataFieldArgs = {
   key?: string;
   idempotent?: boolean;
@@ -90,6 +103,10 @@ export async function removeMetadataField(
     ...args,
   };
 
+  // The asset-class version PDA is derived from the ids recorded in the mint's
+  // `mint_owner` account — the same values the on-chain program reads.
+  const mintOwner = await getMintOwner(callContext.mint);
+
   const signature = await getMetadataUpdateProgram()
     .methods.removeMetadataField(effectiveArgs.key, effectiveArgs.idempotent)
     .accountsStrict({
@@ -97,13 +114,14 @@ export async function removeMetadataField(
       deployer: callContext.deployer,
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
-      metadataUpdateAuthority: pdaUtils.metadataUpdateAuthorityPda(callContext.mint),
-      deactivatePda: pdaUtils.deactivatePda(callContext.mint),
+      metadataUpdateAuthority: metadataUpdateAuthorityPda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       rent: SYSVAR_RENT_PUBKEY,
-      eventAuthority: pdaUtils.metadataUpdateEventAuthorityPda(),
+      eventAuthority: metadataUpdateEventAuthorityPda(),
       program: METADATA_UPDATE_PROGRAM_ID,
+      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });

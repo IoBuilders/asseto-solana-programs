@@ -1,9 +1,12 @@
 use crate::events::AccountPartialFreezeRemoved;
 use anchor_lang::prelude::*;
-use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
+use common::{
+    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+};
 
 use crate::state::FrozenBalance;
 use common::program_ids as constants;
+use common::state::{AssetClassVersion, MintOwner};
 
 /// Removes the frozen balance for a specific token account by closing the marker PDA.
 ///
@@ -13,16 +16,18 @@ use common::program_ids as constants;
 /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
 pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
     // ── Verify deployer is the recorded mint owner ────────────────────────────
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
-    )?;
+    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     // ── Verify mint has not been deactivated ──────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::FREEZE_REMOVE_PARTIAL_FREEZE,
+    )?;
 
     emit_cpi!(AccountPartialFreezeRemoved {
         mint: ctx.accounts.mint.key(),
@@ -41,14 +46,12 @@ pub struct RemovePartialFreeze<'info> {
     pub deployer: Signer<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents Borsh-deserialized by verify_deployer.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = mint_owner_pda.bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub mint_owner_pda: Account<'info, MintOwner>,
 
     /// The Token-2022 mint.
     ///
@@ -80,6 +83,14 @@ pub struct RemovePartialFreeze<'info> {
         bump = frozen_balance_pda.bump,
     )]
     pub frozen_balance_pda: Account<'info, FrozenBalance>,
+
+    /// Asset-class version PDA this mint is hooked to.
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub system_program: Program<'info, System>,
 }
