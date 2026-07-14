@@ -24,18 +24,12 @@ pub const MINT_MINT: u16 = 10;
 pub const OPERATIONS_BURN: u16 = 11;
 pub const PAUSE_PAUSE: u16 = 12;
 pub const PAUSE_UNPAUSE: u16 = 13;
-pub const SNAPSHOT_TAKE_SNAPSHOT: u16 = 14;
-pub const SNAPSHOT_UPDATE_TOTALSUPPLY_SNAPSHOT: u16 = 15;
-pub const SNAPSHOT_UPDATE_HOLDERBALANCE_SNAPSHOT: u16 = 16;
-pub const TRANSFER_TRANSFER: u16 = 17;
-pub const TRANSFER_VERIFY_TRANSFER: u16 = 18;
-pub const TRANSFER_CONTROL_SET_MODES: u16 = 19;
-pub const TRANSFER_CONTROL_ADD_TO_WHITELIST: u16 = 20;
-pub const TRANSFER_CONTROL_REMOVE_FROM_WHITELIST: u16 = 21;
-pub const TRANSFER_HOOK_INITIALIZE_EXTRA_ACCOUNT_META_LIST: u16 = 22;
-pub const TRANSFER_HOOK_EXECUTE: u16 = 23;
-pub const TREASURY_SET_PAYMENT_TOKEN: u16 = 24;
-pub const TREASURY_PAY_COUPON: u16 = 25;
+pub const TRANSFER_CONTROL_SET_MODES: u16 = 14;
+pub const TRANSFER_CONTROL_ADD_TO_WHITELIST: u16 = 15;
+pub const TRANSFER_CONTROL_REMOVE_FROM_WHITELIST: u16 = 16;
+pub const TRANSFER_HOOK_EXECUTE: u16 = 17;
+pub const TREASURY_SET_PAYMENT_TOKEN: u16 = 18;
+pub const TREASURY_PAY_COUPON: u16 = 19;
 
 /// Returns `(byte, bit)`: the index of the byte in `AssetClassVersion.mask`
 /// and the bit position within that byte for the given functionality.

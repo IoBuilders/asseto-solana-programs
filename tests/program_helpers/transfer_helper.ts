@@ -8,6 +8,8 @@ import {
   FREEZE_PROGRAM_ID,
   SNAPSHOT_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
+  DEPLOY_PROGRAM_ID,
+  FACTORY_PROGRAM_ID,
 } from "../utils/address_utils";
 import { MintWriteContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
@@ -15,6 +17,8 @@ import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
 import { frozenAccountPda, frozenBalancePda, freezeAuthorityPda } from "./freeze/freeze_pda_helper";
 import { snapshotCounterPda, snapshotHolderBalancePda } from "./snapshot/snapshot_pda_helper";
+import { getMintOwner } from "./deploy_helper";
+import { assetClassVersionPda } from "./factory/factory_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
@@ -64,6 +68,35 @@ export async function buildVerifyTransferInstruction(
     .instruction();
 }
 
+export async function verifyTransfer(
+  callContext: VerifyTransferInstructionContext,
+  args?: VerifyTransferInstructionArgs
+): Promise<string> {
+  const effectiveArgs: Required<VerifyTransferInstructionArgs> = {
+    ...getDefaultVerifyTransferInstructionArgs(),
+    ...args,
+  };
+
+  return await getTransferProgram()
+    .methods.verifyTransfer(effectiveArgs.amount)
+    .accountsStrict({
+      deployer: callContext.deployer,
+      mint: callContext.mint,
+      sourceOwner: callContext.sourceOwner,
+      source: callContext.source,
+      destination: callContext.destination,
+      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      deactivatePda: deactivatePda(callContext.mint),
+      transferControlModePda: transferControlModePda(callContext.mint),
+      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
+      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
+      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
+      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
+    })
+    .signers(callContext?.signers ?? [])
+    .rpc({ commitment: "confirmed" });
+}
+
 export type TransferContext = MintWriteContext & {
   sourceOwner: PublicKey;
   source: PublicKey;
@@ -92,18 +125,22 @@ export async function transfer(callContext: TransferContext, args?: TransferArgs
     preInstructions = callContext.preInstructions;
   } else {
     const verifyIx = await buildVerifyTransferInstruction(callContext, effectiveArgs);
-    preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx];
+    preInstructions = [verifyIx];
   }
 
   await getTransferProgram()
     .methods.transfer(effectiveArgs.amount)
-    .accountsStrict(getTransferAccounts(callContext))
+    .accountsStrict(await getTransferAccounts(callContext))
     .preInstructions(preInstructions)
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });
 }
 
-export function getTransferAccounts(callContext: Omit<TransferContext, "deployer">) {
+export async function getTransferAccounts(callContext: Omit<TransferContext, "deployer">) {
+  // The asset-class version PDA is derived from the ids recorded in the mint's
+  // `mint_owner` account — the same values the on-chain program reads.
+  const mintOwner = await getMintOwner(callContext.mint);
+
   return {
     mint: callContext.mint,
     destination: callContext.destination,
@@ -119,6 +156,10 @@ export function getTransferAccounts(callContext: Omit<TransferContext, "deployer
     snapshotCounterPda: snapshotCounterPda(callContext.mint),
     senderSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.source),
     receiverSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
+    deployProgram: DEPLOY_PROGRAM_ID,
+    mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+    factoryProgram: FACTORY_PROGRAM_ID,
+    assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
     instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
     token2022Program: TOKEN_2022_PROGRAM_ID,
     systemProgram: SYSTEM_PROGRAM_ID,

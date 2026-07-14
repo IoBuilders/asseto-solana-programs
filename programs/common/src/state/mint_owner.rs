@@ -1,6 +1,15 @@
 use crate::CommonError::InvalidMintOwnerData;
 use anchor_lang::prelude::*;
 
+/// Byte offset of `MintOwner::asset_class_config_id` within the account data.
+/// Derived from the fields that precede it in declaration order
+pub const ASSET_CLASS_CONFIG_ID_OFFSET: u8 =
+    (MintOwner::DISCRIMINATOR.len() + size_of::<Pubkey>()) as u8;
+
+/// Byte offset of `MintOwner::asset_class_version_id` within the account data —
+/// immediately after `asset_class_config_id: u64`.
+pub const ASSET_CLASS_VERSION_ID_OFFSET: u8 = ASSET_CLASS_CONFIG_ID_OFFSET + size_of::<u64>() as u8;
+
 /// Persists the deployer (mint owner) for a given mint.
 /// Created by `deploy` with seeds `["mint_owner", mint]`, owned by that program.
 ///
@@ -68,3 +77,43 @@ impl AccountDeserialize for MintOwner {
 
 // No-op: We can't write to another program's account.
 impl AccountSerialize for MintOwner {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Guards `ASSET_CLASS_CONFIG_ID_OFFSET` / `ASSET_CLASS_VERSION_ID_OFFSET`
+    /// against `MintOwner` ever changing field order/types
+    #[test]
+    fn mint_owner_offsets_match_actual_layout() {
+        let mint_owner = MintOwner {
+            deployer: Pubkey::new_unique(),
+            asset_class_config_id: 0x1122_3344_5566_7788,
+            asset_class_version_id: 0x99AA_BBCC_DDEE_FF00,
+            bump: 7,
+        };
+
+        let mut data = MintOwner::DISCRIMINATOR.to_vec();
+        mint_owner.serialize(&mut data).unwrap();
+
+        let config_id_start = ASSET_CLASS_CONFIG_ID_OFFSET as usize;
+        let config_id_bytes: [u8; 8] = data[config_id_start..config_id_start + 8]
+            .try_into()
+            .unwrap();
+        assert_eq!(
+            u64::from_le_bytes(config_id_bytes),
+            mint_owner.asset_class_config_id,
+            "ASSET_CLASS_CONFIG_ID_OFFSET no longer points at asset_class_config_id"
+        );
+
+        let version_id_start = ASSET_CLASS_VERSION_ID_OFFSET as usize;
+        let version_id_bytes: [u8; 8] = data[version_id_start..version_id_start + 8]
+            .try_into()
+            .unwrap();
+        assert_eq!(
+            u64::from_le_bytes(version_id_bytes),
+            mint_owner.asset_class_version_id,
+            "ASSET_CLASS_VERSION_ID_OFFSET no longer points at asset_class_version_id"
+        );
+    }
+}

@@ -7,11 +7,12 @@ use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
 use crate::errors::TransferHookError;
 use common::pda_seeds;
-use common::program_ids::{DEPLOY_PROGRAM_ID, SNAPSHOT_PROGRAM_ID};
+use common::program_ids::{DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, SNAPSHOT_PROGRAM_ID};
+use common::state::mint_owner::{ASSET_CLASS_CONFIG_ID_OFFSET, ASSET_CLASS_VERSION_ID_OFFSET};
 
 /// Number of extra account metas produced by `initialize_extra_account_meta_list`.
 /// Keep in sync with the `metas` vec length in the handler.
-const EXTRA_ACCOUNT_META_COUNT: usize = 7;
+const EXTRA_ACCOUNT_META_COUNT: usize = 11;
 
 /// Initialises an empty ExtraAccountMetaList PDA for this mint.
 ///
@@ -85,9 +86,49 @@ pub fn initialize_extra_account_meta_list(
             false,
             true,
         )?,
-        // 10: system program
-        ExtraAccountMeta::new_with_pubkey(&solana_program::system_program::ID, false, false)?,
-        // 11: Instructions sysvar — required for the hook's double-introspection
+        // 10: deploy program — needed to resolve mint_owner_pda (external PDA @11)
+        ExtraAccountMeta::new_with_pubkey(&DEPLOY_PROGRAM_ID, false, false)?,
+        // 11: mint_owner_pda — seeds ["mint_owner", mint@1], program@10. Read to
+        // supply asset_class_config_id / asset_class_version_id for seed 13.
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            10,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::MINT_OWNER.to_vec(),
+                },
+                Seed::AccountKey { index: 1 },
+            ],
+            false,
+            false,
+        )?,
+        // 12: factory program — needed to resolve asset_class_version_pda (external PDA @13)
+        ExtraAccountMeta::new_with_pubkey(&FACTORY_PROGRAM_ID, false, false)?,
+        // 13: asset_class_version_pda — seeds ["asset_class_version",
+        // mint_owner_pda@11.asset_class_config_id, mint_owner_pda@11.asset_class_version_id],
+        // program@12.
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            12,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::ASSET_CLASS_VERSION.to_vec(),
+                },
+                Seed::AccountData {
+                    account_index: 11,
+                    data_index: ASSET_CLASS_CONFIG_ID_OFFSET,
+                    length: 8,
+                },
+                Seed::AccountData {
+                    account_index: 11,
+                    data_index: ASSET_CLASS_VERSION_ID_OFFSET,
+                    length: 8,
+                },
+            ],
+            false,
+            false,
+        )?,
+        // 14: system program
+        ExtraAccountMeta::new_with_pubkey(&system_program::ID, false, false)?,
+        // 15: Instructions sysvar — required for the hook's double-introspection
         // check (verifies prior transfer::verify_transfer + current
         // transfer::transfer / token-2022::transfer_checked).
         ExtraAccountMeta::new_with_pubkey(&solana_instructions_sysvar::ID, false, false)?,
