@@ -3,7 +3,7 @@ use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, Tran
 use bond::state::{BondTerms, DayCountConvention};
 use common::{
     pda_seeds, pda_utils, require_active, require_functionality, require_not_paused,
-    verify_deployer, verify_deployer_account,
+    verify_deployer_account,
 };
 use coupon::state::Coupon;
 use snapshot::cpi::accounts::GetHolderBalanceSnapshotAt;
@@ -209,7 +209,7 @@ pub struct PayCoupon<'info> {
     /// Deployer recorded as mint owner — must sign to authorise the payment.
     pub deployer: Signer<'info>,
 
-    /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
+    /// PDA created by deploy that records the deployer for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,

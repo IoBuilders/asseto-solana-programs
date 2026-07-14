@@ -46,8 +46,6 @@ pub struct RemoveFromWhitelist<'info> {
     pub deployer: Signer<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents Borsh-deserialized by verify_deployer.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
