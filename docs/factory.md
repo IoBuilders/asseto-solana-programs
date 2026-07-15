@@ -315,7 +315,7 @@ Callable only by the asset class `owner`, and only while the factory is not paus
 
 1. `require_not_paused` / `verify_owner`.
 2. `require state == Draft` (`VersionNotDraft`).
-3. For each `f` in `functionalities`: `(byte, bit) = common::functionalities::index_of(f)?` (bounds-checks `f` internally, erroring with `CommonError::FunctionalityOutOfBounds` if it exceeds `FUNCTIONALITIES_BITS_MASK`), then `mask[byte] |= 1 << bit`.
+3. `common::bitmask::set_bits(&mut version_account.mask, &functionalities)` — turns on each bit (`mask[byte] |= 1 << bit`), bounds-checking every `f` against the mask length; its out-of-range signal is mapped to `ErrorCode::FunctionalityOutOfBounds`.
 
 ### `disable_asset_class_version_functionalities(config_id: u64, version: u64, functionalities: Vec<u16>)`
 
@@ -327,7 +327,7 @@ Same as `enable_asset_class_version_functionalities`.
 
 **Execution**
 
-Same as `enable_asset_class_version_functionalities`, except the final step is `mask[byte] &= !(1 << bit)`.
+Same as `enable_asset_class_version_functionalities`, except the final step uses `common::bitmask::clear_bits` (`mask[byte] &= !(1 << bit)`).
 
 ### `finalize_asset_class_version(config_id: u64, version: u64)`
 

@@ -18,6 +18,8 @@ pub enum ErrorCode {
     InvalidVersion,
     #[msg("Asset class version is not in Draft state")]
     VersionNotDraft,
+    #[msg("Functionality is past the mask capacity")]
+    FunctionalityOutOfBounds,
     #[msg("Arithmetic overflow")]
     Overflow,
 }

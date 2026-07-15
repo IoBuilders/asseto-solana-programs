@@ -3,6 +3,15 @@
 version = 4
 
 [[package]]
+name = "access-control"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "bytemuck",
+ "common",
+]
+
+[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -442,6 +451,7 @@ dependencies = [
 name = "common"
 version = "0.1.0"
 dependencies = [
+ "access-control",
  "anchor-lang",
  "bond",
  "bytemuck",

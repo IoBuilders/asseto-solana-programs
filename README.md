@@ -107,7 +107,8 @@ Use `--skip-build` once you've already run a fresh `anchor build`.
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot`
 │   ├── treasury/             — coupon payouts: `pay_coupon` signed by `treasury_authority` PDA
-│   └── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`)
+│   ├── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`)
+│   └── access-control/       — per-mint role bit-mask: `grant_roles` / `revoke_roles` set/clear role bits for an `(mint, account)` pair; admin-gated + functionality-gated
 └── tests/                    — one .ts file per program
 ```
 
@@ -125,11 +126,15 @@ programs/<name>/src/
 Exception: `transfer-hook` also has `constants.rs` for instruction discriminators (not program IDs).
 
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
-- `program_ids` — all 14 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
+- `program_ids` — all 16 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
 - `state::MintOwner` — struct for the `mint_owner_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] MintOwner` wrapping the same fields for `Account<MintOwner>` usage.
 - `verify_deployer()` — Borsh-deserializes `MintOwner` (skipping discriminator) and checks the signer.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
+- `require_functionality()` — checks a functionality bit in a `factory` `AssetClassVersion` (zero-copy `AccountLoader` load).
+- `require_role()` — checks a role bit in an `access-control` `Roles` PDA (raw `AccountInfo` byte read); errors `MissingRole` if absent.
+- `bitmask` — generic `[u8; N]` mask primitives (`set_bits` / `clear_bits` / `is_set`); shared `MASK_CHUNK_BITS = 8`, per-domain capacities stay with their structs.
+- `roles` — flat `u16` role ids (`ROLE_ADMIN = 0`) + `ROLES_MASK_OFFSET`; mirror of `functionalities` for `access-control`.
 
 ---
 
@@ -152,6 +157,7 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 | `coupon` | `CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK` |
 | `treasury` | `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA` |
 | `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
+| `access-control` | `GpyjQqBWux3JYqxKCXFrDbWZmhFWBJWVaVivkBW2DL2w` |
 
 ### ID sharing pattern
 
@@ -220,6 +226,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["factory_pending_manager"]` | `factory` | Singleton `FactoryPendingManager` PDA (nominated manager); created/updated by `nominate_manager`, removed by `accept_nomination` / `cancel_nomination` |
 | `["asset_class_ownership", config_id]` | `factory` | Per-`config_id` `AssetClassOwnership` PDA (owner + latest_version); created by `create_asset_class`, `owner` updated by `accept_asset_class_ownership` |
 | `["asset_class_pending_owner", config_id]` | `factory` | Per-`config_id` `AssetClassPendingOwner` PDA (nominated owner); created/updated by `nominate_asset_class_owner`, removed by `accept_asset_class_ownership` / `cancel_asset_class_ownership` |
+| `[mint, account]` | `access-control` | Per-`(mint, account)` `Roles` PDA — **zero-copy** `[u8; ROLES_BYTES_MASK]` role bit-mask; set by `grant_roles`, cleared by `revoke_roles` (no string prefix — raw `mint` + `account` pubkeys). Also read at `[mint, authority]` as the admin-check account by `require_role` |
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
@@ -281,6 +288,7 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 - [`docs/coupon.md`](docs/coupon.md)
 - [`docs/treasury.md`](docs/treasury.md)
 - [`docs/factory.md`](docs/factory.md)
+- [`docs/access-control.md`](docs/access-control.md)
 - [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
 
 ---

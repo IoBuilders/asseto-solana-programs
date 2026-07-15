@@ -40,7 +40,8 @@ asseto-solana-programs/
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
 │   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (transfer_checked from treasury TA, signed by `treasury_authority` PDA)
-│   └── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`); multi-step asset-class version deploy (`init_asset_class_version` → `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` → `finalize_asset_class_version`) storing a large functionality bit-mask
+│   ├── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`); multi-step asset-class version deploy (`init_asset_class_version` → `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` → `finalize_asset_class_version`) storing a large functionality bit-mask
+│   └── access-control/       — per-mint role bit-mask: `grant_roles` / `revoke_roles` set/clear role bits for an `(mint, account)` pair; admin-gated (signer must hold `ROLE_ADMIN`) + functionality-gated, only while not paused / not deactivated
 └── tests/                    — one .ts file per program
 ```
 
@@ -58,11 +59,14 @@ programs/<name>/src/
 Exception: `transfer-hook` also has `constants.rs` for instruction discriminators (not program IDs).
 
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
-- `program_ids` — all 14 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
+- `program_ids` — all 16 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
 - `state::MintOwner` — struct for the `mint_owner_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] MintOwner` wrapping the same fields for `Account<MintOwner>` usage.
 - `verify_deployer()` — Borsh-deserializes `MintOwner` (skipping discriminator) and checks the signer.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
+- `bitmask` — generic `[u8; N]` bit-mask primitives (`set_bits` / `clear_bits` / `is_set`) reused by every program with a bit-mask (`factory` functionalities, `access-control` roles, `require_functionality`). Bounds are derived from the mask slice length; only the shared `MASK_CHUNK_BITS = 8` lives here — per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`) stay with their structs.
+- `roles` — flat append-only `u16` role ids (currently `ROLE_ADMIN = 0`) + `ROLES_MASK_OFFSET`; mirror of `functionalities` for `access-control`. A unit test asserts ids are sequential from 0.
+- `require_role()` — checks an `access-control` `Roles` PDA (raw `AccountInfo` byte read at `ROLES_MASK_OFFSET`) has a given role bit; errors `MissingRole` if not (or if the PDA is absent). Unlike `require_functionality` (zero-copy `AccountLoader` load), this reads bytes directly — see [`docs/common.md`](docs/common.md) for the zero-copy-vs-raw-read distinction.
 
 ---
 
@@ -85,6 +89,7 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 | `coupon` | `CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK` |
 | `treasury` | `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA` |
 | `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
+| `access-control` | `GpyjQqBWux3JYqxKCXFrDbWZmhFWBJWVaVivkBW2DL2w` |
 
 ### ID sharing pattern
 
@@ -154,6 +159,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["asset_class_ownership", config_id]` | `factory` | Per-`config_id` `AssetClassOwnership` PDA (owner + latest_version); created by `create_asset_class`, `owner` updated by `accept_asset_class_ownership` |
 | `["asset_class_pending_owner", config_id]` | `factory` | Per-`config_id` `AssetClassPendingOwner` PDA (nominated owner); created/updated by `nominate_asset_class_owner`, removed by `accept_asset_class_ownership` / `cancel_asset_class_ownership` |
 | `["asset_class_version", config_id, version]` | `factory` | Per-version `AssetClassVersion` PDA — **zero-copy**, fixed-capacity `[u8; FUNCTIONALITIES_BYTES_MASK]` functionality bit-mask + state; created `Draft` by `init_asset_class_version` with an empty (all-zero) mask (each version is independent — nothing inherited from the previous one), bits freely turned on/off by `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` while `Draft`, sealed `Ready` (immutable) by `finalize_asset_class_version` |
+| `[mint, account]` | `access-control` | Per-`(mint, account)` `Roles` PDA — **zero-copy**, fixed-capacity `[u8; ROLES_BYTES_MASK]` role bit-mask; bit `i` = role `i` granted. Created/updated by `grant_roles` (sets bits), cleared by `revoke_roles`. No string prefix — seeds are the raw `mint` + `account` pubkeys. The same PDA at `[mint, authority]` doubles as the admin-check account read by `require_role` |
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
@@ -205,4 +211,5 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 - [`docs/coupon.md`](docs/coupon.md)
 - [`docs/treasury.md`](docs/treasury.md)
 - [`docs/factory.md`](docs/factory.md)
+- [`docs/access-control.md`](docs/access-control.md)
 - [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design

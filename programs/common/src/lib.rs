@@ -1,13 +1,17 @@
-use crate::functionalities::index_of;
 use crate::state::{AssetClassVersion, MintOwner};
 use anchor_lang::prelude::*;
 use std::cell::Ref;
 
+pub mod bitmask;
 pub mod functionalities;
 pub mod pda_seeds;
 pub mod pda_utils;
 pub mod program_ids;
+pub mod roles;
 pub mod state;
+
+#[cfg(test)]
+pub(crate) mod test_support;
 
 #[error_code]
 pub enum CommonError {
@@ -25,6 +29,8 @@ pub enum CommonError {
     InvalidMintOwnerData,
     #[msg("The asset class version is not finalized")]
     AssetClassVersionNotFinalized,
+    #[msg("Signer does not hold the required role")]
+    MissingRole,
 }
 
 /// Verifies that `deployer` matches the pubkey stored in a `mint_owner_pda`
@@ -118,9 +124,43 @@ pub fn require_functionality(
         CommonError::AssetClassVersionNotFinalized
     );
 
-    let (byte, bit) = index_of(functionality)?;
-    let enabled = (asset_class_version.mask[byte] >> bit) & 1 == 1;
+    let enabled = bitmask::is_set(&asset_class_version.mask, functionality)
+        .map_err(|_| error!(CommonError::FunctionalityOutOfBounds))?;
 
     require!(enabled, CommonError::FunctionalityNotSupportedError);
     Ok(())
+}
+
+/// Checks whether `role` is granted in an access-control `Roles` account's mask.
+///
+/// `roles_pda` is the `Roles` PDA (seeds `[mint, account]`, owned by the
+/// access-control program). Returns `Ok(())` if the bit for `role` is set;
+/// `Err(CommonError::MissingRole)` otherwise, including when the PDA has never
+/// been created (empty / not owned by access-control).
+///
+/// Like `require_active`/`require_functionality`, `roles_pda` is passed as
+/// `&AccountInfo` rather than access-control's typed `Roles`, because
+/// access-control already depends on `common` (the reverse would be circular).
+/// The mask is read through a short-lived borrow that is released before this
+/// returns, so a caller may safely `load_mut` the same account afterwards (an
+/// admin granting/revoking a role on themselves). Both `require_functionality`
+/// and `require_role` reduce to `bitmask::is_set`; they differ only in where the
+/// mask comes from (a loaded struct vs. raw account bytes) and how they treat
+/// an out-of-range/absent bit, so there is no larger shared core to factor out.
+pub fn require_role(roles_pda: &AccountInfo, role: u16) -> Result<()> {
+    require!(has_role(roles_pda, role)?, CommonError::MissingRole);
+    Ok(())
+}
+
+fn has_role(roles_pda: &AccountInfo, role: u16) -> Result<bool> {
+    let data = roles_pda.try_borrow_data()?;
+    // A never-created (empty) or malformed (too-short) PDA has no roles; this
+    // guard also keeps the slice below in bounds. No owner check is needed —
+    // the seeds constraint pins the address and only access-control can put data
+    // at its own PDA.
+    if data.len() <= roles::ROLES_MASK_OFFSET {
+        return Ok(false);
+    }
+
+    Ok(bitmask::is_set(&data[roles::ROLES_MASK_OFFSET..], role).unwrap_or(false))
 }

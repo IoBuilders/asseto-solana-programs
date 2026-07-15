@@ -1,8 +1,3 @@
-use anchor_lang::prelude::*;
-
-use crate::state::{FUNCTIONALITIES_BITS_MASK, FUNCTIONALITIES_MASK_CHUNK_BITS};
-use crate::CommonError;
-
 /// Flat `u16` identifiers for every instruction in the workspace, excluding
 /// `factory` (which consumes these constants, but doesn't define any of its
 /// own). One continuous counter across the whole file — values are not
@@ -30,19 +25,8 @@ pub const TRANSFER_CONTROL_REMOVE_FROM_WHITELIST: u16 = 16;
 pub const TRANSFER_HOOK_EXECUTE: u16 = 17;
 pub const TREASURY_SET_PAYMENT_TOKEN: u16 = 18;
 pub const TREASURY_PAY_COUPON: u16 = 19;
-
-/// Returns `(byte, bit)`: the index of the byte in `AssetClassVersion.mask`
-/// and the bit position within that byte for the given functionality.
-pub fn index_of(functionality: u16) -> Result<(usize, usize)> {
-    let i = functionality as usize;
-    require!(
-        i < FUNCTIONALITIES_BITS_MASK,
-        CommonError::FunctionalityOutOfBounds
-    );
-    let byte = i / FUNCTIONALITIES_MASK_CHUNK_BITS;
-    let bit = i % FUNCTIONALITIES_MASK_CHUNK_BITS;
-    Ok((byte, bit))
-}
+pub const ACCESS_CONTROL_GRANT_ROLES: u16 = 20;
+pub const ACCESS_CONTROL_REVOKE_ROLES: u16 = 21;
 
 #[cfg(test)]
 mod tests {
@@ -51,39 +35,12 @@ mod tests {
     /// value equals its 0-based declaration position. Catches gaps,
     /// duplicates, and out-of-order values — the only valid way to add a
     /// functionality is to append a new constant at the end with the next
-    /// number.
+    /// number. Shared logic lives in `test_support`.
     #[test]
     fn functionality_constants_are_sequential_from_zero() {
-        let source = include_str!("functionalities.rs");
-        let mut values: Vec<u16> = Vec::new();
-
-        for line in source.lines() {
-            let line = line.trim();
-            let Some(rest) = line.strip_prefix("pub const ") else {
-                continue;
-            };
-            let Some((name_and_type, value_part)) = rest.split_once('=') else {
-                continue;
-            };
-            if !name_and_type.contains(": u16") {
-                continue;
-            }
-            let value_str = value_part.trim().trim_end_matches(';');
-            let value: u16 = value_str
-                .parse()
-                .unwrap_or_else(|_| panic!("expected an integer literal, found `{value_str}`"));
-            values.push(value);
-        }
-
-        assert!(
-            !values.is_empty(),
-            "expected at least one functionality constant"
+        crate::test_support::assert_u16_constants_sequential_from_zero(
+            include_str!("functionalities.rs"),
+            "functionality",
         );
-        for (i, &value) in values.iter().enumerate() {
-            assert_eq!(
-                value, i as u16,
-                "functionality constants must be sequential starting at 0, in declaration order"
-            );
-        }
     }
 }
