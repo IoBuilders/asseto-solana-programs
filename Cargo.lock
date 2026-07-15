@@ -444,9 +444,11 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "bond",
+ "bytemuck",
  "coupon",
  "deactivate",
  "deploy",
+ "factory",
  "freeze",
  "metadata-update",
  "mint",
@@ -454,7 +456,6 @@ dependencies = [
  "pause",
  "snapshot",
  "spl-token-2022",
- "spl-token-group-interface",
  "transfer",
  "transfer-control",
  "transfer-hook",
@@ -633,6 +634,15 @@ name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+
+[[package]]
+name = "factory"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "bytemuck",
+ "common",
+]
 
 [[package]]
 name = "feature-probe"

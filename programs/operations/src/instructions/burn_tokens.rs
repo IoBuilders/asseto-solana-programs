@@ -1,15 +1,16 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
-use common::pda_utils;
-use common::{pda_seeds, require_active, verify_deployer};
+use common::{
+    pda_seeds, pda_utils, require_active, require_functionality, verify_deployer_account,
+};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
 use spl_token_2022::instruction::burn as spl_burn;
 
-use common::program_ids as constants;
-
 use crate::events::ControllerRedemption;
+use common::program_ids as constants;
+use common::state::{AssetClassVersion, MintOwner};
 
 /// Burns `amount` tokens from any `token_account` for the given mint.
 ///
@@ -22,13 +23,15 @@ use crate::events::ControllerRedemption;
 /// Both CPIs are no-ops when no snapshot has been taken yet.
 pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
     // ── Verify deployer is the recorded mint owner ───────────────────────────
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
-    )?;
+    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::OPERATIONS_BURN,
+    )?;
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
@@ -137,14 +140,12 @@ pub struct BurnTokens<'info> {
     pub deployer: Signer<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = mint_owner_pda.bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub mint_owner_pda: Account<'info, MintOwner>,
 
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
@@ -225,6 +226,14 @@ pub struct BurnTokens<'info> {
     /// CHECK: Address verified by constraint.
     #[account(address = constants::SNAPSHOT_PROGRAM_ID)]
     pub snapshot_program: UncheckedAccount<'info>,
+
+    /// Asset-class version PDA this mint is hooked to.
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,

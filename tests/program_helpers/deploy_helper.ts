@@ -7,6 +7,11 @@ import { Deploy } from "../../target/types/deploy";
 import { DeployerWithPayerContext } from "./base_helper";
 import { getEvent } from "./event_helper";
 import * as pdaUtils from "../utils/pda_utils";
+import { permanentDelegatePda } from "./burn/burn_pda_helper";
+import { pausableAuthorityPda } from "./pause/pause_pda_helper";
+import { freezeAuthorityPda } from "./freeze/freeze_pda_helper";
+import { mintAuthorityPda } from "./mint/mint_pda_helper";
+import { metadataUpdateAuthorityPda } from "./metadata_update/metadata_update_pda_helper";
 
 function getDeployProgram(): Program<Deploy> {
   return anchor.workspace.Deploy as Program<Deploy>;
@@ -18,6 +23,8 @@ type DeployMintArgs = {
   symbol?: string;
   uri?: string;
   additionalMetadata?: { key: string; value: string }[];
+  assetClassConfigId?: anchor.BN | number;
+  assetClassVersionId?: anchor.BN | number;
 };
 
 function getDefaultArgs(): Required<DeployMintArgs> {
@@ -27,6 +34,8 @@ function getDefaultArgs(): Required<DeployMintArgs> {
     symbol: "TEST_TOKEN",
     uri: "https://example.com/metadata.json",
     additionalMetadata: [],
+    assetClassConfigId: new anchor.BN(0),
+    assetClassVersionId: new anchor.BN(0),
   };
 }
 
@@ -50,6 +59,8 @@ export async function deployMint(
       symbol: effectiveArgs.symbol,
       uri: effectiveArgs.uri,
       additionalMetadata: effectiveArgs.additionalMetadata,
+      assetClassConfigId: new anchor.BN(effectiveArgs.assetClassConfigId),
+      assetClassVersionId: new anchor.BN(effectiveArgs.assetClassVersionId),
     })
     .accountsStrict({
       payer: callContext.payer ?? callContext.deployer,
@@ -57,11 +68,11 @@ export async function deployMint(
       mint: mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(mint),
       tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint),
-      mintAuthority: pdaUtils.mintAuthorityPda(mint),
-      permanentDelegateAuthority: pdaUtils.permanentDelegatePda(mint),
-      metadataUpdateAuthority: pdaUtils.metadataUpdateAuthorityPda(mint),
-      pausableAuthority: pdaUtils.pausableAuthorityPda(mint),
-      freezeAuthority: pdaUtils.freezeAuthorityPda(mint),
+      mintAuthority: mintAuthorityPda(mint),
+      permanentDelegateAuthority: permanentDelegatePda(mint),
+      metadataUpdateAuthority: metadataUpdateAuthorityPda(mint),
+      pausableAuthority: pausableAuthorityPda(mint),
+      freezeAuthority: freezeAuthorityPda(mint),
       transferHookAuthority: pdaUtils.transferHookAuthorityPda(mint),
       extraAccountMetaList: pdaUtils.extraAccountMetaListPda(mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
@@ -85,6 +96,8 @@ type MintDeployedEvent = {
   symbol: string;
   uri: string;
   isin: string | null;
+  assetClassConfigId: anchor.BN;
+  assetClassVersionId: anchor.BN;
 };
 
 /**

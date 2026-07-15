@@ -1,12 +1,15 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::Instruction;
-use common::{pda_seeds, pda_utils};
+use common::{pda_seeds, pda_utils, require_functionality};
 use snapshot::cpi::accounts::UpdateHolderBalanceSnapshot;
 use solana_instructions_sysvar::{load_current_index_checked, load_instruction_at_checked};
 
 use crate::constants;
 use crate::errors::TransferHookError;
-use common::program_ids::{SNAPSHOT_PROGRAM_ID, TRANSFER_PROGRAM_ID};
+use common::program_ids::{
+    DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, SNAPSHOT_PROGRAM_ID, TRANSFER_PROGRAM_ID,
+};
+use common::state::{AssetClassVersion, MintOwner};
 
 /// Called by Token-2022 on every transfer via the SPL Transfer Hook Interface.
 ///
@@ -82,6 +85,11 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
         );
         return err!(TransferHookError::CurrentInstructionUnknownProgram);
     }
+
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::TRANSFER_HOOK_EXECUTE,
+    )?;
 
     // ── Snapshot updates (CPI to snapshot) ─────────────────────────────
     let mint_key = ctx.accounts.mint.key();
@@ -272,9 +280,35 @@ pub struct Execute<'info> {
     )]
     pub transfer_hook_authority: UncheckedAccount<'info>,
 
+    /// CHECK: deploy program (index 10). Address verified by constraint;
+    /// resolves `mint_owner_pda`'s external PDA in the metalist.
+    #[account(address = DEPLOY_PROGRAM_ID)]
+    pub deploy_program: UncheckedAccount<'info>,
+
+    /// PDA created by deploy that records the deployer for this mint (index 11).
+    #[account(
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds::program = DEPLOY_PROGRAM_ID,
+        bump = mint_owner_pda.bump,
+    )]
+    pub mint_owner_pda: Account<'info, MintOwner>,
+
+    /// CHECK: factory program (index 12). Address verified by constraint;
+    /// resolves `asset_class_version_pda`'s external PDA in the metalist.
+    #[account(address = FACTORY_PROGRAM_ID)]
+    pub factory_program: UncheckedAccount<'info>,
+
+    /// Asset-class version PDA this mint is hooked to (index 13).
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+
     pub system_program: Program<'info, System>,
 
-    /// Instructions sysvar (index 11). Required for the introspection check.
+    /// Instructions sysvar (index 15). Required for the introspection check.
     /// Address pinned by the metalist; contents read via the
     /// `solana_program::sysvar::instructions` helpers.
     /// CHECK: Address verified by the metalist's literal-pubkey entry.

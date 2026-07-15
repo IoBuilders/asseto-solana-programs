@@ -10,6 +10,11 @@ import {
 } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
+import { permanentDelegatePda } from "./program_helpers/burn/burn_pda_helper";
+import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
+import { freezeAuthorityPda } from "./program_helpers/freeze/freeze_pda_helper";
+import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
+import { metadataUpdateAuthorityPda } from "./program_helpers/metadata_update/metadata_update_pda_helper";
 import { deployMint, getMintDeployedEvent, getMintOwner } from "./program_helpers/deploy_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
 
@@ -20,6 +25,9 @@ const MINT_SYMBOL = "CMTAT";
 const MINT_URI = "https://example.com/metadata.json";
 const MINT_ISIN_KEY = "isin";
 const MINT_ISIN_VALUE = "CH0012221716";
+// Asset-class PDA seed (config_id, version_id) the mint is hooked to.
+const MINT_ASSET_CLASS_CONFIG_ID = 7;
+const MINT_ASSET_CLASS_VERSION_ID = 3;
 
 describe("deploy", () => {
   const provider = anchor.AnchorProvider.env();
@@ -36,13 +44,15 @@ describe("deploy", () => {
         symbol: MINT_SYMBOL,
         uri: MINT_URI,
         additionalMetadata: [{ key: MINT_ISIN_KEY, value: MINT_ISIN_VALUE }],
+        assetClassConfigId: MINT_ASSET_CLASS_CONFIG_ID,
+        assetClassVersionId: MINT_ASSET_CLASS_VERSION_ID,
       }
     );
-    const mintAuthority = pdaUtils.mintAuthorityPda(mint);
-    const permanentDelegateAuthority = pdaUtils.permanentDelegatePda(mint);
-    const metadataUpdateAuthority = pdaUtils.metadataUpdateAuthorityPda(mint);
-    const pausableAuthority = pdaUtils.pausableAuthorityPda(mint);
-    const freezeAuthority = pdaUtils.freezeAuthorityPda(mint);
+    const mintAuthority = mintAuthorityPda(mint);
+    const permanentDelegateAuthority = permanentDelegatePda(mint);
+    const metadataUpdateAuthority = metadataUpdateAuthorityPda(mint);
+    const pausableAuthority = pausableAuthorityPda(mint);
+    const freezeAuthority = freezeAuthorityPda(mint);
     const mintInfo = await getMint(mint);
     const mintOwnerAccount = await getMintOwner(mint);
     const metadataPointerState = getMetadataPointerState(mintInfo);
@@ -112,6 +122,17 @@ describe("deploy", () => {
     // Verify the stored bump is consistent with the derived PDA address.
     const [, expectedBump] = pdaUtils.mintOwnerPdaWithBump(mint);
     assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
+    // The asset-class PDA seed (config_id, version_id) is persisted verbatim.
+    assert.equal(
+      mintOwnerAccount.assetClassConfigId.toNumber(),
+      MINT_ASSET_CLASS_CONFIG_ID,
+      "mint owner PDA should record the asset-class config id"
+    );
+    assert.equal(
+      mintOwnerAccount.assetClassVersionId.toNumber(),
+      MINT_ASSET_CLASS_VERSION_ID,
+      "mint owner PDA should record the asset-class version id"
+    );
 
     // ── Assertions: MintDeployed event ─────────────────────────────────────────
     const event = await getMintDeployedEvent(signature);
@@ -123,6 +144,16 @@ describe("deploy", () => {
     assert.equal(event!.symbol, MINT_SYMBOL);
     assert.equal(event!.uri, MINT_URI);
     assert.equal(event!.isin, MINT_ISIN_VALUE, "isin should be taken from the additional_metadata 'isin' entry");
+    assert.equal(
+      event!.assetClassConfigId.toNumber(),
+      MINT_ASSET_CLASS_CONFIG_ID,
+      "event should carry the asset-class config id"
+    );
+    assert.equal(
+      event!.assetClassVersionId.toNumber(),
+      MINT_ASSET_CLASS_VERSION_ID,
+      "event should carry the asset-class version id"
+    );
   });
 
   it("deploy_mint: MintDeployed event has a null isin when no isin metadata is provided", async () => {

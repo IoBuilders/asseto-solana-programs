@@ -13,7 +13,7 @@ idl-build = ["anchor-lang/idl-build"]
 [dependencies]
 anchor-lang = { version = "1.0.2" }
 spl-token-2022 = { version = ">=10.0.0, <11", features = ["no-entrypoint"] }
-spl-token-group-interface = "=0.7.1"
+bytemuck = { version = "1.17", features = ["derive", "min_const_generics"] }
 
 
 [dev-dependencies]
@@ -31,6 +31,7 @@ snapshot         = { path = "../snapshot",         features = ["cpi"] }
 bond             = { path = "../bond",             features = ["cpi"] }
 coupon           = { path = "../coupon",           features = ["cpi"] }
 treasury         = { path = "../treasury",         features = ["cpi"] }
+factory          = { path = "../factory",          features = ["cpi"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }

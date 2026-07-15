@@ -66,8 +66,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     // token_2022::transfer_checked produces only 4 AccountMeta entries.
     // Token-2022 uses instruction.accounts to discover accessible accounts, so
     // the hook program, ExtraAccountMetaList, and every account referenced in
-    // the ExtraAccountMetaList must be appended explicitly. The metalist now
-    // contains only the 6 snapshot-related extras, matching what
+    // the ExtraAccountMetaList must be appended explicitly, matching what
     // `transfer-hook::initialize_extra_account_meta_list` builds.
     let mut transfer_ix = transfer_checked(
         &token_program_id,
@@ -109,6 +108,22 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         false,
     ));
     transfer_ix.accounts.push(AccountMeta::new_readonly(
+        ctx.accounts.deploy_program.key(),
+        false,
+    ));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(
+        ctx.accounts.mint_owner_pda.key(),
+        false,
+    ));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(
+        ctx.accounts.factory_program.key(),
+        false,
+    ));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(
+        ctx.accounts.asset_class_version_pda.key(),
+        false,
+    ));
+    transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.system_program.key(),
         false,
     ));
@@ -131,6 +146,10 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
             ctx.accounts.sender_snapshot.to_account_info(),
             ctx.accounts.receiver_snapshot.to_account_info(),
             ctx.accounts.transfer_hook_authority.to_account_info(),
+            ctx.accounts.deploy_program.to_account_info(),
+            ctx.accounts.mint_owner_pda.to_account_info(),
+            ctx.accounts.factory_program.to_account_info(),
+            ctx.accounts.asset_class_version_pda.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
             ctx.accounts.instructions_sysvar.to_account_info(),
         ],
@@ -274,6 +293,39 @@ pub struct TransferTokens<'info> {
     /// CHECK: Writable; address verified by Token-2022 against the metalist's seed-derived entry.
     #[account(mut)]
     pub receiver_snapshot: UncheckedAccount<'info>,
+
+    /// deploy program — forwarded to the hook so it can resolve `mint_owner_pda`
+    /// as an external PDA per its ExtraAccountMetaList.
+    ///
+    /// CHECK: Address verified by constraint.
+    #[account(address = constants::DEPLOY_PROGRAM_ID)]
+    pub deploy_program: UncheckedAccount<'info>,
+
+    /// Mint owner PDA created by deploy for this mint — forwarded to the hook,
+    /// which reads the asset class config/version ids off it to derive
+    /// `asset_class_version_pda`.
+    ///
+    /// CHECK: Address verified by seeds/bump constraint.
+    #[account(
+        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds::program = constants::DEPLOY_PROGRAM_ID,
+        bump,
+    )]
+    pub mint_owner_pda: UncheckedAccount<'info>,
+
+    /// factory program — forwarded to the hook so it can resolve
+    /// `asset_class_version_pda` as an external PDA per its ExtraAccountMetaList.
+    ///
+    /// CHECK: Address verified by constraint.
+    #[account(address = constants::FACTORY_PROGRAM_ID)]
+    pub factory_program: UncheckedAccount<'info>,
+
+    /// Asset class version PDA for this mint's asset class — forwarded to the hook.
+    ///
+    /// CHECK: No address constraint here; the hook's metalist pins the canonical
+    /// derivation (seeded from `mint_owner_pda`'s asset class config/version ids),
+    /// and Token-2022 verifies our forwarded extras against it.
+    pub asset_class_version_pda: UncheckedAccount<'info>,
 
     /// Instructions sysvar — forwarded to the hook so it can introspect the
     /// preceding `verify_transfer` instruction and the current top-level

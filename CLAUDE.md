@@ -39,7 +39,8 @@ asseto-solana-programs/
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
-│   └── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (transfer_checked from treasury TA, signed by `treasury_authority` PDA)
+│   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (transfer_checked from treasury TA, signed by `treasury_authority` PDA)
+│   └── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`); multi-step asset-class version deploy (`init_asset_class_version` → `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` → `finalize_asset_class_version`) storing a large functionality bit-mask
 └── tests/                    — one .ts file per program
 ```
 
@@ -83,6 +84,7 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 | `bond` | `8opYXiWzWBrUEr5vtcvaX1ybzYaMKrndxkW1U9Patk46` |
 | `coupon` | `CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK` |
 | `treasury` | `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA` |
+| `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
 
 ### ID sharing pattern
 
@@ -122,7 +124,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 
 | Seeds | Owner | Purpose |
 |---|---|---|
-| `["mint_owner", mint]` | `deploy` | Stores deployer + bump; type `common::state::MintOwner` |
+| `["mint_owner", mint]` | `deploy` | Stores deployer + asset-class PDA seed (`asset_class_config_id`, `asset_class_version_id`) + bump; type `common::state::MintOwner` |
 | `["temp_mint_authority", mint]` | `deploy` | Ephemeral signing key during `deploy_mint` only |
 | `["mint_authority", mint]` | `mint` | Token-2022 mint authority |
 | `["metadata_update_authority", mint]` | `metadata-update` | Token-2022 metadata update authority |
@@ -147,6 +149,11 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["treasury_config", mint]` | `treasury` | Stores the Token-2022 *payment* mint pubkey + cached decimals used by `pay_coupon` |
 | `["treasury_authority", mint]` | `treasury` | Owner of the treasury's payment-mint token account; signs `transfer_checked` during `pay_coupon` |
 | `["coupon_paid", mint, coupon_id, holder_token_account]` | `treasury` | Marker created by `pay_coupon`; existence prevents double-payment of the same `(coupon, holder)` pair |
+| `["factory"]` | `factory` | Singleton `Factory` config PDA (manager pubkey + pause flag); created once by `initialize` |
+| `["factory_pending_manager"]` | `factory` | Singleton `FactoryPendingManager` PDA (nominated manager); created/updated by `nominate_manager`, removed by `accept_nomination` / `cancel_nomination` |
+| `["asset_class_ownership", config_id]` | `factory` | Per-`config_id` `AssetClassOwnership` PDA (owner + latest_version); created by `create_asset_class`, `owner` updated by `accept_asset_class_ownership` |
+| `["asset_class_pending_owner", config_id]` | `factory` | Per-`config_id` `AssetClassPendingOwner` PDA (nominated owner); created/updated by `nominate_asset_class_owner`, removed by `accept_asset_class_ownership` / `cancel_asset_class_ownership` |
+| `["asset_class_version", config_id, version]` | `factory` | Per-version `AssetClassVersion` PDA — **zero-copy**, fixed-capacity `[u8; FUNCTIONALITIES_BYTES_MASK]` functionality bit-mask + state; created `Draft` by `init_asset_class_version` with an empty (all-zero) mask (each version is independent — nothing inherited from the previous one), bits freely turned on/off by `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` while `Draft`, sealed `Ready` (immutable) by `finalize_asset_class_version` |
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
@@ -197,4 +204,5 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 - [`docs/bond.md`](docs/bond.md)
 - [`docs/coupon.md`](docs/coupon.md)
 - [`docs/treasury.md`](docs/treasury.md)
+- [`docs/factory.md`](docs/factory.md)
 - [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design

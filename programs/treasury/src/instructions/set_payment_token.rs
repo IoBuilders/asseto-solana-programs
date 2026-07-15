@@ -1,11 +1,14 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
-use common::{pda_seeds, require_active, require_not_paused, verify_deployer};
+use common::{
+    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+};
 
 use crate::errors::ErrorCode;
 use crate::events::PaymentTokenSet;
 use crate::state::TreasuryConfig;
 use common::program_ids as constants;
+use common::state::{AssetClassVersion, MintOwner};
 
 /// Stores `payment_mint`'s pubkey and decimals in `treasury_config` (creating
 /// the PDA on the first call). The payment mint may be owned by either
@@ -20,12 +23,13 @@ use common::program_ids as constants;
 /// created and the counter advances.
 pub fn set_payment_token(ctx: Context<SetPaymentToken>) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
-    )?;
+    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::TREASURY_SET_PAYMENT_TOKEN,
+    )?;
 
     // ── Per-coupon claims guard ──────────────────────────────────────────────
     // CouponCounter layout: 8-byte discriminator | 1-byte bump | 8-byte count.
@@ -66,14 +70,12 @@ pub struct SetPaymentToken<'info> {
     pub deployer: Signer<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = mint_owner_pda.bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub mint_owner_pda: Account<'info, MintOwner>,
 
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     ///
@@ -118,6 +120,13 @@ pub struct SetPaymentToken<'info> {
     /// Token-2022. Decimals are read here and cached in `treasury_config`.
     /// Distinct from the bond `mint` above.
     pub payment_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub system_program: Program<'info, System>,
 }

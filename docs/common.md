@@ -13,9 +13,11 @@ All logic and types that are shared across programs live here. Adding a dependen
 // because #[account] requires declare_id!, which a library crate cannot have.
 pub struct MintOwner {
     pub deployer: Pubkey,
+    pub asset_class_config_id: u64,   // asset-class PDA seed (1/2)
+    pub asset_class_version_id: u64,  // asset-class PDA seed (2/2)
     pub bump: u8,
 }
-// LEN = 8 (discriminator) + 32 (deployer) + 1 (bump) = 41 bytes
+// LEN = 8 (discriminator) + 32 (deployer) + 8 (asset_class_config_id) + 8 (asset_class_version_id) + 1 (bump) = 57 bytes
 ```
 
 Defined here so downstream programs can deserialize `mint_owner_pda` without importing `deploy`. `deploy` defines its own `#[account] MintOwner` (with the same fields) so it can use `Account<MintOwner>` in its accounts struct.
@@ -26,9 +28,11 @@ Defined here so downstream programs can deserialize `mint_owner_pda` without imp
 
 ```rust
 pub enum CommonError {
-    UnauthorizedDeployer,  // signer does not match stored deployer
-    MintPaused,            // mint's Pausable extension has paused = true
-    Deactivated,           // deactivate_pda account exists
+    UnauthorizedDeployer,           // signer does not match stored deployer
+    MintPaused,                     // mint's Pausable extension has paused = true
+    Deactivated,                    // deactivate_pda account exists
+    FunctionalityOutOfBounds,       // functionality is past the AssetClassVersion.mask's capacity
+    FunctionalityNotSupportedError, // functionality bit not set in AssetClassVersion.mask
 }
 ```
 
@@ -68,6 +72,20 @@ Parses the Token-2022 extension data of the mint using `StateWithExtensions::<Mi
 
 ---
 
+## Function: `require_functionality`
+
+```rust
+pub fn require_functionality(asset_class_version: &AccountInfo, functionality: u16) -> Result<()>
+```
+
+Checks whether `functionality` (one of `common::functionalities`'s per-instruction `u16` constants) is enabled in a `factory` `AssetClassVersion` account's mask. Reads the mask bit directly out of the raw account data — 8-byte Anchor discriminator, then everything in `common::state::AssetClassVersion` (a field-for-field mirror of `factory::state::AssetClassVersion`, kept in sync by a compile-time size assertion in `factory/src/state.rs`) before `mask` — rather than deserializing the whole 1 KiB+ account.
+
+**Why `&AccountInfo` instead of `factory`'s typed `AssetClassVersion`**: same reason as `require_active`/`require_not_paused` above — `factory` already depends on `common`, so the reverse dependency would be circular.
+
+Returns `Err(CommonError::FunctionalityOutOfBounds)` if `functionality` is past the mask's capacity (delegated to `functionalities::index_of`). Returns `Err(CommonError::FunctionalityNotSupportedError)` if the bit isn't set. Returns `Ok(())` otherwise.
+
+---
+
 ## Usage in downstream programs
 
 Add to `Cargo.toml`:
@@ -78,5 +96,5 @@ common = { path = "../common" }
 
 Then call the helpers directly:
 ```rust
-use common::{verify_deployer, require_active, require_not_paused};
+use common::{verify_deployer, require_active, require_not_paused, require_functionality};
 ```

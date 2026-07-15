@@ -1,5 +1,9 @@
+use crate::functionalities::index_of;
+use crate::state::{AssetClassVersion, MintOwner};
 use anchor_lang::prelude::*;
+use std::cell::Ref;
 
+pub mod functionalities;
 pub mod pda_seeds;
 pub mod pda_utils;
 pub mod program_ids;
@@ -13,6 +17,14 @@ pub enum CommonError {
     MintPaused,
     #[msg("The mint has been deactivated")]
     Deactivated,
+    #[msg("Functionality is past the mask capacity")]
+    FunctionalityOutOfBounds,
+    #[msg("The asset class version does not support this functionality")]
+    FunctionalityNotSupportedError,
+    #[msg("Could not read the mint owner account data")]
+    InvalidMintOwnerData,
+    #[msg("The asset class version is not finalized")]
+    AssetClassVersionNotFinalized,
 }
 
 /// Verifies that `deployer` matches the pubkey stored in a `mint_owner_pda`
@@ -43,6 +55,14 @@ pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Resul
 
     require!(
         mint_owner.deployer == *deployer,
+        CommonError::UnauthorizedDeployer
+    );
+    Ok(())
+}
+
+pub fn verify_deployer_account(mint_owner_pda: &MintOwner, deployer: &Pubkey) -> Result<()> {
+    require!(
+        mint_owner_pda.deployer == *deployer,
         CommonError::UnauthorizedDeployer
     );
     Ok(())
@@ -82,5 +102,25 @@ pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()> {
 
     require!(!bool::from(pausable_config.paused), CommonError::MintPaused);
 
+    Ok(())
+}
+
+/// Checks whether `functionality` (one of the constants above) is enabled in an
+/// `AssetClassVersion` account's mask.
+/// Returns `Ok(())` if the bit for `functionality` is set.
+/// Returns `Err(CommonError::FunctionalityNotSupportedError)` if it isn't
+pub fn require_functionality(
+    asset_class_version: Ref<AssetClassVersion>,
+    functionality: u16,
+) -> Result<()> {
+    require!(
+        asset_class_version.state == state::ASSET_CLASS_VERSION_STATE_FINALIZED,
+        CommonError::AssetClassVersionNotFinalized
+    );
+
+    let (byte, bit) = index_of(functionality)?;
+    let enabled = (asset_class_version.mask[byte] >> bit) & 1 == 1;
+
+    require!(enabled, CommonError::FunctionalityNotSupportedError);
     Ok(())
 }

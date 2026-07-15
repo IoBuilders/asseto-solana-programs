@@ -110,3 +110,10 @@ pub const COUPON_PAID: &[u8] = b"coupon_paid";
 pub fn treasury_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![TREASURY_AUTHORITY, mint.as_ref()]
 }
+
+/********************************* FACTORY *********************************/
+pub const FACTORY: &[u8] = b"factory";
+pub const FACTORY_PENDING_MANAGER: &[u8] = b"factory_pending_manager";
+pub const ASSET_CLASS_OWNERSHIP: &[u8] = b"asset_class_ownership";
+pub const ASSET_CLASS_PENDING_OWNER: &[u8] = b"asset_class_pending_owner";
+pub const ASSET_CLASS_VERSION: &[u8] = b"asset_class_version";

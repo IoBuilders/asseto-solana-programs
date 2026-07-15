@@ -4,7 +4,11 @@ use anchor_spl::token_2022::Token2022;
 use spl_token_metadata_interface::instruction::remove_key;
 
 use common::program_ids as constants;
-use common::{pda_seeds, pda_utils, require_active, require_not_paused, verify_deployer};
+use common::state::{AssetClassVersion, MintOwner};
+use common::{
+    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused,
+    verify_deployer_account,
+};
 
 use crate::events::MetadataFieldRemoved;
 
@@ -20,16 +24,18 @@ pub fn remove_metadata_field(
     idempotent: bool,
 ) -> Result<()> {
     // ── Verify deployer is the recorded mint owner ───────────────────────────
-    verify_deployer(
-        &ctx.accounts.mint_owner_pda.to_account_info(),
-        &ctx.accounts.deployer.key(),
-    )?;
+    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
 
     // ── Verify mint is not paused ───────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+
+    require_functionality(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::METADATA_UPDATE_REMOVE_METADATA_FIELD,
+    )?;
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
@@ -82,19 +88,12 @@ pub struct RemoveMetadata<'info> {
     pub mint: UncheckedAccount<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
-    /// The seeds constraint guarantees this is the canonical PDA for the mint;
-    /// the instruction body checks that `deployer` matches the stored pubkey via
-    /// Anchor deserialization (MintOwner::try_deserialize) inside verify_deployer.
-    /// UncheckedAccount is used because Account<MintOwner> would enforce ownership
-    /// by the current program, but this account is owned by deploy.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents Anchor-deserialized by verify_deployer.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = mint_owner_pda.bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub mint_owner_pda: Account<'info, MintOwner>,
 
     /// Metadata update authority PDA — the only key authorised to modify
     /// on-chain token metadata. Owned by this program; signs remove_key CPIs.
@@ -120,4 +119,12 @@ pub struct RemoveMetadata<'info> {
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
+
+    /// Asset-class version PDA this mint is hooked to.
+    #[account(
+        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 }
