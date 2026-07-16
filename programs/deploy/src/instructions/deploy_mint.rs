@@ -215,7 +215,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     )?;
 
     let temp_mint_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
-        vec![pda_seeds::TEMP_MINT_AUTHORITY_SEED, mint_key.as_ref()],
+        pda_seeds::temp_mint_authority_seeds(&mint_key),
         &ctx.bumps.temp_mint_authority,
     );
 
