@@ -30,6 +30,7 @@ operations = { path = "../operations", features = ["cpi"] }
 pause = { path = "../pause", features = ["cpi"] }
 transfer = { path = "../transfer", features = ["cpi"] }
 transfer-hook = { path = "../transfer-hook", features = ["cpi"] }
+access-control = { path = "../access-control", features = ["cpi"] }
 anchor-spl = "1.0.2"
 spl-token-2022 = { version = ">=10.0.0, <11", features = ["no-entrypoint"] }
 spl-token-metadata-interface = ">=0.8.0, <1"

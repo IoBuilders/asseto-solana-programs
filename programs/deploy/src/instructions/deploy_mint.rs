@@ -1,3 +1,4 @@
+use access_control::cpi::accounts::Initialize;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_spl::token_2022::Token2022;
@@ -23,8 +24,6 @@ use spl_token_metadata_interface::{
 use crate::errors::ErrorCode;
 use crate::events::MintDeployed;
 use crate::state::MintOwner;
-
-const TEMP_MINT_AUTHORITY_SEED: &[u8] = b"temp_mint_authority";
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct MetadataField {
@@ -216,7 +215,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     )?;
 
     let temp_mint_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
-        vec![TEMP_MINT_AUTHORITY_SEED, mint_key.as_ref()],
+        vec![pda_seeds::TEMP_MINT_AUTHORITY_SEED, mint_key.as_ref()],
         &ctx.bumps.temp_mint_authority,
     );
 
@@ -359,7 +358,21 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         ctx.accounts.deployer.key(),
     )?;
 
-    // ── 15. Emit MintDeployed ────────────────────────────────────────────────
+    // ── 15. Grant ROLE_ADMIN to the deployer on this mint ─────────────────────
+    access_control::cpi::initialize(CpiContext::new_with_signer(
+        constants::ACCESS_CONTROL_PROGRAM_ID,
+        Initialize {
+            payer: ctx.accounts.payer.to_account_info(),
+            temp_mint_authority: ctx.accounts.temp_mint_authority.to_account_info(),
+            account: ctx.accounts.deployer.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            roles_pda: ctx.accounts.roles_pda.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+        },
+        &[temp_mint_authority_signer_seeds.as_slice()],
+    ))?;
+
+    // ── 16. Emit MintDeployed ────────────────────────────────────────────────
     // Emitted last so it only fires when the full deployment succeeds.
     emit_cpi!(MintDeployed {
         mint: mint_key,
@@ -417,7 +430,7 @@ pub struct DeployMint<'info> {
     ///
     /// CHECK: PDA ownership proven by the seeds/bump constraint.
     #[account(
-        seeds = [TEMP_MINT_AUTHORITY_SEED, mint.key().as_ref()],
+        seeds = [pda_seeds::TEMP_MINT_AUTHORITY_SEED, mint.key().as_ref()],
         bump,
     )]
     pub temp_mint_authority: UncheckedAccount<'info>,
@@ -513,4 +526,17 @@ pub struct DeployMint<'info> {
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
+
+    /// CHECK: Address verified by constraint.
+    #[account(
+        mut,
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), deployer.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub roles_pda: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by constraint.
+    #[account(address = constants::ACCESS_CONTROL_PROGRAM_ID)]
+    pub access_control_program: UncheckedAccount<'info>,
 }

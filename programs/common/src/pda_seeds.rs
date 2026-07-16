@@ -7,6 +7,12 @@ pub fn mint_owner_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![MINT_OWNER, mint.as_ref()]
 }
 
+pub const TEMP_MINT_AUTHORITY_SEED: &[u8] = b"temp_mint_authority";
+
+pub fn temp_mint_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![TEMP_MINT_AUTHORITY_SEED, mint.as_ref()]
+}
+
 /*********************************** MINT ***********************************/
 pub const MINT_AUTHORITY: &[u8] = b"mint_authority";
 

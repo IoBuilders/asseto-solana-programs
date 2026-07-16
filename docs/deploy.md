@@ -2,7 +2,7 @@
 
 Program ID: `HCe5Um7ThFBzDSyn256EPQvyr6jy6E66ydzZ5hMta3Tq`
 
-Deploys new Token-2022 mints with all required extensions and records the deployer wallet in a PDA. This is the entry point for the entire system — all other programs trace authorization back to the `mint_owner_pda` created here.
+Deploys new Token-2022 mints with all required extensions and records the deployer wallet in a PDA. This is the entry point for the entire system — all other programs trace authorization back to the `mint_owner_pda` created here. It also bootstraps access control: a final CPI to `access_control::initialize` grants the deployer `ROLE_ADMIN` on the new mint.
 
 ---
 
@@ -62,7 +62,7 @@ pub struct MetadataField {
 | `deployer` | no | yes | Signer | Stored as owner; can be same wallet as `payer` |
 | `mint_owner_pda` | yes | no | `Account<MintOwner>` | init; seeds `["mint_owner", mint]` |
 | `mint` | yes | yes | UncheckedAccount | Fresh keypair; must sign so SystemProgram can allocate it |
-| `temp_mint_authority` | no | no | UncheckedAccount | PDA seeds `["temp_mint_authority", mint]`; no storage; used as transient signer for steps 9–12 |
+| `temp_mint_authority` | no | no | UncheckedAccount | PDA seeds `["temp_mint_authority", mint]`; no storage; used as transient signer for steps 9–12 and the `access_control::initialize` CPI in step 15 |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]`, `seeds::program = MINT_AUTHORITY_PROGRAM_ID` |
 | `permanent_delegate_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]`, `seeds::program = PERMANENT_DELEGATE_PROGRAM_ID` |
 | `metadata_update_authority` | no | no | UncheckedAccount | seeds `["metadata_update_authority", mint]`, `seeds::program = METADATA_UPDATE_AUTHORITY_PROGRAM_ID` |
@@ -74,8 +74,10 @@ pub struct MetadataField {
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
+| `roles_pda` | yes | no | UncheckedAccount | seeds `[mint, deployer]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; created via the CPI in step 15 |
+| `access_control_program` | no | no | UncheckedAccount | address constrained to `ACCESS_CONTROL_PROGRAM_ID`; the program invoked by the step 15 CPI |
 
-### 14-Step Execution
+### 15-Step Execution
 
 **1 — Size calculation**
 - `base_size` = `ExtensionType::try_calculate_account_len` for the five fixed extensions (PermanentDelegate, MetadataPointer, Pausable, DefaultAccountState, TransferHook).
@@ -130,6 +132,11 @@ pub struct MetadataField {
 - The deployer pubkey is forwarded so the hook can bake it into the `ExtraAccountMetaList` (Token-2022 then passes the deployer account to `execute` on every transfer, enabling the clearing-mode signature check).
 - Creates the populated `ExtraAccountMetaList` PDA (`["extra-account-metas", mint]`) inside `transfer-hook`.
 
+**15 — CPI → `access_control::initialize`** (signed by `temp_mint_authority`)
+- Grants `ROLE_ADMIN` to the `deployer` on this mint by creating the `roles_pda` (`[mint, deployer]`, owned by `access-control`).
+- Passes `temp_mint_authority` as signer via `invoke_signed`; `access-control::initialize` checks the caller is exactly the deploy `["temp_mint_authority", mint]` PDA, so no external wallet can invoke it directly.
+- `payer` funds the PDA; `deployer` (the `account` grantee) and `payer` sign the outer `deploy_mint` transaction, and those signatures propagate into the CPI.
+
 ### Why `temp_mint_authority`
 
 `initialize_token_metadata` requires the **mint authority** to sign. At deploy time the deployer may not own any of the external authority programs (mint, etc.). By temporarily using a PDA this program owns as mint authority, it can sign that CPI itself, then hand off authority to the correct external programs in steps 11-12.
@@ -140,8 +147,9 @@ pub struct MetadataField {
 
 ### `MintDeployed`
 
-Emitted once at the end of a successful `deploy_mint` (step 15), after all
-extensions, authorities and the transfer-hook metadata list are initialized.
+Emitted once at the end of a successful `deploy_mint` (step 16), after all
+extensions, authorities, the transfer-hook metadata list, and the deployer's
+`ROLE_ADMIN` grant are initialized.
 Emitted via **`emit_cpi!`** (self-CPI) rather than `emit!` so the payload is
 carried in an inner-instruction and cannot be truncated by the ingestion layer —
 `deploy` is the first program in the workspace to adopt this pattern.

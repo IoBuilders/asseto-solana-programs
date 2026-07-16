@@ -6,6 +6,11 @@ Role-based access control per mint. Each `(mint, account)` pair has a bit-mask P
 in which bit `i = 1` means role `i` is granted to that account on that mint.
 `grant_roles` turns bits on, `revoke_roles` turns them off.
 
+The first admin is bootstrapped by `initialize` — an **auxiliary, CPI-only** instruction
+invoked by `deploy::deploy_mint` that creates the deployer's `Roles` PDA and grants it
+`ROLE_ADMIN`. `grant_roles` / `revoke_roles` are then the operational admin-gated instructions
+used from that point on.
+
 Both instructions are **admin-gated and functionality-gated**: they must be signed by an
 account that already holds `ROLE_ADMIN` on the mint, the relevant functionality
 (`ACCESS_CONTROL_GRANT_ROLES` / `ACCESS_CONTROL_REVOKE_ROLES`) must be enabled in the mint's
@@ -63,8 +68,9 @@ An admin may target **themselves** (`authority == account`). That makes the auth
 the target `roles_pda` the same account; `require_role` takes the loaded `Ref<Roles>` by value and
 drops it before the target is loaded mutably (`load_init`/`load_mut`), so the borrows never overlap.
 
-There is no on-chain bootstrap for the first admin yet, nor a last-admin-lockout guard —
-these are intentionally out of scope for now.
+The first admin **is** bootstrapped on-chain, by `initialize` (see below) via a CPI from
+`deploy::deploy_mint` — it grants `ROLE_ADMIN` to the deployer at deploy time. There is no
+last-admin-lockout guard; that is intentionally out of scope for now.
 
 ---
 
@@ -73,12 +79,51 @@ these are intentionally out of scope for now.
 | Code | Message |
 |---|---|
 | `RoleOutOfBounds` | Role id is past the mask capacity |
+| `Unauthorized` | Only the deployer can authorize this instruction (raised by `initialize` when the caller is not the deploy `temp_mint_authority` PDA) |
 
 Other failures surface as `common::CommonError` variants: `MissingRole` (authority's PDA exists
 but lacks `ROLE_ADMIN`), `RoleOutOfBounds` (a requested role id exceeds the mask capacity, raised
 inside `require_role`), `FunctionalityNotSupportedError` / `AssetClassVersionNotFinalized`
 (functionality gate), `MintPaused`, `Deactivated`. A signer with no `Roles` PDA is rejected at
 account resolution with Anchor's `AccountOwnedByWrongProgram` before any of these run.
+
+---
+
+## Instruction: `initialize` (Auxiliary — CPI-only, from `deploy`)
+
+Bootstraps the first admin for a mint. Creates the `(mint, account)` `Roles` PDA and grants
+`ROLE_ADMIN` (bit 0). Invoked only via CPI from `deploy::deploy_mint`, with `account` = the
+deployer, so a freshly deployed mint ends up with its deployer holding `ROLE_ADMIN`.
+
+Unlike `grant_roles` / `revoke_roles`, this instruction is **not** admin-gated (there is no
+admin yet — it is creating one) and is **not** functionality- or pause-gated (it must run
+during deploy on a fresh mint). Its only gate is the caller check below.
+
+### Authorization
+
+`require!(is_caller_pda(temp_mint_authority, temp_mint_authority_seeds(mint), DEPLOY_PROGRAM_ID))`
+— `temp_mint_authority` must be the `deploy` program's `["temp_mint_authority", mint]` PDA. Because
+that account is also declared as a `Signer`, only `deploy` can produce its signature (via
+`invoke_signed` during `deploy_mint`), making this instruction unreachable by any external wallet.
+`account` and `payer` are likewise `Signer`s, so their signatures must propagate from the
+originating `deploy_mint` transaction. Fails with `Unauthorized` otherwise.
+
+### Accounts
+
+| Account | Mut | Signer | Type | Notes |
+|---|---|---|---|---|
+| `payer` | yes | yes | Signer | Funds `roles_pda` creation |
+| `temp_mint_authority` | no | yes | Signer | Must be the deploy `["temp_mint_authority", mint]` PDA; signed via CPI by `deploy` |
+| `account` | no | yes | Signer | The grantee (the deployer); also a `roles_pda` seed |
+| `mint` | no | no | UncheckedAccount | Read-only; used as a `roles_pda` seed |
+| `roles_pda` | yes | no | `AccountLoader<Roles>` | init (fails if it already exists); seeds `[mint, account]` |
+| `system_program` | no | no | Program<System> | |
+
+### Execution
+
+1. `require!(is_caller_pda(temp_mint_authority, …, DEPLOY_PROGRAM_ID), Unauthorized)`
+2. `load_init` the `roles_pda` (always freshly created) and write `bump`
+3. `common::bitmask::set_bits(&mut roles_pda.mask, &[ROLE_ADMIN])` — turns on the admin bit
 
 ---
 
