@@ -19,7 +19,7 @@ Role identifiers are the `u16` constants in [`common::roles`](common.md) (curren
 ## State: `Roles`
 
 ```rust
-#[account(zero_copy)]
+#[account(zero_copy, discriminator = RolesCommon::DISCRIMINATOR)]
 #[repr(C)]
 pub struct Roles {
     pub bump: u8,
@@ -35,7 +35,13 @@ place rather than deserialised as a whole. `#[repr(C)]` with an explicit `_paddi
 header at 8 bytes so there is no implicit padding before `mask` (`ROLES_BYTES_MASK` is a
 multiple of 8).
 
-Constants (`state.rs`): `ROLES_BITS_MASK = 8_192`, `ROLES_BYTES_MASK = ROLES_BITS_MASK / MASK_CHUNK_BITS = 1_024`. The chunk size (`MASK_CHUNK_BITS = 8`) is shared across the workspace and lives in `common::bitmask`. A compile-time assertion in `state.rs` pins `Roles.mask`'s byte offset to `common::roles::ROLES_MASK_OFFSET`, which `common::require_role` relies on to read the mask straight from account bytes.
+This struct is a **mirror** of `common::state::Roles` (`RolesCommon`). It borrows that mirror's
+discriminator via `#[account(zero_copy, discriminator = RolesCommon::DISCRIMINATOR)]` so that
+`common::require_role` — which loads the account through `AccountLoader<common::state::Roles>` —
+sees the same discriminator. Two compile-time assertions in `state.rs` guard against drift:
+`size_of::<Roles>() == size_of::<RolesCommon>()` and discriminator equality.
+
+Constants: `ROLES_BITS_MASK = 8_192`, `ROLES_BYTES_MASK = ROLES_BITS_MASK / MASK_CHUNK_BITS = 1_024` now live in `common::state` (alongside the mirror), not in this program's `state.rs`. The chunk size (`MASK_CHUNK_BITS = 8`) is shared across the workspace and lives in `common::bitmask`.
 
 Bit manipulation is delegated to the shared [`common::bitmask`](common.md) helpers
 (`set_bits` / `clear_bits`), which bounds-check each `u16` against the mask length. Those
@@ -46,14 +52,16 @@ signal to its own `RoleOutOfBounds` via `.map_err(|_| error!(AccessControlError:
 
 ## Authorization: the admin gate
 
-Both instructions call [`common::require_role`](common.md)`(authority_roles_pda, ROLE_ADMIN)`.
-The `authority_roles_pda` is the signer's **own** `Roles` PDA (seeds `[mint, authority]`), so
-holding `ROLE_ADMIN` there authorises the call. A missing PDA, or one without bit 0 set, fails
-with `CommonError::MissingRole`.
+Both instructions call [`common::require_role`](common.md)`(authority_roles_pda.load()?, ROLE_ADMIN)`.
+The `authority_roles_pda` is the signer's **own** `Roles` PDA (seeds `[mint, authority]`), typed
+as `AccountLoader<common::state::Roles>`, so holding `ROLE_ADMIN` there authorises the call. A PDA
+that exists but lacks bit 0 fails with `CommonError::MissingRole`. A signer with **no** `Roles` PDA
+at all fails earlier, at account resolution, with Anchor's `AccountOwnedByWrongProgram` (the empty,
+system-owned account isn't owned by `access-control`) — not `MissingRole`.
 
 An admin may target **themselves** (`authority == account`). That makes the authority PDA and
-the target `roles_pda` the same account; `require_role` reads it through a short-lived borrow
-that is released before the target is loaded mutably, so there is no borrow conflict.
+the target `roles_pda` the same account; `require_role` takes the loaded `Ref<Roles>` by value and
+drops it before the target is loaded mutably (`load_init`/`load_mut`), so the borrows never overlap.
 
 There is no on-chain bootstrap for the first admin yet, nor a last-admin-lockout guard —
 these are intentionally out of scope for now.
@@ -66,9 +74,11 @@ these are intentionally out of scope for now.
 |---|---|
 | `RoleOutOfBounds` | Role id is past the mask capacity |
 
-Other failures surface as `common::CommonError` variants: `MissingRole` (authority lacks
-`ROLE_ADMIN`), `FunctionalityNotSupportedError` / `AssetClassVersionNotFinalized` (functionality
-gate), `MintPaused`, `Deactivated`.
+Other failures surface as `common::CommonError` variants: `MissingRole` (authority's PDA exists
+but lacks `ROLE_ADMIN`), `RoleOutOfBounds` (a requested role id exceeds the mask capacity, raised
+inside `require_role`), `FunctionalityNotSupportedError` / `AssetClassVersionNotFinalized`
+(functionality gate), `MintPaused`, `Deactivated`. A signer with no `Roles` PDA is rejected at
+account resolution with Anchor's `AccountOwnedByWrongProgram` before any of these run.
 
 ---
 
@@ -94,7 +104,7 @@ bits outside `roles` are left untouched).
 | `payer` | yes | yes | Signer | Funds the PDA on the first call |
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ADMIN` |
 | `mint_owner_pda` | no | no | `Account<MintOwner>` | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
-| `authority_roles_pda` | no | no | UncheckedAccount | seeds `[mint, authority]`; read by `require_role` |
+| `authority_roles_pda` | no | no | `AccountLoader<Roles>` | the signer's own PDA, seeds `[mint, authority]`; loaded and read by `require_role` (must exist & be owned by `access-control`) |
 | `account` | no | no | UncheckedAccount | The grantee; any account; used only as a `roles_pda` seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; checked by `require_active` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
@@ -104,7 +114,7 @@ bits outside `roles` are left untouched).
 
 ### Execution
 
-1. `require_role(&authority_roles_pda, ROLE_ADMIN)`
+1. `require_role(authority_roles_pda.load()?, ROLE_ADMIN)`
 2. `require_not_paused(&mint)`
 3. `require_active(&deactivate_pda)`
 4. `require_functionality(asset_class_version_pda.load()?, ACCESS_CONTROL_GRANT_ROLES)`
@@ -133,7 +143,7 @@ via `mask[byte] &= !(1 << bit)` (a targeted merge — bits outside `roles` are l
 |---|---|---|---|---|
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ADMIN` |
 | `mint_owner_pda` | no | no | `Account<MintOwner>` | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
-| `authority_roles_pda` | no | no | UncheckedAccount | seeds `[mint, authority]`; read by `require_role` |
+| `authority_roles_pda` | no | no | `AccountLoader<Roles>` | the signer's own PDA, seeds `[mint, authority]`; loaded and read by `require_role` (must exist & be owned by `access-control`) |
 | `account` | no | no | UncheckedAccount | The target; any account; used only as a `roles_pda` seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; checked by `require_active` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
@@ -142,7 +152,7 @@ via `mask[byte] &= !(1 << bit)` (a targeted merge — bits outside `roles` are l
 
 ### Execution
 
-1. `require_role(&authority_roles_pda, ROLE_ADMIN)`
+1. `require_role(authority_roles_pda.load()?, ROLE_ADMIN)`
 2. `require_not_paused(&mint)`
 3. `require_active(&deactivate_pda)`
 4. `require_functionality(asset_class_version_pda.load()?, ACCESS_CONTROL_REVOKE_ROLES)`

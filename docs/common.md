@@ -35,6 +35,7 @@ pub enum CommonError {
     FunctionalityNotSupportedError, // functionality bit not set in AssetClassVersion.mask
     InvalidMintOwnerData,           // could not read the mint_owner account data
     AssetClassVersionNotFinalized,  // asset-class version is still Draft
+    RoleOutOfBounds,                // role id is past the Roles.mask's capacity
     MissingRole,                    // signer's Roles PDA lacks the required role bit
 }
 ```
@@ -92,21 +93,14 @@ Maps `bitmask::is_set`'s out-of-range signal to `Err(CommonError::FunctionalityO
 ## Function: `require_role`
 
 ```rust
-pub fn require_role(roles_pda: &AccountInfo, role: u16) -> Result<()>
+pub fn require_role(roles_pda: Ref<Roles>, role: u16) -> Result<()>
 ```
 
-Checks whether `role` (one of `common::roles`'s `u16` constants, e.g. `ROLE_ADMIN`) is granted in an `access-control` `Roles` account's mask. `roles_pda` is the `Roles` PDA (seeds `[mint, account]`, owned by `access-control`). Returns `Ok(())` if the bit is set; `Err(CommonError::MissingRole)` otherwise — including when the PDA has never been created (empty account).
+Checks whether `role` (one of `common::roles`'s `u16` constants, e.g. `ROLE_ADMIN`) is granted in an `access-control` `Roles` account's mask. Reads the bit via `bitmask::is_set` on `roles_pda.mask`; maps the out-of-range signal to `Err(CommonError::RoleOutOfBounds)`, returns `Err(CommonError::MissingRole)` if the bit isn't set, `Ok(())` otherwise.
 
-**Why `&AccountInfo` and a raw read**: `access-control` already depends on `common` (typing it would be circular), *and* the caller passes the account as an `UncheckedAccount` so that (a) a missing PDA reads as "no role" instead of an account-resolution error, and (b) an admin acting on their own PDA (`authority == account`) doesn't collide with the mutable load of the target `roles_pda`. The mask is read through a short-lived borrow released before this returns. The read indexes the raw bytes at `roles::ROLES_MASK_OFFSET` (guarded against layout drift by a compile-time assertion in `access-control`).
+The caller passes a `Ref<Roles>` obtained from its own `AccountLoader<Roles>` via `.load()?` — a **zero-copy** typed view, exactly like `require_functionality`. `common::state::Roles` is a field-for-field mirror of `access-control::state::Roles` (kept in sync by compile-time size *and* discriminator assertions in `access-control/src/state.rs`), defined here so callers can load the account without importing `access-control` (which would be circular).
 
-### Zero-copy note: `require_functionality` vs `require_role`
-
-Both read a single bit out of a large `[u8; N]` mask without Borsh-deserializing the whole account, but by different mechanisms:
-
-- **`require_functionality` uses zero-copy** — the caller loads the account through `AccountLoader<AssetClassVersion>` (`.load()`), which reinterprets the bytes in place as a typed, framework-validated struct (owner / discriminator / size checked). The function reads the `.mask` field.
-- **`require_role` uses a rawer byte read** — the account is an `UncheckedAccount`, so there is no typed view or validation; the function borrows `&[u8]` and indexes at a fixed offset. It never reconstructs `Roles`.
-
-Both avoid copying; the difference is *typed-and-validated* (zero-copy) vs *untyped-and-manual* (raw). `require_role` is on the raw side deliberately, for the borrow-safety and missing-PDA reasons above.
+**Behavioural note**: because the account is now a typed `AccountLoader<Roles>`, Anchor validates its owner / discriminator at account resolution *before* the handler runs. A signer with **no** `Roles` PDA (a never-created, system-owned account) therefore fails with Anchor's `AccountOwnedByWrongProgram` (or `AccountNotInitialized`) rather than `MissingRole`. `MissingRole` is now reserved for the case where the PDA exists but the required bit is unset. An admin acting on their own PDA (`authority == account`) is still safe: `require_role` takes the `Ref` by value and drops it before the caller's mutable `load_init`/`load_mut` of the same account, so the borrows never overlap.
 
 ---
 
@@ -118,8 +112,9 @@ pub const ROLES_MASK_OFFSET: usize = 8 + 8;    // discriminator + Roles header; 
 ```
 
 Mirrors `common::functionalities` but for `access-control` roles: a flat, append-only `u16`
-counter (a unit test asserts the constants are sequential from 0). `ROLES_MASK_OFFSET` lets
-`require_role` locate the mask in raw `Roles` bytes without importing `access-control`.
+counter (a unit test asserts the constants are sequential from 0). `ROLES_MASK_OFFSET` records
+where the mask begins in a serialized `Roles` account; it is no longer used by `require_role`
+(which now takes a typed `Ref<Roles>` and reads the `.mask` field directly).
 
 ---
 
@@ -144,8 +139,9 @@ coupling their sizes. Each `set_bits` / `clear_bits` is a targeted merge (`|= 1 
 **These helpers are error-type agnostic.** They do not raise an Anchor error themselves — on an
 out-of-range position they return `Err(position)` (the offending `u16`) and stop, leaving each
 caller to raise its own domain error: `factory` maps to `ErrorCode::FunctionalityOutOfBounds`,
-`access-control` to `AccessControlError::RoleOutOfBounds`, and `require_functionality` to
-`CommonError::FunctionalityOutOfBounds` — all via `.map_err(|_| error!(…))?`.
+`access-control` (in `set_bits`/`clear_bits`) to `AccessControlError::RoleOutOfBounds`,
+`require_functionality` to `CommonError::FunctionalityOutOfBounds`, and `require_role` to
+`CommonError::RoleOutOfBounds` — all via `.map_err(|_| error!(…))?`.
 
 Per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`, …) stay with their
 own structs; only `MASK_CHUNK_BITS` is shared.

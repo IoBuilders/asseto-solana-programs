@@ -1,13 +1,13 @@
+use crate::state::Roles;
 use anchor_lang::prelude::*;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
 use common::{
     bitmask, pda_seeds, require_active, require_functionality, require_not_paused, require_role,
     roles,
 };
 
 use crate::errors::AccessControlError;
-use crate::state::Roles;
 
 /// Turns off the given role bits for an `(mint, account)` pair.
 ///
@@ -20,10 +20,7 @@ use crate::state::Roles;
 /// while the mint is neither paused nor deactivated. `account` (the target) is
 /// unconstrained — any account is accepted, including the authority itself.
 pub fn revoke_roles(ctx: Context<RevokeRoles>, roles: Vec<u16>) -> Result<()> {
-    require_role(
-        &ctx.accounts.authority_roles_pda.to_account_info(),
-        roles::ROLE_ADMIN,
-    )?;
+    require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_ADMIN)?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
     require_functionality(
@@ -60,7 +57,7 @@ pub struct RevokeRoles<'info> {
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         bump,
     )]
-    pub authority_roles_pda: UncheckedAccount<'info>,
+    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 
     /// The account the roles are revoked from — unconstrained, any account is accepted.
     /// CHECK: used only as a seed for `roles_pda`.

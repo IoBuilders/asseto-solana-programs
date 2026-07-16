@@ -79,15 +79,15 @@ describe("access-control", () => {
     });
 
     // ──────────────────────────────────────────────────────────────────────
-    it("grant_roles: fails with MissingRole when the authority is not an admin", async () => {
+    it("grant_roles: fails with AccountOwnedByWrongProgram when the authority does not even have a roles PDA", async () => {
       const rogue = Keypair.generate(); // no roles PDA planted → not an admin
 
       try {
         await grantRoles({ mint, account, authority: rogue }, { roles: [1] });
-        assert.fail("Expected MissingRole error but instruction succeeded");
+        assert.fail("Expected AccountOwnedByWrongProgram error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        assert.equal((err as AnchorError).error.errorCode.code, "MissingRole");
+        assert.equal((err as AnchorError).error.errorCode.code, "AccountOwnedByWrongProgram");
       }
     });
 
@@ -186,16 +186,16 @@ describe("access-control", () => {
     });
 
     // ──────────────────────────────────────────────────────────────────────
-    it("revoke_roles: fails with MissingRole when the authority is not an admin", async () => {
+    it("revoke_roles: fails with AccountOwnedByWrongProgram when the authority does not even have a roles PDA", async () => {
       await setRoles(mint, account, [1]); // target PDA must exist to reach the handler
       const rogue = Keypair.generate(); // no roles PDA planted → not an admin
 
       try {
         await revokeRoles({ mint, account, authority: rogue }, { roles: [1] });
-        assert.fail("Expected MissingRole error but instruction succeeded");
+        assert.fail("Expected AccountOwnedByWrongProgram error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        assert.equal((err as AnchorError).error.errorCode.code, "MissingRole");
+        assert.equal((err as AnchorError).error.errorCode.code, "AccountOwnedByWrongProgram");
       }
     });
 
