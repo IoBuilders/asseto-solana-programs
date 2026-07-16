@@ -5,19 +5,12 @@ import { AccessControl } from "../../../target/types/access_control";
 import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import * as pdaUtils from "../../utils/pda_utils";
 import { BaseWriteContext, MintContext } from "../base_helper";
-import { getMintOwner } from "../deploy_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
-import { assetClassVersionPda } from "../factory/factory_pda_helper";
+import { assetClassVersionPdaForMint } from "../factory/factory_pda_helper";
 import { rolesPda } from "./access_control_pda_helper";
 
 export function getAccessControlProgram(): Program<AccessControl> {
   return anchor.workspace.AccessControl as Program<AccessControl>;
-}
-
-/** Derives the asset-class version PDA a mint is hooked to, from its `mint_owner`. */
-async function assetClassVersionPdaForMint(mint: PublicKey): Promise<PublicKey> {
-  const mintOwner = await getMintOwner(mint);
-  return assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId);
 }
 
 // ── grantRoles ───────────────────────────────────────────────────────────────

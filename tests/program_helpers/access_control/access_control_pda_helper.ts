@@ -21,7 +21,10 @@ export function rolesPda(mint: PublicKey, account: PublicKey): PublicKey {
 }
 
 export function rolesPdaWithBump(mint: PublicKey, account: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([mint.toBuffer(), account.toBuffer()], ACCESS_CONTROL_PROGRAM_ID);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("roles"), mint.toBuffer(), account.toBuffer()],
+    ACCESS_CONTROL_PROGRAM_ID
+  );
 }
 
 export async function getRoles(mint: PublicKey, account: PublicKey) {

@@ -228,6 +228,12 @@ export async function setAssetClassVersion(
   });
 }
 
+/** Derives the asset-class version PDA a mint is hooked to, from its `mint_owner`. */
+export async function assetClassVersionPdaForMint(mint: PublicKey): Promise<PublicKey> {
+  const mintOwner = await getMintOwner(mint);
+  return assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId);
+}
+
 async function encodeAssetClassVersion(
   configId: anchor.BN,
   version: anchor.BN,

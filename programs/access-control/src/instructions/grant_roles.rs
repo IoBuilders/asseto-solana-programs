@@ -70,7 +70,7 @@ pub struct GrantRoles<'info> {
     /// CHECK: Address verified by seeds/bump; admin bit checked by require_admin
     /// (which treats a missing/empty account as "not admin").
     #[account(
-        seeds = [mint.key().as_ref(), authority.key().as_ref()],
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         bump,
     )]
     pub authority_roles_pda: UncheckedAccount<'info>,
@@ -101,7 +101,7 @@ pub struct GrantRoles<'info> {
         init_if_needed,
         payer = payer,
         space = Roles::DISCRIMINATOR.len() + std::mem::size_of::<Roles>(),
-        seeds = [mint.key().as_ref(), account.key().as_ref()],
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]
     pub roles_pda: AccountLoader<'info, Roles>,
