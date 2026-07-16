@@ -1,14 +1,12 @@
+use crate::bitmask::MASK_CHUNK_BITS;
 use anchor_lang::prelude::*;
 use anchor_lang::ZeroCopy;
 use bytemuck::{Pod, Zeroable};
 
 /// Global capacity, in bits, of every asset-class version's functionality mask.
 pub const FUNCTIONALITIES_BITS_MASK: usize = 8_192;
-/// Number of bits packed into each mask's chunk, defined by the mask's [u8, N]
-pub const FUNCTIONALITIES_MASK_CHUNK_BITS: usize = 8;
 /// Capacity of the mask in bytes
-pub const FUNCTIONALITIES_BYTES_MASK: usize =
-    FUNCTIONALITIES_BITS_MASK / FUNCTIONALITIES_MASK_CHUNK_BITS;
+pub const FUNCTIONALITIES_BYTES_MASK: usize = FUNCTIONALITIES_BITS_MASK / MASK_CHUNK_BITS;
 
 /// Lifecycle state of an asset-class version, stored as a `u8` (zero-copy /
 /// `Pod` accounts cannot hold a Borsh enum).

@@ -1,13 +1,17 @@
-use crate::functionalities::index_of;
-use crate::state::{AssetClassVersion, MintOwner};
+use crate::state::{AssetClassVersion, MintOwner, Roles};
 use anchor_lang::prelude::*;
 use std::cell::Ref;
 
+pub mod bitmask;
 pub mod functionalities;
 pub mod pda_seeds;
 pub mod pda_utils;
 pub mod program_ids;
+pub mod roles;
 pub mod state;
+
+#[cfg(test)]
+pub(crate) mod test_support;
 
 #[error_code]
 pub enum CommonError {
@@ -25,6 +29,10 @@ pub enum CommonError {
     InvalidMintOwnerData,
     #[msg("The asset class version is not finalized")]
     AssetClassVersionNotFinalized,
+    #[msg("Role is past the mask capacity")]
+    RoleOutOfBounds,
+    #[msg("Signer does not hold the required role")]
+    MissingRole,
 }
 
 /// Verifies that `deployer` matches the pubkey stored in a `mint_owner_pda`
@@ -118,9 +126,18 @@ pub fn require_functionality(
         CommonError::AssetClassVersionNotFinalized
     );
 
-    let (byte, bit) = index_of(functionality)?;
-    let enabled = (asset_class_version.mask[byte] >> bit) & 1 == 1;
+    let enabled = bitmask::is_set(&asset_class_version.mask, functionality)
+        .map_err(|_| error!(CommonError::FunctionalityOutOfBounds))?;
 
     require!(enabled, CommonError::FunctionalityNotSupportedError);
+    Ok(())
+}
+
+pub fn require_role(roles_pda: Ref<Roles>, role: u16) -> Result<()> {
+    let enabled =
+        bitmask::is_set(&roles_pda.mask, role).map_err(|_| error!(CommonError::RoleOutOfBounds))?;
+
+    require!(enabled, CommonError::MissingRole);
+
     Ok(())
 }

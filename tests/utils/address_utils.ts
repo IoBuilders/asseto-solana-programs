@@ -15,6 +15,7 @@ import bondIdl from "../../target/idl/bond.json";
 import couponIdl from "../../target/idl/coupon.json";
 import treasuryIdl from "../../target/idl/treasury.json";
 import factoryIdl from "../../target/idl/factory.json";
+import accessControlIdl from "../../target/idl/access_control.json";
 import * as anchor from "@anchor-lang/core";
 
 export const SYSTEM_PROGRAM_ID = anchor.web3.SystemProgram.programId;
@@ -34,3 +35,4 @@ export const BOND_PROGRAM_ID = new PublicKey(bondIdl.address);
 export const COUPON_PROGRAM_ID = new PublicKey(couponIdl.address);
 export const TREASURY_PROGRAM_ID = new PublicKey(treasuryIdl.address);
 export const FACTORY_PROGRAM_ID = new PublicKey(factoryIdl.address);
+export const ACCESS_CONTROL_PROGRAM_ID = new PublicKey(accessControlIdl.address);

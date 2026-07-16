@@ -2,7 +2,7 @@ use crate::errors::ErrorCode;
 use crate::helpers::{require_not_paused, verify_owner};
 use crate::state::{AssetClassOwnership, AssetClassVersion, Factory};
 use anchor_lang::prelude::*;
-use common::{functionalities, pda_seeds, state::ASSET_CLASS_VERSION_STATE_DRAFT};
+use common::{bitmask, pda_seeds, state::ASSET_CLASS_VERSION_STATE_DRAFT};
 
 /// Turns off the given functionality bits in a `Draft` asset-class version's mask.
 ///
@@ -31,10 +31,8 @@ pub fn disable_asset_class_version_functionalities(
         ErrorCode::VersionNotDraft
     );
 
-    for f in functionalities {
-        let (byte, bit) = functionalities::index_of(f)?;
-        version_account.mask[byte] &= !(1 << bit);
-    }
+    bitmask::clear_bits(&mut version_account.mask, &functionalities)
+        .map_err(|_| error!(ErrorCode::FunctionalityOutOfBounds))?;
 
     Ok(())
 }
