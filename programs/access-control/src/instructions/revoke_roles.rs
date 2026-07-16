@@ -55,7 +55,7 @@ pub struct RevokeRoles<'info> {
     /// (which treats a missing/empty account as "not admin").
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
-        bump,
+        bump = authority_roles_pda.load()?.bump,
     )]
     pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 
