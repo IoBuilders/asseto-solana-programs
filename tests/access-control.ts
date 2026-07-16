@@ -3,7 +3,11 @@ import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { grantRoles, revokeRoles } from "./program_helpers/access_control/access_control_instruction_helper";
+import {
+  grantRoles,
+  initialize,
+  revokeRoles,
+} from "./program_helpers/access_control/access_control_instruction_helper";
 import {
   getRoles,
   isRoleGranted,
@@ -46,6 +50,26 @@ describe("access-control", () => {
       functionalities: [ACCESS_CONTROL_GRANT_ROLES, ACCESS_CONTROL_REVOKE_ROLES],
     });
     await setRoles(mint, deployer, [ROLE_ADMIN]);
+  });
+
+  describe("initialize", () => {
+    // ──────────────────────────────────────────────────────────────────────
+    it("initialize: fails with Unauthorized when invoked directly by a non-deploy-PDA caller", async () => {
+      // `calling_authority` must be the deploy program's `temp_mint_authority`
+      // PDA (only reachable via a CPI from the deploy program during deploy_mint).
+      // A direct invocation signs with an arbitrary keypair, so the
+      // `is_caller_pda` check rejects it.
+      const rogueCaller = Keypair.generate();
+      const grantee = Keypair.generate();
+
+      try {
+        await initialize({ mint, account: grantee, tempMintAuthority: rogueCaller });
+        assert.fail("Expected Unauthorized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "Unauthorized");
+      }
+    });
   });
 
   describe("grant_roles", () => {

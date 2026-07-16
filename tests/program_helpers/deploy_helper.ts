@@ -1,5 +1,10 @@
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import { DEPLOY_PROGRAM_ID, SYSTEM_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "../utils/address_utils";
+import {
+  DEPLOY_PROGRAM_ID,
+  SYSTEM_PROGRAM_ID,
+  TRANSFER_HOOK_PROGRAM_ID,
+  ACCESS_CONTROL_PROGRAM_ID,
+} from "../utils/address_utils";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
@@ -12,6 +17,7 @@ import { pausableAuthorityPda } from "./pause/pause_pda_helper";
 import { freezeAuthorityPda } from "./freeze/freeze_pda_helper";
 import { mintAuthorityPda } from "./mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "./metadata_update/metadata_update_pda_helper";
+import { rolesPda } from "./access_control/access_control_pda_helper";
 
 function getDeployProgram(): Program<Deploy> {
   return anchor.workspace.Deploy as Program<Deploy>;
@@ -81,6 +87,8 @@ export async function deployMint(
       rent: SYSVAR_RENT_PUBKEY,
       eventAuthority: pdaUtils.deployEventAuthorityPda(),
       program: DEPLOY_PROGRAM_ID,
+      rolesPda: rolesPda(mint, callContext.deployer),
+      accessControlProgram: ACCESS_CONTROL_PROGRAM_ID,
     })
     .signers([mintKeypair])
     .rpc({ commitment: "confirmed" });

@@ -600,6 +600,7 @@ dependencies = [
 name = "deploy"
 version = "0.1.0"
 dependencies = [
+ "access-control",
  "anchor-lang",
  "anchor-spl",
  "common",

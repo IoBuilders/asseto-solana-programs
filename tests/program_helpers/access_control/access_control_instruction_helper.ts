@@ -13,6 +13,39 @@ export function getAccessControlProgram(): Program<AccessControl> {
   return anchor.workspace.AccessControl as Program<AccessControl>;
 }
 
+// ── initialize ───────────────────────────────────────────────────────────────
+
+export type InitializeContext = BaseWriteContext &
+  MintContext & {
+    // The account receiving ROLE_ADMIN — must sign (it is a `Signer` on-chain).
+    account: Keypair;
+    // The caller — on-chain it must be the deploy `temp_mint_authority` PDA, so
+    // a direct invocation with any keypair here is rejected with `Unauthorized`.
+    tempMintAuthority: Keypair;
+    payer?: PublicKey;
+  };
+
+export async function initialize(callContext: InitializeContext): Promise<{ signature: string }> {
+  const program = getAccessControlProgram();
+  const payer = callContext.payer ?? program.provider.publicKey!;
+  const { mint, account, tempMintAuthority } = callContext;
+
+  const signature = await program.methods
+    .initialize()
+    .accountsStrict({
+      payer,
+      tempMintAuthority: tempMintAuthority.publicKey,
+      account: account.publicKey,
+      mint,
+      rolesPda: rolesPda(mint, account.publicKey),
+      systemProgram: SYSTEM_PROGRAM_ID,
+    })
+    .signers(callContext.signers ?? [tempMintAuthority, account])
+    .rpc({ commitment: "confirmed" });
+
+  return { signature };
+}
+
 // ── grantRoles ───────────────────────────────────────────────────────────────
 
 export type GrantRolesContext = BaseWriteContext &

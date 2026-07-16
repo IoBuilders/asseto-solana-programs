@@ -17,6 +17,12 @@ import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "./program_helpers/metadata_update/metadata_update_pda_helper";
 import { deployMint, getMintDeployedEvent, getMintOwner } from "./program_helpers/deploy_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
+import {
+  getRoles,
+  isRoleGranted,
+  ROLE_ADMIN,
+  rolesPdaWithBump,
+} from "./program_helpers/access_control/access_control_pda_helper";
 
 // ── Test mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -133,6 +139,17 @@ describe("deploy", () => {
       MINT_ASSET_CLASS_VERSION_ID,
       "mint owner PDA should record the asset-class version id"
     );
+
+    // ── Assertions: Deployer has been granted Admin Role ─────────
+    const [, expectedRolesBump] = rolesPdaWithBump(mint, deployer);
+    const roles = [ROLE_ADMIN];
+    const rolesAccount = await getRoles(mint, deployer);
+
+    assert.equal(rolesAccount.bump, expectedRolesBump, "stored bump should be the canonical PDA bump");
+
+    for (const r of roles) {
+      assert.isTrue(isRoleGranted(rolesAccount.mask, r), `role ${r} should be granted`);
+    }
 
     // ── Assertions: MintDeployed event ─────────────────────────────────────────
     const event = await getMintDeployedEvent(signature);
