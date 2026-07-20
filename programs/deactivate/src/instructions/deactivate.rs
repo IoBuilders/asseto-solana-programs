@@ -1,13 +1,9 @@
 use crate::events::Deactivated;
-use anchor_lang::prelude::*;
-use common::{
-    pda_seeds, require_functionality, require_not_paused, require_role, roles,
-    verify_deployer_account,
-};
-
 use crate::state::DeactivateStatus;
+use anchor_lang::prelude::*;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, MintOwner, Roles};
+use common::{pda_seeds, require_functionality, require_not_paused, require_role, roles};
 
 /// Deactivates the Token-2022 mint by creating an on-chain marker PDA.
 ///
