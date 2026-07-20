@@ -34,7 +34,7 @@ describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
-  const authority = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
   const MINT_DECIMALS = 6;
   let mint: PublicKey;
 
@@ -49,7 +49,7 @@ describe("mint", () => {
         MINT_MINT,
       ],
     });
-    await setRoles(mint, authority, [ROLE_ISSUER]);
+    await setRoles(mint, authority!.publicKey, [ROLE_ISSUER]);
   });
 
   it("mint: mints tokens to a destination account and updates balance correctly", async () => {
@@ -76,7 +76,7 @@ describe("mint", () => {
     const issued = await getIssuedEvent(signature);
     assert.isNotNull(issued, "an Issued event should be emitted");
     assert.equal(issued!.mint.toBase58(), mint.toBase58(), "event mint should match the minted mint");
-    assert.equal(issued!.operator.toBase58(), authority.toBase58(), "event operator should be the deployer");
+    assert.equal(issued!.operator.toBase58(), authority!.publicKey.toBase58(), "event operator should be the deployer");
     assert.equal(issued!.to.toBase58(), destination.toBase58(), "event destination should match the token account");
     assert.equal(issued!.value.toString(), mintAmount.toString(), "event value should equal the minted amount");
   });
@@ -152,7 +152,7 @@ describe("mint", () => {
     await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not issuer role
 
     try {
-      await mintTokens({ deployer, mint, destination, authority: rogueKeypair.publicKey, signers: [rogueKeypair] });
+      await mintTokens({ deployer, mint, destination, authority: rogueKeypair, signers: [rogueKeypair] });
       assert.fail("Expected MissingRole error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);

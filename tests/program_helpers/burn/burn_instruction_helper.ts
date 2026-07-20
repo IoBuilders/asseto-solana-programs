@@ -55,11 +55,13 @@ export async function burnTokens(
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
 
+  const authority = callContext.authority ?? program.provider.wallet.payer;
+
   const signature = await getOperationsProgram()
     .methods.burn(effectiveArgs.amount)
     .accountsStrict({
       deployer: callContext.deployer,
-      authority: callContext.authority ?? program.provider.wallet.payer,
+      authority: authority.publicKey,
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
@@ -76,7 +78,7 @@ export async function burnTokens(
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: operationsEventAuthorityPda(),
       program: OPERATIONS_PROGRAM_ID,
-      authorityRolesPda: rolesPda(callContext.mint, callContext.authority),
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });

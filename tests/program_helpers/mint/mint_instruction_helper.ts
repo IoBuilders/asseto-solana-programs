@@ -48,11 +48,13 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
 
+  const authority = callContext.authority ?? mintProgram.provider.wallet.payer;
+
   return await mintProgram.methods
     .mint(effectiveArgs.amount)
     .accountsStrict({
       deployer: callContext.deployer,
-      authority: callContext.authority ?? mintProgram.provider.wallet.payer,
+      authority: authority.publicKey,
       mint: callContext.mint,
       destination: callContext.destination,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
@@ -71,7 +73,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       eventAuthority: mintEventAuthorityPda(),
       program: mintProgram.programId,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
-      authorityRolesPda: rolesPda(callContext.mint, callContext.authority),
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });

@@ -25,13 +25,12 @@ import {
 import { OPERATIONS_BURN } from "./utils/functionalities";
 import { beforeEach } from "mocha";
 import { ROLE_ADMIN, ROLE_CONTROLLER, setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("operations", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
-  const authority = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
 
   describe("burn ", async () => {
     let mint: PublicKey;
@@ -47,7 +46,7 @@ describe("operations", () => {
       ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
       mintOwnerPda = pdaUtils.mintOwnerPda(mint);
       await setAssetClassVersionForMint(mint, { functionalities: [OPERATIONS_BURN] });
-      await setRoles(mint, authority, [ROLE_CONTROLLER]);
+      await setRoles(mint, authority!.publicKey, [ROLE_CONTROLLER]);
     });
 
     it("burn: removes tokens from the token account via permanent delegate", async () => {
@@ -75,7 +74,7 @@ describe("operations", () => {
       const event = await getControllerRedemptionEvent(signature);
       assert.isNotNull(event, "ControllerRedemption event should be emitted");
       assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the burned mint");
-      assert.equal(event!.controller.toBase58(), authority.toBase58(), "controller should be the deployer");
+      assert.equal(event!.controller.toBase58(), authority!.publicKey.toBase58(), "controller should be the deployer");
       assert.equal(event!.from.toBase58(), source.toBase58(), "from should be the burned token account");
       assert.equal(event!.value.toString(), burnAmount.toString(), "value should match the burn amount");
     });
@@ -162,7 +161,7 @@ describe("operations", () => {
           deployer,
           mint,
           tokenAccount: source,
-          authority: rogueKeypair.publicKey,
+          authority: rogueKeypair,
           signers: [rogueKeypair],
         });
         assert.fail("Expected MissingRole error but instruction succeeded");
