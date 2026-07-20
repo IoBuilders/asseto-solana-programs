@@ -117,7 +117,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
 
     emit_cpi!(Issued {
         mint: mint_key,
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
         to: ctx.accounts.destination.key(),
         value: amount,
     });

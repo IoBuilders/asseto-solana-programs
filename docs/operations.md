@@ -8,7 +8,7 @@ The `operations_authority` (permanent_delegate PDA) is one of the three callers 
 
 ---
 
-## Instruction: `burn` (Management)
+## Instruction: `burn` (Operational — controller only)
 
 ### Parameters
 
@@ -18,15 +18,19 @@ amount: u64  // raw token units to burn
 
 ### Preconditions
 
-- `verify_deployer` — only the deployer may burn.
+- `require_role(ROLE_CONTROLLER)` — the `authority` caller must sign and hold `ROLE_CONTROLLER` on this mint (checked against its own `["roles", mint, authority]` PDA). Replaces the previous `verify_deployer` gate — burning is now role-based rather than restricted to the deployer.
 - `require_active` — mint must not be deactivated.
+- `require_functionality(OPERATIONS_BURN)` — the mint's asset-class version must enable burning.
 
 ### Accounts
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `deployer` | no | yes | Signer | Must match pubkey stored in `mint_owner_pda` |
-| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `deployer` | yes | yes | Signer | Signs and pays for snapshot PDA creation; no longer the authorization check |
+| `authority` | no | yes | Signer | The caller; must hold `ROLE_CONTROLLER` on this mint |
+| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
+| `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; the caller's own PDA, loaded and read by `require_role` (must exist & be owned by `access-control`) |
+| `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to burn from |
 | `token_account` | yes | no | UncheckedAccount | The holder's token account to burn from |
@@ -42,8 +46,8 @@ amount: u64  // raw token units to burn
 
 ### Execution
 
-1. `verify_deployer(&mint_owner_pda, &deployer.key())`
-2. `require_active(&deactivate_pda)`
+1. `require_role(authority_roles_pda.load()?, ROLE_CONTROLLER)` — signer must hold the controller role
+2. `require_active(&deactivate_pda)` + `require_functionality(OPERATIONS_BURN)`
 3. CPI → `snapshot::update_totalsupply_snapshot` signed with `["permanent_delegate", mint, bump]` — records pre-burn supply into the active snapshot (no-op if none)
 4. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["permanent_delegate", mint, bump]` — records pre-burn holder balance (no adjustment)
 5. CPI → `freeze::unblock_account(token_account)` signed with `["permanent_delegate", mint, bump]`
@@ -68,7 +72,7 @@ the same pattern `deploy` uses for `MintDeployed`.
 #[event]
 pub struct ControllerRedemption {
     pub mint: Pubkey,
-    pub controller: Pubkey,  // the deployer that authorized the redemption
+    pub controller: Pubkey,  // the deployer (payer); authorization is now the `authority` holding ROLE_CONTROLLER
     pub from: Pubkey,        // the token account burned from
     pub value: u64,          // raw token units burned
 }

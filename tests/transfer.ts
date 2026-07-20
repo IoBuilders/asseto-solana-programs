@@ -15,12 +15,12 @@ import {
 import { getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
 import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
 import {
+  burnTokensViaSurfpool,
   createTokenAccount,
   getMint,
   getTokenAccount,
   mintTokensViaSurfpool,
 } from "./program_helpers/spl_token_helper";
-import { burnTokens } from "./program_helpers/burn/burn_instruction_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
   addToWhitelist,
@@ -868,7 +868,7 @@ describe("transfer", () => {
       // Operations::burn doesn't read or adjust frozen_balance_pda, so afterwards
       // we have: token_account.amount = 20, frozen_balance_pda.balance = 40.
       // `require_unfrozen_balance` uses saturating_sub → available = 0.
-      await burnTokens({ deployer, mint, tokenAccount: source }, { amount: BURN_AMOUNT });
+      await burnTokensViaSurfpool(mint, source, BURN_AMOUNT);
 
       const sourceAfterBurn = (await getTokenAccount(source)).amount;
       const frozenAfterBurn = await getFrozenBalanceByPda(frozenBalancePda);

@@ -168,3 +168,39 @@ export async function mintTokensViaSurfpool(
   mintData.writeBigUInt64LE(mintData.readBigUInt64LE(MINT_SUPPLY_OFFSET) + value, MINT_SUPPLY_OFFSET);
   await surfnetSetAccount(mint, { data: mintData.toString("hex") });
 }
+
+/**
+ * Test-only: burns `amount` tokens from `tokenAccount` directly via surfpool — the
+ * plant-based equivalent of running the `operations` burn instruction, with no CPI.
+ * Debits the token account's `amount` field and lowers the mint's `supply` by the
+ * same amount, both decremented so total-supply reads stay consistent. The token
+ * account's `state` and every other field are untouched, matching the state the
+ * real burn instruction leaves behind. Throws if either field would underflow.
+ */
+export async function burnTokensViaSurfpool(
+  mint: PublicKey,
+  tokenAccount: PublicKey,
+  amount: anchor.BN
+): Promise<void> {
+  const value = BigInt(amount.toString());
+
+  const taInfo = await getAccountInfo(tokenAccount);
+  if (!taInfo) throw new Error(`token account ${tokenAccount.toBase58()} not found`);
+  const taData = Buffer.from(taInfo.data);
+  const taAmount = taData.readBigUInt64LE(TOKEN_ACCOUNT_AMOUNT_OFFSET);
+  if (taAmount < value) {
+    throw new Error(`cannot burn ${value} from token account ${tokenAccount.toBase58()} with balance ${taAmount}`);
+  }
+  taData.writeBigUInt64LE(taAmount - value, TOKEN_ACCOUNT_AMOUNT_OFFSET);
+  await surfnetSetAccount(tokenAccount, { data: taData.toString("hex") });
+
+  const mintInfo = await getAccountInfo(mint);
+  if (!mintInfo) throw new Error(`mint account ${mint.toBase58()} not found`);
+  const mintData = Buffer.from(mintInfo.data);
+  const supply = mintData.readBigUInt64LE(MINT_SUPPLY_OFFSET);
+  if (supply < value) {
+    throw new Error(`cannot burn ${value} from mint ${mint.toBase58()} with supply ${supply}`);
+  }
+  mintData.writeBigUInt64LE(supply - value, MINT_SUPPLY_OFFSET);
+  await surfnetSetAccount(mint, { data: mintData.toString("hex") });
+}

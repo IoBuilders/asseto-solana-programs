@@ -24,11 +24,13 @@ import {
 } from "./program_helpers/factory/factory_pda_helper";
 import { OPERATIONS_BURN } from "./utils/functionalities";
 import { beforeEach } from "mocha";
+import { ROLE_ADMIN, ROLE_CONTROLLER, setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 
 describe("operations", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.publicKey;
 
   describe("burn ", async () => {
     let mint: PublicKey;
@@ -44,6 +46,7 @@ describe("operations", () => {
       ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
       mintOwnerPda = pdaUtils.mintOwnerPda(mint);
       await setAssetClassVersionForMint(mint, { functionalities: [OPERATIONS_BURN] });
+      await setRoles(mint, authority, [ROLE_CONTROLLER]);
     });
 
     it("burn: removes tokens from the token account via permanent delegate", async () => {
@@ -55,7 +58,10 @@ describe("operations", () => {
       await mintTokensViaSurfpool(mint, source, mintAmount);
 
       // ── Call burn ──────────────────────────────────────────────────────
-      const { signature } = await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
+      const { signature } = await burnTokens(
+        { deployer, mint, tokenAccount: source, authority },
+        { amount: burnAmount }
+      );
 
       const sourceAfter = (await getTokenAccount(source)).amount;
       assert.equal(
@@ -90,7 +96,7 @@ describe("operations", () => {
       await setSnapshotCounter(mint, snapshotId);
 
       // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 1 ──
-      await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
+      await burnTokens({ deployer, mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
       const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
@@ -123,10 +129,10 @@ describe("operations", () => {
       await setSnapshotCounter(mint, snapshotId);
 
       // First burn — snapshot CPIs fire and record pre-burn balance (= balanceBeforeSnapshot)
-      await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
+      await burnTokens({ deployer, mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       // Second burn in the same snapshot period — snapshot CPIs must be no-ops
-      await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
+      await burnTokens({ deployer, mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
       const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
@@ -143,23 +149,26 @@ describe("operations", () => {
       );
     });
 
-    it("burn: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    it("burn: fails with MissingRole when authority does not have the controller role", async () => {
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
 
       // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
       const rogueKeypair = Keypair.generate();
+      await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not controller role
 
       try {
-        await burnTokens({ deployer: rogueKeypair.publicKey, mint, tokenAccount: source, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await burnTokens({
+          deployer,
+          mint,
+          tokenAccount: source,
+          authority: rogueKeypair.publicKey,
+          signers: [rogueKeypair],
+        });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "UnauthorizedDeployer",
-          "error code should be UnauthorizedDeployer"
-        );
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
       }
     });
 
@@ -172,7 +181,7 @@ describe("operations", () => {
       // This surfaces as a SendTransactionError (Token-2022 custom error 0x43),
       // not an AnchorError, because the rejection originates inside Token-2022.
       try {
-        await burnTokens({ deployer, mint, tokenAccount: source });
+        await burnTokens({ deployer, mint, tokenAccount: source, authority });
         assert.fail("Expected mint-is-paused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
@@ -193,7 +202,7 @@ describe("operations", () => {
 
       // ── Burn must now be rejected with Deactivated ─────────────────────────
       try {
-        await burnTokens({ deployer, mint, tokenAccount: source });
+        await burnTokens({ deployer, mint, tokenAccount: source, authority });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -209,7 +218,7 @@ describe("operations", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await burnTokens({ deployer, mint, tokenAccount: source });
+        await burnTokens({ deployer, mint, tokenAccount: source, authority });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -231,7 +240,7 @@ describe("operations", () => {
       });
 
       try {
-        await burnTokens({ deployer, mint, tokenAccount: source });
+        await burnTokens({ deployer, mint, tokenAccount: source, authority });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
