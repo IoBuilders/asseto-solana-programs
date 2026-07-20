@@ -74,7 +74,7 @@ describe("operations", () => {
       const event = await getControllerRedemptionEvent(signature);
       assert.isNotNull(event, "ControllerRedemption event should be emitted");
       assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the burned mint");
-      assert.equal(event!.controller.toBase58(), deployer.toBase58(), "controller should be the deployer");
+      assert.equal(event!.controller.toBase58(), authority.toBase58(), "controller should be the deployer");
       assert.equal(event!.from.toBase58(), source.toBase58(), "from should be the burned token account");
       assert.equal(event!.value.toString(), burnAmount.toString(), "value should match the burn amount");
     });

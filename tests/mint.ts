@@ -76,7 +76,7 @@ describe("mint", () => {
     const issued = await getIssuedEvent(signature);
     assert.isNotNull(issued, "an Issued event should be emitted");
     assert.equal(issued!.mint.toBase58(), mint.toBase58(), "event mint should match the minted mint");
-    assert.equal(issued!.operator.toBase58(), deployer.toBase58(), "event operator should be the deployer");
+    assert.equal(issued!.operator.toBase58(), authority.toBase58(), "event operator should be the deployer");
     assert.equal(issued!.to.toBase58(), destination.toBase58(), "event destination should match the token account");
     assert.equal(issued!.value.toString(), mintAmount.toString(), "event value should equal the minted amount");
   });
