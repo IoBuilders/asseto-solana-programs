@@ -4,7 +4,6 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import {
   getMetadataFieldRemovedEvent,
   getMetadataFieldUpdatedEvent,
@@ -23,6 +22,7 @@ import {
   METADATA_UPDATE_UPDATE_METADATA_FIELD,
   PAUSE_PAUSE,
 } from "./utils/functionalities";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("metadata-update", () => {
   const provider = anchor.AnchorProvider.env();
@@ -32,6 +32,7 @@ describe("metadata-update", () => {
 
   describe("update_metadata_field", async () => {
     let mint: PublicKey;
+
     beforeEach(async () => {
       ({ mint } = await deployMint({ deployer }));
       await setAssetClassVersionForMint(mint, {
@@ -101,8 +102,7 @@ describe("metadata-update", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("update_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
-      // ── Deactivate the mint ────────────────────────────────────────────────
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await updateMetadataField({ deployer, mint });
@@ -245,9 +245,7 @@ describe("metadata-update", () => {
       await setAssetClassVersionForMint(mint, {
         functionalities: [DEACTIVATE_DEACTIVATE, METADATA_UPDATE_REMOVE_METADATA_FIELD],
       });
-
-      // ── Deactivate the mint ────────────────────────────────────────────────
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await removeMetadataField({ deployer, mint });

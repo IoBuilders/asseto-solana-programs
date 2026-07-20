@@ -5,7 +5,6 @@ import { assert } from "chai";
 import { BOND_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import {
   getBondTermsUpdatedEvent,
   UpdateBondArgs,
@@ -18,6 +17,7 @@ import {
 } from "./program_helpers/factory/factory_pda_helper";
 import { BOND_UPDATE_BOND_TERMS, DEACTIVATE_DEACTIVATE, PAUSE_PAUSE } from "./utils/functionalities";
 import { getAccountInfo } from "./program_helpers/account_helper";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("bond", () => {
   const provider = anchor.AnchorProvider.env();
@@ -173,7 +173,7 @@ describe("bond", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("update_bond_terms: fails with Deactivated when mint has been deactivated", async () => {
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await updateBondTerms({ deployer, mint });

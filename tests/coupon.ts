@@ -5,7 +5,6 @@ import { assert } from "chai";
 import { COUPON_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import {
   createCoupon,
   getCouponCreatedEvent,
@@ -34,6 +33,7 @@ import {
   DEACTIVATE_DEACTIVATE,
   PAUSE_PAUSE,
 } from "./utils/functionalities";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("coupon", () => {
   const provider = anchor.AnchorProvider.env();
@@ -312,7 +312,7 @@ describe("coupon", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("create_coupon: fails with Deactivated when mint has been deactivated", async () => {
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await createCoupon({ deployer, mint });
@@ -556,7 +556,7 @@ describe("coupon", () => {
     it("set_coupon_rate: fails with Deactivated when mint has been deactivated", async () => {
       const couponId = new anchor.BN(1);
       await createCoupon({ deployer, mint }, { couponId });
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await setCouponRate({ deployer, mint }, { couponId });

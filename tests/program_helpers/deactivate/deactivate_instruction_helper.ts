@@ -9,6 +9,7 @@ import { getEvent } from "../event_helper";
 import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { deactivatePda, deactivateEventAuthorityPda } from "./deactivate_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getDeactivateProgram(): Program<Deactivate> {
   return anchor.workspace.Deactivate as Program<Deactivate>;
@@ -17,14 +18,15 @@ export function getDeactivateProgram(): Program<Deactivate> {
 // ── deactivate ─────────────────────────────────────────────────────────────────
 
 export async function deactivateMint(callContext: MintWriteContext): Promise<{ signature: string }> {
-  // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
+  const program = getDeactivateProgram();
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await getDeactivateProgram()
     .methods.deactivate()
     .accountsStrict({
-      deployer: callContext.deployer,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
@@ -33,7 +35,7 @@ export async function deactivateMint(callContext: MintWriteContext): Promise<{ s
       program: DEACTIVATE_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

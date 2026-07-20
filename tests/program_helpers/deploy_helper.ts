@@ -9,7 +9,7 @@ import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { Deploy } from "../../target/types/deploy";
-import { DeployerWithPayerContext } from "./base_helper";
+import { AuthorityWithPayerContext } from "./base_helper";
 import { getEvent } from "./event_helper";
 import * as pdaUtils from "../utils/pda_utils";
 import { permanentDelegatePda } from "./burn/burn_pda_helper";
@@ -46,7 +46,7 @@ function getDefaultArgs(): Required<DeployMintArgs> {
 }
 
 export async function deployMint(
-  callContext: DeployerWithPayerContext,
+  callContext: AuthorityWithPayerContext,
   args?: DeployMintArgs
 ): Promise<{ mint: PublicKey; signature: string }> {
   const effectiveArgs: Required<DeployMintArgs> = {
