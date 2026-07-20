@@ -6,13 +6,14 @@
 /// Named `ROLE_<NAME>`. These map to bit positions in `access-control`'s
 /// `Roles.mask` (via `common::bitmask`).
 pub const ROLE_ADMIN: u16 = 0;
-
-/// Byte offset of the role bit-mask within an access-control `Roles` account:
-/// 8-byte Anchor discriminator + 8-byte header (`bump` + `_padding`). Lets
-/// `require_role` read the mask straight from `AccountInfo` without depending on
-/// the `access-control` crate. Mirrors `access_control::state::Roles`; a
-/// compile-time assertion in that crate guards against drift.
-pub const ROLES_MASK_OFFSET: usize = 8 + 8;
+pub const ROLE_CONTROLLER: u16 = 1;
+pub const ROLE_CONTROL_LIST: u16 = 2;
+pub const ROLE_CORPORATE_ACTION: u16 = 3;
+pub const ROLE_ISSUER: u16 = 4;
+pub const ROLE_TREASURER: u16 = 5;
+pub const ROLE_PAUSER: u16 = 6;
+pub const ROLE_FREEZE_MANAGER: u16 = 7;
+pub const ROLE_DEACTIVATE: u16 = 8;
 
 #[cfg(test)]
 mod tests {
