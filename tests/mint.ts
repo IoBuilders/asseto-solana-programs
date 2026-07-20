@@ -28,11 +28,13 @@ import {
   PAUSE_PAUSE,
   TRANSFER_CONTROL_SET_MODES,
 } from "./utils/functionalities";
+import { ROLE_ADMIN, ROLE_ISSUER, setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.publicKey;
   const MINT_DECIMALS = 6;
   let mint: PublicKey;
 
@@ -47,6 +49,7 @@ describe("mint", () => {
         MINT_MINT,
       ],
     });
+    await setRoles(mint, authority, [ROLE_ISSUER]);
   });
 
   it("mint: mints tokens to a destination account and updates balance correctly", async () => {
@@ -57,7 +60,7 @@ describe("mint", () => {
     const supplyBefore = mintInfoBefore.supply;
     const mintAmount = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
 
-    const signature = await mintTokens({ deployer, mint, destination }, { amount: mintAmount });
+    const signature = await mintTokens({ deployer, mint, destination, authority }, { amount: mintAmount });
 
     const accountAfter = await getTokenAccount(destination);
     const balanceAfter = accountAfter.amount;
@@ -82,17 +85,17 @@ describe("mint", () => {
     // ── Create destination token account + mint an initial balance ────────────────────────
     const destination = await createTokenAccount({ mint, owner: deployer });
     const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
-    await mintTokens({ deployer, mint, destination }, { amount: balanceBeforeSnapshot });
+    await mintTokens({ deployer, mint, destination, authority }, { amount: balanceBeforeSnapshot });
 
     // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
     const couponId = new anchor.BN(1);
     await createCoupon({ deployer, mint }, { couponId });
 
     // ── First mint under the snapshot period — snapshot CPIs fire and record pre-mint balance ──────────
-    await mintTokens({ deployer, mint, destination });
+    await mintTokens({ deployer, mint, destination, authority });
 
     // ── Second mint under the snapshot period — snapshot CPIs must be no-ops
-    await mintTokens({ deployer, mint, destination });
+    await mintTokens({ deployer, mint, destination, authority });
 
     // ── Assert snapshot values ──────────────────────────
     const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
@@ -117,7 +120,7 @@ describe("mint", () => {
     await pauseMint({ deployer, mint });
 
     try {
-      await mintTokens({ deployer, mint, destination });
+      await mintTokens({ deployer, mint, destination, authority });
       assert.fail("Expected mint-is-paused error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
@@ -134,7 +137,7 @@ describe("mint", () => {
     await deactivateMint({ deployer, mint });
 
     try {
-      await mintTokens({ deployer, mint, destination });
+      await mintTokens({ deployer, mint, destination, authority });
       assert.fail("Expected Deactivated error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -143,17 +146,18 @@ describe("mint", () => {
     }
   });
 
-  it("mint: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+  it("mint: fails with MissingRole when authority does not have the issuer role", async () => {
     const destination = await createTokenAccount({ mint, owner: deployer });
     const rogueKeypair = Keypair.generate();
+    await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not issuer role
 
     try {
-      await mintTokens({ deployer: rogueKeypair.publicKey, mint, destination, signers: [rogueKeypair] });
-      assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+      await mintTokens({ deployer, mint, destination, authority: rogueKeypair.publicKey, signers: [rogueKeypair] });
+      assert.fail("Expected MissingRole error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
       const anchorErr = err as AnchorError;
-      assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer");
+      assert.equal(anchorErr.error.errorCode.code, "MissingRole");
     }
   });
 
@@ -162,7 +166,7 @@ describe("mint", () => {
     await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_WHITELIST] });
 
     try {
-      await mintTokens({ deployer, mint, destination });
+      await mintTokens({ deployer, mint, destination, authority });
       assert.fail("Expected NotWhitelisted error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -179,7 +183,7 @@ describe("mint", () => {
     await setAssetClassVersionForMint(mint, { functionalities: [] });
 
     try {
-      await mintTokens({ deployer, mint, destination });
+      await mintTokens({ deployer, mint, destination, authority });
       assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -203,7 +207,7 @@ describe("mint", () => {
     });
 
     try {
-      await mintTokens({ deployer, mint, destination });
+      await mintTokens({ deployer, mint, destination, authority });
       assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");

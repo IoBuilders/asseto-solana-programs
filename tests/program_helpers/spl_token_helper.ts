@@ -132,3 +132,39 @@ export async function setMintPaused(mint: PublicKey, paused: boolean): Promise<v
   }
   throw new Error(`PausableConfig extension not found on mint ${mint.toBase58()}`);
 }
+
+// Base token-account layout: `amount` is a u64 LE at offset 64 (after mint + owner),
+// before any extension TLV. Base mint layout: `supply` is a u64 LE at offset 36
+// (after the COption<Pubkey> mint authority). Both live in the fixed base section,
+// so writing them is extension-agnostic.
+const TOKEN_ACCOUNT_AMOUNT_OFFSET = 64;
+const MINT_SUPPLY_OFFSET = 36;
+
+/**
+ * Test-only: mints `amount` tokens to `tokenAccount` directly via surfpool — the
+ * plant-based equivalent of running the `mint` instruction, with no CPI. Credits
+ * the token account's `amount` field and bumps the mint's `supply` by the same
+ * amount, both incremented so repeated calls and total-supply reads stay
+ * consistent. The token account's `state` (left Frozen by the mint's
+ * DefaultAccountState) and every other field are untouched, matching the state
+ * the real mint instruction leaves behind.
+ */
+export async function mintTokensViaSurfpool(
+  mint: PublicKey,
+  tokenAccount: PublicKey,
+  amount: anchor.BN
+): Promise<void> {
+  const value = BigInt(amount.toString());
+
+  const taInfo = await getAccountInfo(tokenAccount);
+  if (!taInfo) throw new Error(`token account ${tokenAccount.toBase58()} not found`);
+  const taData = Buffer.from(taInfo.data);
+  taData.writeBigUInt64LE(taData.readBigUInt64LE(TOKEN_ACCOUNT_AMOUNT_OFFSET) + value, TOKEN_ACCOUNT_AMOUNT_OFFSET);
+  await surfnetSetAccount(tokenAccount, { data: taData.toString("hex") });
+
+  const mintInfo = await getAccountInfo(mint);
+  if (!mintInfo) throw new Error(`mint account ${mint.toBase58()} not found`);
+  const mintData = Buffer.from(mintInfo.data);
+  mintData.writeBigUInt64LE(mintData.readBigUInt64LE(MINT_SUPPLY_OFFSET) + value, MINT_SUPPLY_OFFSET);
+  await surfnetSetAccount(mint, { data: mintData.toString("hex") });
+}

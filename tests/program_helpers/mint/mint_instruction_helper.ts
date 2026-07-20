@@ -14,6 +14,7 @@ import { transferControlModePda, whitelistPda } from "../transfer_control/transf
 import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
 import { snapshotCounterPda, snapshotTotalSupplyPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getMintProgram(): Program<Mint> {
   return anchor.workspace.Mint as Program<Mint>;
@@ -23,6 +24,7 @@ export function getMintProgram(): Program<Mint> {
 
 export type MintTokensContext = MintWriteContext & {
   destination: PublicKey;
+  authority: PublicKey;
 };
 
 type MintTokensArgs = {
@@ -51,6 +53,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
     .mint(effectiveArgs.amount)
     .accountsStrict({
       deployer: callContext.deployer,
+      authority: callContext.authority,
       mint: callContext.mint,
       destination: callContext.destination,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
@@ -69,6 +72,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       eventAuthority: mintEventAuthorityPda(),
       program: mintProgram.programId,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      authorityRolesPda: rolesPda(callContext.mint, callContext.authority),
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });

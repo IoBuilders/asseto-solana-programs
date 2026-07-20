@@ -14,8 +14,12 @@ import {
 } from "./program_helpers/freeze/freeze_instruction_helper";
 import { getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
 import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
-import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
-import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
+import {
+  createTokenAccount,
+  getMint,
+  getTokenAccount,
+  mintTokensViaSurfpool,
+} from "./program_helpers/spl_token_helper";
 import { burnTokens } from "./program_helpers/burn/burn_instruction_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
@@ -98,7 +102,7 @@ describe("transfer", () => {
     it("transfer: moves tokens from source to destination", async () => {
       // Mint 1 000 tokens to the source account (owned by sourceOwner).
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -137,7 +141,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: snapshot captures pre-transfer balances (source = minted - transferred, destination = transferred)", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       const couponId = new anchor.BN(1);
@@ -177,7 +181,7 @@ describe("transfer", () => {
       const THIRD_TRANSFER = new anchor.BN(100 * 10 ** MINT_DECIMALS);
 
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       const couponId1 = new anchor.BN(1);
@@ -323,7 +327,7 @@ describe("transfer", () => {
     it("transfer: fails when there is no previous instruction", async () => {
       // Mint 1 000 tokens to the source account (owned by sourceOwner).
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -357,7 +361,7 @@ describe("transfer", () => {
     it("transfer: fails when previous instruction program is not verify program", async () => {
       // Mint 1 000 tokens to the source account (owned by sourceOwner).
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -392,7 +396,7 @@ describe("transfer", () => {
     it("transfer: fails when previous instruction method does not have the proper input arguments", async () => {
       // Mint 1 000 tokens to the source account (owned by sourceOwner).
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -426,7 +430,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -458,7 +462,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: fails with FunctionalityNotSupportedError when the transfer_hook_execute functionality is not enabled", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -487,7 +491,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: fails when signer is not token holder", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -519,7 +523,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: fails when mint is paused", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -550,7 +554,7 @@ describe("transfer", () => {
       // same transfer amount retried after update — 50 <= 60 → succeeds
 
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: TOTAL_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, TOTAL_AMOUNT);
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
@@ -612,7 +616,7 @@ describe("transfer", () => {
 
       // ── Mint 100 tokens to source account (owned by sourceOwner) ─────────────
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: TOTAL_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, TOTAL_AMOUNT);
 
       // ── Create destination token account ──────────────────────────────────────
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -656,7 +660,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: succeeds when clearing mode is active and the deployer co-signs verify_transfer", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
@@ -707,7 +711,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: succeeds when both Clearing and Whitelist modes are active and both conditions are satisfied", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
@@ -762,7 +766,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: rule change between transactions takes effect immediately (hot-swap)", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
@@ -849,7 +853,7 @@ describe("transfer", () => {
 
       // ── Mint 100 tokens to source ─────────────────────────────────────────────
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: TOTAL_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, TOTAL_AMOUNT);
 
       // ── Create destination token account ──────────────────────────────────────
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -917,7 +921,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("verify_transfer: fails with TransferControlDenied when both modes active and only whitelist passes (signer is not the deployer)", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
@@ -972,7 +976,7 @@ describe("transfer", () => {
     it("verify_transfer: fails with TransferControlDenied when clearing mode is active and signer is not the deployer", async () => {
       // Mint tokens to source before activating clearing mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create destination token account
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -1029,7 +1033,7 @@ describe("transfer", () => {
     it("verify_transfer: fails with TransferControlDenied when whitelist mode is active and source is not whitelisted", async () => {
       // Mint tokens to source before activating whitelist mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create destination token account
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -1078,7 +1082,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("verify_transfer: fails with TransferControlDenied when both modes active and only clearing passes (destination not whitelisted)", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
@@ -1128,7 +1132,7 @@ describe("transfer", () => {
     it("verify_transfer: fails with TransferControlDenied when whitelist mode is active and destination is not whitelisted", async () => {
       // Mint tokens to source before activating whitelist mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create destination token account
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -1177,7 +1181,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("verify_transfer: fails with AccountFrozen when source account has been frozen", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
       await freezeAccount({ deployer, mint, account: source });
 
@@ -1196,7 +1200,7 @@ describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("verify_transfer: fails with Deactivated when mint has been deactivated", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokens({ deployer, mint, destination: source }, { amount: MINT_AMOUNT });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });

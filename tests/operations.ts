@@ -4,29 +4,25 @@ import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
-import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
-import { createTokenAccount, getTokenAccount } from "./program_helpers/spl_token_helper";
-import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
+import {
+  createTokenAccount,
+  getTokenAccount,
+  mintTokensViaSurfpool,
+  setMintPaused,
+} from "./program_helpers/spl_token_helper";
 import { burnTokens, getControllerRedemptionEvent } from "./program_helpers/burn/burn_instruction_helper";
 import {
   getHolderBalanceSnapshotAt,
   getTotalSupplySnapshotAt,
 } from "./program_helpers/snapshot/snapshot_instruction_helper";
-import { partiallyFreezeAccount } from "./program_helpers/freeze/freeze_instruction_helper";
+import { setSnapshotCounter } from "./program_helpers/snapshot/snapshot_pda_helper";
+import { setFrozenBalance } from "./program_helpers/freeze/freeze_pda_helper";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
-import {
-  COUPON_CREATE_COUPON,
-  DEACTIVATE_DEACTIVATE,
-  FREEZE_PARTIALLY_FREEZE_ACCOUNT,
-  MINT_MINT,
-  OPERATIONS_BURN,
-  PAUSE_PAUSE,
-} from "./utils/functionalities";
+import { OPERATIONS_BURN } from "./utils/functionalities";
 import { beforeEach } from "mocha";
 
 describe("operations", () => {
@@ -39,28 +35,24 @@ describe("operations", () => {
     let mintOwnerPda: PublicKey;
     const MINT_DECIMALS = 6;
 
+    // A fresh mint per test (unpaused + active out of the box) plus a fresh
+    // asset-class version finalized with the burn functionality. Every
+    // precondition burn cares about — token balances, partial-freeze markers,
+    // active snapshots, paused/deactivated state — is then planted in isolation
+    // via surfpool cheatcodes, so `burn` is the only instruction each test runs.
     beforeEach(async () => {
       ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
       mintOwnerPda = pdaUtils.mintOwnerPda(mint);
-      await setAssetClassVersionForMint(mint, {
-        functionalities: [
-          PAUSE_PAUSE,
-          OPERATIONS_BURN,
-          COUPON_CREATE_COUPON,
-          DEACTIVATE_DEACTIVATE,
-          FREEZE_PARTIALLY_FREEZE_ACCOUNT,
-          MINT_MINT,
-        ],
-      });
+      await setAssetClassVersionForMint(mint, { functionalities: [OPERATIONS_BURN] });
     });
 
     it("burn: removes tokens from the token account via permanent delegate", async () => {
       const mintAmount = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
       const burnAmount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
 
-      // Mint 1 000 tokens to the source account (owned by deployer wallet).
+      // Plant 1 000 tokens on the source account (owned by the mint-owner PDA).
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-      await mintTokens({ deployer, mint, destination: source }, { amount: mintAmount });
+      await mintTokensViaSurfpool(mint, source, mintAmount);
 
       // ── Call burn ──────────────────────────────────────────────────────
       const { signature } = await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
@@ -86,25 +78,22 @@ describe("operations", () => {
       const burnAmount = new anchor.BN(3 ** MINT_DECIMALS);
       const partialFrozenAmount = new anchor.BN(5 ** MINT_DECIMALS);
 
-      // ── Mint 1 000 tokens (no snapshot active yet → snapshot CPIs exit silently) ──
+      // ── Plant the holder balance and total supply ────────────────────────────
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-      await mintTokens({ deployer, mint, destination: source }, { amount: mintAmount });
+      await mintTokensViaSurfpool(mint, source, mintAmount);
 
-      // ── Partially freeze 400 tokens on source ─────────────────────────────────
-      await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: partialFrozenAmount });
+      // ── Plant a partial-freeze marker for 5^6 tokens on source ───────────────
+      await setFrozenBalance(mint, source, partialFrozenAmount);
 
-      // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
-      const couponId = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId });
+      // ── Activate snapshot id 1 directly (counter 0 → 1) ──────────────────────
+      const snapshotId = new anchor.BN(1);
+      await setSnapshotCounter(mint, snapshotId);
 
       // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 1 ──
       await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
 
-      const holderValue = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId }
-      );
-      const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
+      const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
+      const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
 
       // (1) Snapshot recorded the FULL balance — not adjusted by frozen_balance_pda.
       assert.equal(
@@ -125,13 +114,13 @@ describe("operations", () => {
       const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
       const burnAmount = new anchor.BN(1 ** MINT_DECIMALS);
 
-      // Mint tokens (no snapshot active yet → snapshot CPIs exit silently)
+      // Plant tokens on the source account
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-      await mintTokens({ deployer, mint, destination: source }, { amount: balanceBeforeSnapshot });
+      await mintTokensViaSurfpool(mint, source, balanceBeforeSnapshot);
 
-      // Take snapshot via create_coupon (counter 0 → 1); subsequent operations will record pre-op balances
-      const couponId = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId });
+      // Activate snapshot id 1 (counter 0 → 1); subsequent operations record pre-op balances
+      const snapshotId = new anchor.BN(1);
+      await setSnapshotCounter(mint, snapshotId);
 
       // First burn — snapshot CPIs fire and record pre-burn balance (= balanceBeforeSnapshot)
       await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
@@ -140,11 +129,8 @@ describe("operations", () => {
       await burnTokens({ deployer, mint, tokenAccount: source }, { amount: burnAmount });
 
       // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
-      const holderValue = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId }
-      );
-      const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
+      const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
+      const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
       assert.equal(
         holderValue.toString(),
         balanceBeforeSnapshot.toString(),
@@ -159,7 +145,6 @@ describe("operations", () => {
 
     it("burn: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-      await mintTokens({ deployer, mint, destination: source });
 
       // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
       const rogueKeypair = Keypair.generate();
@@ -180,8 +165,8 @@ describe("operations", () => {
 
     it("burn: fails when mint is paused", async () => {
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-      await mintTokens({ deployer, mint, destination: source });
-      await pauseMint({ deployer, mint });
+      await mintTokensViaSurfpool(mint, source, new anchor.BN(1));
+      await setMintPaused(mint, true);
 
       // The burn CPI into Token-2022 is rejected because the mint is paused.
       // This surfaces as a SendTransactionError (Token-2022 custom error 0x43),
@@ -202,12 +187,11 @@ describe("operations", () => {
 
     it("burn: fails with Deactivated when mint has been deactivated", async () => {
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-      await mintTokens({ deployer, mint, destination: source });
 
-      // ── Deactivate the mint ────────────────────────────────────────────────
-      await deactivateMint({ deployer, mint });
+      // ── Plant the deactivation marker ──────────────────────────────────────
+      await setDeactivateMarker(mint);
 
-      // ── Mint must now be rejected with Deactivated ─────────────────────────
+      // ── Burn must now be rejected with Deactivated ─────────────────────────
       try {
         await burnTokens({ deployer, mint, tokenAccount: source });
         assert.fail("Expected Deactivated error but instruction succeeded");
@@ -220,7 +204,6 @@ describe("operations", () => {
 
     it("burn: fails with FunctionalityNotSupportedError when the burn functionality is not enabled", async () => {
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-      await mintTokens({ deployer, mint, destination: source });
 
       // Re-seed the asset-class version WITHOUT the burn functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
@@ -241,7 +224,6 @@ describe("operations", () => {
 
     it("burn: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
-      await mintTokens({ deployer, mint, destination: source });
 
       await setAssetClassVersionForMint(mint, {
         state: ASSET_CLASS_VERSION_STATE_DRAFT,

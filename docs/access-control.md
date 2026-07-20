@@ -16,8 +16,8 @@ account that already holds `ROLE_ADMIN` on the mint, the relevant functionality
 (`ACCESS_CONTROL_GRANT_ROLES` / `ACCESS_CONTROL_REVOKE_ROLES`) must be enabled in the mint's
 asset-class version, and the mint must be neither paused nor deactivated.
 
-Role identifiers are the `u16` constants in [`common::roles`](common.md) (currently only
-`ROLE_ADMIN = 0`); they index bit positions in the `Roles.mask`.
+Role identifiers are the `u16` constants in [`common::roles`](common.md) (currently
+`ROLE_ADMIN = 0` … `ROLE_DEACTIVATE = 8`); they index bit positions in the `Roles.mask`.
 
 ---
 
@@ -32,7 +32,7 @@ pub struct Roles {
     pub mask: [u8; ROLES_BYTES_MASK], // 1024 bytes = 8_192 role bits
 }
 // LEN = 8 (discriminator) + 8 (header) + 1024 (mask) = 1040 bytes
-// Seeds: [mint, account]
+// Seeds: ["roles", mint, account]
 ```
 
 **Zero-copy** (`AccountLoader`): the mask is large, so the account bytes are reinterpreted in
@@ -116,7 +116,7 @@ originating `deploy_mint` transaction. Fails with `Unauthorized` otherwise.
 | `temp_mint_authority` | no | yes | Signer | Must be the deploy `["temp_mint_authority", mint]` PDA; signed via CPI by `deploy` |
 | `account` | no | yes | Signer | The grantee (the deployer); also a `roles_pda` seed |
 | `mint` | no | no | UncheckedAccount | Read-only; used as a `roles_pda` seed |
-| `roles_pda` | yes | no | `AccountLoader<Roles>` | init (fails if it already exists); seeds `[mint, account]` |
+| `roles_pda` | yes | no | `AccountLoader<Roles>` | init (fails if it already exists); seeds `["roles", mint, account]` |
 | `system_program` | no | no | Program<System> | |
 
 ### Execution
@@ -153,7 +153,7 @@ bits outside `roles` are left untouched).
 | `account` | no | no | UncheckedAccount | The grantee; any account; used only as a `roles_pda` seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; checked by `require_active` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `roles_pda` | yes | no | `AccountLoader<Roles>` | init_if_needed; seeds `[mint, account]` |
+| `roles_pda` | yes | no | `AccountLoader<Roles>` | init_if_needed; seeds `["roles", mint, account]` |
 | `system_program` | no | no | Program<System> | |
 | `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`, ids from `mint_owner_pda`; checked by `require_functionality` |
 
@@ -192,7 +192,7 @@ via `mask[byte] &= !(1 << bit)` (a targeted merge — bits outside `roles` are l
 | `account` | no | no | UncheckedAccount | The target; any account; used only as a `roles_pda` seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; checked by `require_active` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `roles_pda` | yes | no | `AccountLoader<Roles>` | mut; seeds `[mint, account]`; must already exist |
+| `roles_pda` | yes | no | `AccountLoader<Roles>` | mut; seeds `["roles", mint, account]`; must already exist |
 | `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`, ids from `mint_owner_pda`; checked by `require_functionality` |
 
 ### Execution

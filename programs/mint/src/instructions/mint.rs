@@ -2,7 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::pda_utils;
-use common::{pda_seeds, require_active, require_functionality, verify_deployer_account};
+use common::state::Roles as RolesCommon;
+use common::{pda_seeds, require_active, require_functionality, require_role, roles};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
 use spl_token_2022::instruction::mint_to;
@@ -14,7 +15,6 @@ use common::state::{AssetClassVersion, MintOwner};
 
 /// Mints `amount` tokens of the given mint to `destination`.
 ///
-/// Only the deployer recorded in `mint_owner_pda` may call this instruction.
 ///
 /// Before minting, records the pre-mint total supply and destination balance into
 /// any active snapshot (CPIs to snapshot, both signed by `mint_authority`).
@@ -25,8 +25,7 @@ use common::state::{AssetClassVersion, MintOwner};
 /// immediately after (CPI to freeze). Both CPIs are signed by the
 /// `mint_authority` PDA, which is the only caller freeze accepts.
 pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ───────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_ISSUER)?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
@@ -146,6 +145,9 @@ pub struct MintTokens<'info> {
     /// Must sign to authorise minting; marked mutable to pay for snapshot PDA creation.
     #[account(mut)]
     pub deployer: Signer<'info>,
+
+    /// The caller — must sign and hold `ROLE_ISSUER` on this mint.
+    pub authority: Signer<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(
@@ -272,4 +274,15 @@ pub struct MintTokens<'info> {
 
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
+
+    /// The caller's own `Roles` PDA — read to verify `ROLE_ISSUER`. Seeds: `["roles", mint, authority]`.
+    ///
+    /// CHECK: Address verified by seeds/bump; issuer bit checked by require_role.
+    /// An absent PDA fails at account resolution (AccountOwnedByWrongProgram).
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 }

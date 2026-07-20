@@ -108,6 +108,14 @@ The caller passes a `Ref<Roles>` obtained from its own `AccountLoader<Roles>` vi
 
 ```rust
 pub const ROLE_ADMIN: u16 = 0;                 // flat u16 role ids (append-only, sequential)
+pub const ROLE_CONTROLLER: u16 = 1;
+pub const ROLE_CONTROL_LIST: u16 = 2;
+pub const ROLE_CORPORATE_ACTION: u16 = 3;
+pub const ROLE_ISSUER: u16 = 4;
+pub const ROLE_TREASURER: u16 = 5;
+pub const ROLE_PAUSER: u16 = 6;
+pub const ROLE_FREEZE_MANAGER: u16 = 7;
+pub const ROLE_DEACTIVATE: u16 = 8;
 pub const ROLES_MASK_OFFSET: usize = 8 + 8;    // discriminator + Roles header; where the mask starts
 ```
 

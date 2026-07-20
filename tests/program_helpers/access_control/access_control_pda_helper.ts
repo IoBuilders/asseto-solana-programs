@@ -5,6 +5,7 @@ import { getAccessControlProgram } from "./access_control_instruction_helper";
 
 /** Role id for the admin role (mirrors `common::roles::ROLE_ADMIN`). */
 export const ROLE_ADMIN = 0;
+export const ROLE_ISSUER = 4;
 
 /** Role mask capacity in bits (mirrors `ROLES_BITS_MASK` on-chain). */
 export const ROLES_BITS_MASK = 8192;
