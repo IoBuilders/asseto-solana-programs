@@ -1,10 +1,13 @@
 use crate::events::Deactivated;
 use anchor_lang::prelude::*;
-use common::{pda_seeds, require_functionality, require_not_paused, verify_deployer_account};
+use common::{
+    pda_seeds, require_functionality, require_not_paused, require_role, roles,
+    verify_deployer_account,
+};
 
 use crate::state::DeactivateStatus;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 
 /// Deactivates the Token-2022 mint by creating an on-chain marker PDA.
 ///
@@ -13,8 +16,10 @@ use common::state::{AssetClassVersion, MintOwner};
 ///
 /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
 pub fn deactivate(ctx: Context<Deactivate>) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_DEACTIVATE,
+    )?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
@@ -29,7 +34,7 @@ pub fn deactivate(ctx: Context<Deactivate>) -> Result<()> {
 
     emit_cpi!(Deactivated {
         mint: ctx.accounts.mint.key(),
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
     });
 
     Ok(())
@@ -38,9 +43,17 @@ pub fn deactivate(ctx: Context<Deactivate>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct Deactivate<'info> {
-    /// The deployer recorded as mint owner — must sign and fund the PDA creation.
+    /// The authority — must sign and fund the PDA creation.
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(
@@ -59,7 +72,7 @@ pub struct Deactivate<'info> {
     /// Seeds: `["deactivate", mint]`.
     #[account(
         init,
-        payer = deployer,
+        payer = authority,
         space = DeactivateStatus::DISCRIMINATOR.len() + DeactivateStatus::INIT_SPACE,
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         bump,

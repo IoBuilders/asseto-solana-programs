@@ -5,7 +5,6 @@ import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
@@ -28,6 +27,7 @@ import {
   PAUSE_PAUSE,
 } from "./utils/functionalities";
 import { beforeEach } from "mocha";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("operations", () => {
   const provider = anchor.AnchorProvider.env();
@@ -205,7 +205,7 @@ describe("operations", () => {
       await mintTokens({ deployer, mint, destination: source });
 
       // ── Deactivate the mint ────────────────────────────────────────────────
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       // ── Mint must now be rejected with Deactivated ─────────────────────────
       try {
