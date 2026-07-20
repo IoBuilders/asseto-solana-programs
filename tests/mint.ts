@@ -4,7 +4,6 @@ import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
 import { mintTokens, getIssuedEvent } from "./program_helpers/mint/mint_instruction_helper";
@@ -29,6 +28,7 @@ import {
   TRANSFER_CONTROL_SET_MODES,
 } from "./utils/functionalities";
 import { ROLE_ADMIN, ROLE_ISSUER, setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
@@ -134,7 +134,7 @@ describe("mint", () => {
 
   it("mint: fails with Deactivated when mint has been deactivated", async () => {
     const destination = await createTokenAccount({ mint, owner: deployer });
-    await deactivateMint({ deployer, mint });
+    await setDeactivateMarker(mint);
 
     try {
       await mintTokens({ deployer, mint, destination, authority });

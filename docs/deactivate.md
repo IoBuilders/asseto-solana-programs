@@ -31,27 +31,31 @@ Creates the `deactivate_pda` marker. After this call, all calls to `mint::mint`,
 
 ### Preconditions
 
-- `verify_deployer` — only the deployer may deactivate.
+- `require_role(authority_roles_pda, ROLE_DEACTIVATE)` — `authority` must hold `ROLE_DEACTIVATE` on the `access-control` `Roles` PDA for this `(mint, authority)` pair (granted via `access-control::grant_roles`). This replaces the deployer-only check — any account holding the role may deactivate, not just the recorded deployer.
 - `require_not_paused` — mint must not be paused (deactivation from paused state is disallowed).
+- `require_functionality(asset_class_version_pda, DEACTIVATE_DEACTIVATE)` — the mint's asset-class version must be finalized and have the `DEACTIVATE_DEACTIVATE` functionality bit enabled.
 
 ### Accounts
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `deployer` | yes | yes | Signer | Funds the PDA creation |
-| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `authority` | yes | yes | Signer | Funds the PDA creation; must hold `ROLE_DEACTIVATE` |
+| `authority_roles_pda` | no | no | `AccountLoader<Roles>` | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
+| `mint_owner_pda` | no | no | `Account<MintOwner>` | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies `asset_class_config_id`/`asset_class_version_id` for `asset_class_version_pda`'s seeds |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` (checks the Pausable extension) |
-| `deactivate_pda` | yes | no | `Account<DeactivateStatus>` | init; seeds `["deactivate", mint]` |
+| `deactivate_pda` | yes | no | `Account<DeactivateStatus>` | init; seeds `["deactivate", mint]`; payer = `authority` |
+| `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", mint_owner_pda.asset_class_config_id, mint_owner_pda.asset_class_version_id]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `Deactivated` |
 | `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
 
 ### Execution
 
-1. `verify_deployer(&mint_owner_pda, &deployer.key())`
+1. `require_role(&authority_roles_pda, ROLE_DEACTIVATE)`
 2. `require_not_paused(&mint)` — ensures the mint is not already paused
-3. Anchor `init` constraint creates and initializes `deactivate_pda` with `bump`
-4. Emit `Deactivated { mint, operator: deployer }` via `emit_cpi!`
+3. `require_functionality(&asset_class_version_pda, DEACTIVATE_DEACTIVATE)`
+4. Anchor `init` constraint creates and initializes `deactivate_pda` with `bump`
+5. Emit `Deactivated { mint, operator: authority }` via `emit_cpi!`
 
 ### Events
 

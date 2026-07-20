@@ -25,6 +25,7 @@ import {
 import { OPERATIONS_BURN } from "./utils/functionalities";
 import { beforeEach } from "mocha";
 import { ROLE_ADMIN, ROLE_CONTROLLER, setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("operations", () => {
   const provider = anchor.AnchorProvider.env();
@@ -197,7 +198,7 @@ describe("operations", () => {
     it("burn: fails with Deactivated when mint has been deactivated", async () => {
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
 
-      // ── Plant the deactivation marker ──────────────────────────────────────
+      // ── Deactivate the mint ────────────────────────────────────────────────
       await setDeactivateMarker(mint);
 
       // ── Burn must now be rejected with Deactivated ─────────────────────────

@@ -24,7 +24,6 @@ export function getMintProgram(): Program<Mint> {
 
 export type MintTokensContext = MintWriteContext & {
   destination: PublicKey;
-  authority: PublicKey;
 };
 
 type MintTokensArgs = {
@@ -53,7 +52,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
     .mint(effectiveArgs.amount)
     .accountsStrict({
       deployer: callContext.deployer,
-      authority: callContext.authority,
+      authority: callContext.authority ?? mintProgram.provider.wallet.payer,
       mint: callContext.mint,
       destination: callContext.destination,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),

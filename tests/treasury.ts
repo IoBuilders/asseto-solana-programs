@@ -4,7 +4,6 @@ import { Keypair, PublicKey, SendTransactionError, Signer } from "@solana/web3.j
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
@@ -41,6 +40,7 @@ import {
   TREASURY_SET_PAYMENT_TOKEN,
 } from "./utils/functionalities";
 import { beforeEach } from "mocha";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 // ── Bond mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -284,7 +284,7 @@ describe("treasury", () => {
     it("set_payment_token: fails with Deactivated when mint has been deactivated", async () => {
       const paymentMint = await createMint();
 
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await setPaymentToken({ deployer, mint, paymentMint });
@@ -718,7 +718,7 @@ describe("treasury", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("pay_coupon: fails with Deactivated when the bond mint has been deactivated", async () => {
       const ctx = await deployBondAndCoupon();
-      await deactivateMint({ deployer, mint: ctx.mint });
+      await setDeactivateMarker(mint);
 
       try {
         await payCouponInternal(ctx);

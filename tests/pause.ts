@@ -11,13 +11,13 @@ import {
   unpauseMint,
 } from "./program_helpers/pause/pause_instruction_helper";
 import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { getMint } from "./program_helpers/spl_token_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
 import { DEACTIVATE_DEACTIVATE, PAUSE_PAUSE, PAUSE_UNPAUSE } from "./utils/functionalities";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("pause", () => {
   const provider = anchor.AnchorProvider.env();
@@ -64,7 +64,6 @@ describe("pause", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("pause: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const { mint } = await deployMint({ deployer });
       const rogueKeypair = Keypair.generate();
 
       try {
@@ -83,8 +82,7 @@ describe("pause", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("pause: fails with Deactivated when mint has been deactivated", async () => {
-      const { mint } = await deployMint({ deployer });
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await pauseMint({ deployer, mint });
@@ -161,7 +159,6 @@ describe("pause", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("unpause: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const { mint } = await deployMint({ deployer });
       const rogueKeypair = Keypair.generate();
 
       try {
@@ -180,8 +177,7 @@ describe("pause", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("unpause: fails with Deactivated when mint has been deactivated", async () => {
-      const { mint } = await deployMint({ deployer });
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await unpauseMint({ deployer, mint });

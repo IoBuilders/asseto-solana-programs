@@ -4,7 +4,6 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { createTokenAccount } from "./program_helpers/spl_token_helper";
 import {
   addToWhitelist,
@@ -36,6 +35,7 @@ import {
   whitelistPda,
   whitelistPdaWithBump,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("transfer-control", () => {
   const provider = anchor.AnchorProvider.env();
@@ -234,7 +234,7 @@ describe("transfer-control", () => {
 
     // ── Error case: set_modes — Deactivated ───────────────────────────────────────
     it("set_modes: fails with Deactivated when mint has been deactivated", async () => {
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await setTransferControlModes({ deployer, mint });
@@ -350,7 +350,7 @@ describe("transfer-control", () => {
     // ── Error case: add_to_whitelist — Deactivated ───────────────────────────────
     it("add_to_whitelist: fails with Deactivated when mint has been deactivated", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await addToWhitelist({ deployer, mint, account: tokenAccount });
@@ -487,7 +487,7 @@ describe("transfer-control", () => {
     it("remove_from_whitelist: fails with Deactivated when mint has been deactivated", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
       await addToWhitelist({ deployer, mint, account: tokenAccount });
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await removeFromWhitelist({ deployer, mint, account: tokenAccount });

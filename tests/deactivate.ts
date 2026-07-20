@@ -1,27 +1,29 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { deactivateMint, getDeactivatedEvent } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import * as deactivatePdaUtils from "./program_helpers/deactivate/deactivate_pda_helper";
 import { getDeactivatePda } from "./program_helpers/deactivate/deactivate_pda_helper";
-import { requestAirdrop } from "./program_helpers/account_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
 import { DEACTIVATE_DEACTIVATE } from "./utils/functionalities";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_DEACTIVATE } from "./utils/roles";
 
 describe("deactivate", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer }));
+    ({ mint } = await deployMint({ deployer: authority.publicKey }));
     await setAssetClassVersionForMint(mint, { functionalities: [DEACTIVATE_DEACTIVATE] });
+    await setRoles(mint, authority.publicKey, [ROLE_DEACTIVATE]);
   });
 
   describe("deactivate", () => {
@@ -32,7 +34,7 @@ describe("deactivate", () => {
       const deactivateStatusBefore = await getDeactivatePda(deactivatePda);
 
       // ── Call the deactivate instruction ───────────────────────────────────────
-      const { signature } = await deactivateMint({ deployer, mint });
+      const { signature } = await deactivateMint({ authority, mint });
 
       // ── Verify the deactivate PDA was created and stores the correct bump ─────
       const deactivateStatusAfter = await getDeactivatePda(deactivatePda);
@@ -45,24 +47,22 @@ describe("deactivate", () => {
 
       assert.isNotNull(event, "Deactivated event should be emitted");
       assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-      assert.equal(event!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+      assert.equal(event!.operator.toBase58(), authority.publicKey.toBase58(), "event operator should match deployer");
     });
 
-    // ── Error case: deactivate — UnauthorizedDeployer ──
-    it("deactivate: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const { mint } = await deployMint({ deployer });
-      const rogueKeypair = Keypair.generate();
-      await requestAirdrop(rogueKeypair.publicKey);
+    // ────────────────────────────────────────────────────────────────────────────
+    it("deactivate: fails with MissingRole when authority doesn't have required role", async () => {
+      await setRoles(mint, authority.publicKey, []);
 
       // ── Call the deactivate instruction ───────────────────────────────────────
       try {
-        await deactivateMint({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
+        await deactivateMint({ authority, mint });
 
         assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer");
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole");
       }
     });
 
@@ -72,7 +72,7 @@ describe("deactivate", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await deactivateMint({ deployer, mint });
+        await deactivateMint({ authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -94,7 +94,7 @@ describe("deactivate", () => {
       });
 
       try {
-        await deactivateMint({ deployer, mint });
+        await deactivateMint({ authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

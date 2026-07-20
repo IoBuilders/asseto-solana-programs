@@ -4,7 +4,6 @@ import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import {
   freezeAccount,
   partiallyFreezeAccount,
@@ -32,6 +31,7 @@ import {
   FREEZE_UNFREEZE_ACCOUNT,
   PAUSE_PAUSE,
 } from "./utils/functionalities";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("freeze", () => {
   const provider = anchor.AnchorProvider.env();
@@ -173,9 +173,7 @@ describe("freeze", () => {
     // ── Error case: freeze_account — Deactivated ────────────────────────────────
     it("freeze_account: fails with Deactivated when mint has been deactivated", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-
-      // ── Deactivate the mint ───────────────────────────────────────────────────
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await freezeAccount({ deployer, mint, account: tokenAccount });
@@ -297,7 +295,7 @@ describe("freeze", () => {
     it("unfreeze_account: fails with Deactivated when mint has been deactivated", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
       await freezeAccount({ deployer, mint, account: tokenAccount });
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await unfreezeAccount({ deployer, mint, account: tokenAccount });
@@ -563,7 +561,7 @@ describe("freeze", () => {
     it("remove_partial_freeze: fails with Deactivated when mint has been deactivated", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
       await partiallyFreezeAccount({ deployer, mint, account: tokenAccount });
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await removePartialFreeze({ deployer, mint, account: tokenAccount });
@@ -628,7 +626,7 @@ describe("freeze", () => {
     // ── Error case: partially_freeze_account — Deactivated ──────────────────────
     it("partially_freeze_account: fails with Deactivated when mint has been deactivated", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       try {
         await partiallyFreezeAccount({ deployer, mint, account: tokenAccount });

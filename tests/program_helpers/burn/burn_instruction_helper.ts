@@ -28,7 +28,6 @@ export function getOperationsProgram(): Program<Operations> {
 
 export type BurnTokensContext = MintWriteContext & {
   tokenAccount: PublicKey;
-  authority: PublicKey;
 };
 
 type BurnTokensArgs = {
@@ -45,6 +44,8 @@ export async function burnTokens(
   callContext: BurnTokensContext,
   args?: BurnTokensArgs
 ): Promise<{ signature: string }> {
+  const program = getOperationsProgram();
+
   const effectiveArgs: Required<BurnTokensArgs> = {
     ...getDefaultArgs(),
     ...args,
@@ -58,7 +59,7 @@ export async function burnTokens(
     .methods.burn(effectiveArgs.amount)
     .accountsStrict({
       deployer: callContext.deployer,
-      authority: callContext.authority,
+      authority: callContext.authority ?? program.provider.wallet.payer,
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),

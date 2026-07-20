@@ -5,7 +5,6 @@ import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { deactivateMint } from "./program_helpers/deactivate/deactivate_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
   freezeAccount,
@@ -48,6 +47,7 @@ import {
   TRANSFER_CONTROL_SET_MODES,
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -1206,7 +1206,7 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // ── Deactivate the mint ────────────────────────────────────────────────
-      await deactivateMint({ deployer, mint });
+      await setDeactivateMarker(mint);
 
       // ── Mint must now be rejected with Deactivated ─────────────────────────
       await fundTransferHookAuthority(mint);
