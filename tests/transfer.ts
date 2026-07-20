@@ -4,6 +4,8 @@ import { AccountMeta, Keypair, PublicKey, SendTransactionError } from "@solana/w
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_FREEZE_MANAGER, ROLE_PAUSER } from "./utils/roles";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
@@ -528,6 +530,7 @@ describe("transfer", () => {
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
+      await setRoles(mint, deployer, [ROLE_PAUSER]);
       await pauseMint({ deployer, mint });
 
       await fundTransferHookAuthority(mint);
@@ -561,6 +564,7 @@ describe("transfer", () => {
       const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, source);
 
       // ── Partially freeze 80 tokens (only 20 available) ───────────────────────
+      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
       await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: FROZEN_AMOUNT });
 
       await fundTransferHookAuthority(mint);
@@ -581,6 +585,7 @@ describe("transfer", () => {
       }
 
       // ── Update partial freeze to 40 tokens (60 now available) ────────────────
+      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
       await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: UPDATED_FROZEN_AMOUNT });
 
       const frozenBalanceAfterUpdate = await getFrozenBalanceByPda(frozenBalancePda);
@@ -622,6 +627,7 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // ── Partially freeze 50 tokens ────────────────────────────────────────────
+      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
       await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: FROZEN_AMOUNT });
 
       // ── Transfer 40 tokens — succeeds (available = 100 - 50 = 50 >= 40) ──────
@@ -861,6 +867,7 @@ describe("transfer", () => {
       const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, source);
 
       // ── Partially freeze 40 tokens (available = 60 of 100) ────────────────────
+      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
       await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: FROZEN_AMOUNT });
 
       // ── Burn 80 via permanent-delegate (issuer redemption) ────────────────────
@@ -902,6 +909,7 @@ describe("transfer", () => {
       }
 
       // (4) Recovery path — after remove_partial_freeze, the 20 remaining tokens transact normally.
+      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
       await removePartialFreeze({ deployer, mint, account: source });
       await transfer(
         { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
@@ -1183,6 +1191,7 @@ describe("transfer", () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
+      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
       await freezeAccount({ deployer, mint, account: source });
 
       // ── Transfer must now be rejected with AccountFrozen ──────────────────

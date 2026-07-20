@@ -3,7 +3,7 @@
 Program ID: `iShebeGRBZYSBMQYGAg8DbLnbaW2eDvX1Zt8EG9G1ZV`
 
 Controls Token-2022 embedded metadata. Owns the `["metadata_update_authority", mint]` PDA that was set
-as the metadata update authority during `deploy_mint`. Only the deployer may call these instructions.
+as the metadata update authority during `deploy_mint`. Only an account holding `ROLE_CUSTOM_DATA_MANAGER` may call these instructions.
 
 ---
 
@@ -11,10 +11,11 @@ as the metadata update authority during `deploy_mint`. Only the deployer may cal
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `payer` | yes | yes | Signer | Pays rent when account must grow |
-| `deployer` | no | yes | Signer | Must match pubkey stored in `mint_owner_pda` |
+| `payer` | yes | yes | Signer | Pays rent when account must grow (defaults to `authority`) |
+| `authority` | no | yes | Signer | Must hold `ROLE_CUSTOM_DATA_MANAGER` (verified via `authority_roles_pda`) |
+| `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint whose metadata is being modified |
-| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `metadata_update_authority` | no | no | UncheckedAccount | seeds `["metadata_update_authority", mint]` (owned) |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
@@ -30,7 +31,7 @@ as the metadata update authority during `deploy_mint`. Only the deployer may cal
 
 Both instructions emit an event via `emit_cpi!` (requires the `event-cpi` feature on `anchor-lang` and
 the `event_authority` / `program` accounts above on the instruction context). In both events, `operator`
-is the `deployer` that signed the instruction.
+is the `authority` that signed the instruction.
 
 ### `MetadataFieldUpdated`
 
@@ -88,7 +89,7 @@ _        => Field::Key(key)   // custom field; created if it doesn't exist
 
 ### Execution
 
-1. `verify_deployer(&mint_owner_pda, &deployer.key())`
+1. `require_role(authority_roles_pda, ROLE_CUSTOM_DATA_MANAGER)`
 2. If `new_mint_size` is `Some(new_size)` and `new_size > current_size`:
    - Calculate `additional_lamports = rent.minimum_balance(new_size) - mint.lamports()`
    - `invoke` `SystemProgram::transfer(payer, mint, additional_lamports)` to top up before the CPI so
@@ -117,7 +118,7 @@ Core fields (name, symbol, uri) cannot be removed — Token-2022 will reject the
 
 ### Execution
 
-1. `verify_deployer(&mint_owner_pda, &deployer.key())`
+1. `require_role(authority_roles_pda, ROLE_CUSTOM_DATA_MANAGER)`
 2. `invoke_signed` → `remove_key(mint, metadata_update_authority, key, idempotent)` signed with seeds `["metadata_update_authority", mint, bump]`
 
 ---

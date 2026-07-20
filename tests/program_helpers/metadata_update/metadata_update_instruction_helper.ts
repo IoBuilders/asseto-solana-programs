@@ -11,6 +11,7 @@ import { getEvent } from "../event_helper";
 import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { metadataUpdateAuthorityPda, metadataUpdateEventAuthorityPda } from "./metadata_update_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 function getMetadataUpdateProgram(): Program<MetadataUpdate> {
   return anchor.workspace.MetadataUpdate as Program<MetadataUpdate>;
@@ -39,15 +40,18 @@ export async function updateMetadataField(
     ...args,
   };
 
+  const program = getMetadataUpdateProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
-  const signature = await getMetadataUpdateProgram()
-    .methods.updateMetadataField(effectiveArgs.key, effectiveArgs.value)
+  const signature = await program.methods
+    .updateMetadataField(effectiveArgs.key, effectiveArgs.value)
     .accountsStrict({
-      payer: callContext.payer ?? callContext.deployer,
-      deployer: callContext.deployer,
+      payer: callContext.payer ?? authority.publicKey,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       metadataUpdateAuthority: metadataUpdateAuthorityPda(callContext.mint),
@@ -58,7 +62,7 @@ export async function updateMetadataField(
       program: METADATA_UPDATE_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
@@ -103,15 +107,18 @@ export async function removeMetadataField(
     ...args,
   };
 
+  const program = getMetadataUpdateProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
-  const signature = await getMetadataUpdateProgram()
-    .methods.removeMetadataField(effectiveArgs.key, effectiveArgs.idempotent)
+  const signature = await program.methods
+    .removeMetadataField(effectiveArgs.key, effectiveArgs.idempotent)
     .accountsStrict({
-      payer: callContext.payer ?? callContext.deployer,
-      deployer: callContext.deployer,
+      payer: callContext.payer ?? authority.publicKey,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       metadataUpdateAuthority: metadataUpdateAuthorityPda(callContext.mint),
@@ -123,7 +130,7 @@ export async function removeMetadataField(
       program: METADATA_UPDATE_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

@@ -16,15 +16,16 @@ Pauses the Token-2022 mint. All minting, burning, and transfers are blocked by T
 
 ### Preconditions
 
-- `verify_deployer` — only the deployer may pause.
+- `require_role` — signer must hold `ROLE_PAUSER`.
 - `require_active` — mint must not be deactivated.
 
 ### Accounts
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `deployer` | no | yes | Signer | Must match pubkey stored in `mint_owner_pda` |
-| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `authority` | no | yes | Signer | Must hold `ROLE_PAUSER` (verified via `authority_roles_pda`) |
+| `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
+| `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to pause |
 | `pausable_authority` | no | no | UncheckedAccount | seeds `["pausable_authority", mint]` (owned by this program); signs the Token-2022 pause CPI |
@@ -34,10 +35,10 @@ Pauses the Token-2022 mint. All minting, burning, and transfers are blocked by T
 
 ### Execution
 
-1. `verify_deployer(&mint_owner_pda, &deployer.key())`
+1. `require_role(authority_roles_pda, ROLE_PAUSER)`
 2. `require_active(&deactivate_pda)`
 3. `invoke_signed` → `spl_pause(mint, pausable_authority)` signed with `["pausable_authority", mint, bump]`
-4. Emit `Paused { mint, operator: deployer }` via `emit_cpi!`
+4. Emit `Paused { mint, operator: authority }` via `emit_cpi!`
 
 ### Events
 
@@ -57,12 +58,12 @@ Unpauses the Token-2022 mint. Resumes normal minting, burning, and transfers.
 
 ### Preconditions
 
-- `verify_deployer` — only the deployer may unpause.
+- `require_role` — signer must hold `ROLE_PAUSER`.
 - `require_active` — mint must not be deactivated.
 
 ### Accounts
 
-Same shape as `pause` (including the `#[event_cpi]`-injected `event_authority` and `program` accounts) but calls `spl_resume` (Token-2022 unpause instruction).
+Same shape as `pause` (including the `authority` + `authority_roles_pda` role accounts and the `#[event_cpi]`-injected `event_authority` and `program` accounts) but calls `spl_resume` (Token-2022 unpause instruction).
 
 ### Events
 

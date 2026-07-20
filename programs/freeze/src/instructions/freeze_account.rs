@@ -1,23 +1,26 @@
 use crate::events::AccountFrozen;
 use anchor_lang::prelude::*;
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
 use crate::state::FrozenAccountStatus;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 
 /// Freezes a specific token account at the management level by creating
 /// an on-chain marker PDA.
 ///
 /// The `frozen_account_pda` (seeds: `["frozen_account", mint, account]`) is created
-/// here. Its existence signals that the account has been frozen by the deployer.
+/// here. Its existence signals that the account has been frozen at the management level.
 ///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+/// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
 pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    // ── Verify caller holds the freeze-manager role ───────────────────────────
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_FREEZE_MANAGER,
+    )?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
@@ -36,7 +39,7 @@ pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
     emit_cpi!(AccountFrozen {
         mint: ctx.accounts.mint.key(),
         account: ctx.accounts.account.key(),
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
     });
 
     Ok(())
@@ -45,9 +48,17 @@ pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct FreezeAccount<'info> {
-    /// The deployer recorded as mint owner — must sign and fund the PDA creation.
+    /// The caller — must sign, fund the PDA creation, and hold `ROLE_FREEZE_MANAGER`.
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA — read to verify `ROLE_FREEZE_MANAGER`.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(
@@ -83,7 +94,7 @@ pub struct FreezeAccount<'info> {
     /// Seeds: `["frozen_account", mint, account]`.
     #[account(
         init,
-        payer = deployer,
+        payer = authority,
         space = FrozenAccountStatus::DISCRIMINATOR.len() + FrozenAccountStatus::INIT_SPACE,
         seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), account.key().as_ref()],
         bump,

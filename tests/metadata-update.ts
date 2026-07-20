@@ -1,9 +1,10 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   getMetadataFieldRemovedEvent,
   getMetadataFieldUpdatedEvent,
@@ -22,22 +23,23 @@ import {
   METADATA_UPDATE_UPDATE_METADATA_FIELD,
   PAUSE_PAUSE,
 } from "./utils/functionalities";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_CUSTOM_DATA_MANAGER, ROLE_PAUSER } from "./utils/roles";
 
 describe("metadata-update", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  // The wallet is both payer and deployer in these tests.
-  const deployer = provider.wallet.publicKey;
+  // The wallet is both payer and authority in these tests.
+  const authority = provider.wallet.payer;
 
   describe("update_metadata_field", async () => {
     let mint: PublicKey;
-
     beforeEach(async () => {
-      ({ mint } = await deployMint({ deployer }));
+      ({ mint } = await deployMint({ deployer: authority.publicKey }));
       await setAssetClassVersionForMint(mint, {
         functionalities: [PAUSE_PAUSE, DEACTIVATE_DEACTIVATE, METADATA_UPDATE_UPDATE_METADATA_FIELD],
       });
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -54,13 +56,13 @@ describe("metadata-update", () => {
       const CTRY_VALUE = "CH";
 
       // Update core fields (shorter → no growth, pass null)
-      await updateMetadataField({ deployer, mint }, { key: "name", value: NEW_NAME });
-      await updateMetadataField({ deployer, mint }, { key: "symbol", value: NEW_SYMBOL });
-      await updateMetadataField({ deployer, mint }, { key: "uri", value: NEW_URI });
+      await updateMetadataField({ authority, mint }, { key: "name", value: NEW_NAME });
+      await updateMetadataField({ authority, mint }, { key: "symbol", value: NEW_SYMBOL });
+      await updateMetadataField({ authority, mint }, { key: "uri", value: NEW_URI });
 
       // Add new custom fields — each grows the account by 4+key.len+4+value.len bytes
-      await updateMetadataField({ deployer, mint }, { key: ISIN_KEY, value: ISIN_VALUE });
-      const { signature } = await updateMetadataField({ deployer, mint }, { key: CTRY_KEY, value: CTRY_VALUE });
+      await updateMetadataField({ authority, mint }, { key: ISIN_KEY, value: ISIN_VALUE });
+      const { signature } = await updateMetadataField({ authority, mint }, { key: CTRY_KEY, value: CTRY_VALUE });
 
       // ── Assertions ─────────────────────────────────────────────────────────────
       const metadataAfter = await getTokenMetadata(mint);
@@ -81,17 +83,36 @@ describe("metadata-update", () => {
 
       assert.isNotNull(updatedEvent, "MetadataFieldUpdated event should be emitted");
       assert.equal(updatedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-      assert.equal(updatedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+      assert.equal(
+        updatedEvent!.operator.toBase58(),
+        authority.publicKey.toBase58(),
+        "event operator should match authority"
+      );
       assert.equal(updatedEvent!.key, CTRY_KEY, "event key should match the field that was updated");
       assert.equal(updatedEvent!.value, CTRY_VALUE, "event value should match the new value");
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("update_metadata_field: fails with MintPaused when mint is paused", async () => {
-      await pauseMint({ deployer, mint });
+    it("update_metadata_field: fails with MissingRole when authority doesn't have required role", async () => {
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await updateMetadataField({ deployer, mint });
+        await updateMetadataField({ authority, mint });
+        assert.fail("Expected MissingRole error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("update_metadata_field: fails with MintPaused when mint is paused", async () => {
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER, ROLE_PAUSER]);
+      await pauseMint({ authority, mint });
+
+      try {
+        await updateMetadataField({ authority, mint });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -105,7 +126,7 @@ describe("metadata-update", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await updateMetadataField({ deployer, mint });
+        await updateMetadataField({ authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -120,7 +141,7 @@ describe("metadata-update", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await updateMetadataField({ deployer, mint });
+        await updateMetadataField({ authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -142,7 +163,7 @@ describe("metadata-update", () => {
       });
 
       try {
-        await updateMetadataField({ deployer, mint });
+        await updateMetadataField({ authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -168,7 +189,7 @@ describe("metadata-update", () => {
       const CAT_VALUE = "equity";
 
       const { mint } = await deployMint(
-        { deployer },
+        { deployer: authority.publicKey },
         {
           additionalMetadata: [
             { key: ISIN_KEY, value: ISIN_VALUE },
@@ -178,6 +199,7 @@ describe("metadata-update", () => {
         }
       );
       await setAssetClassVersionForMint(mint, { functionalities: [METADATA_UPDATE_REMOVE_METADATA_FIELD] });
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
 
       // Sanity-check that all three fields landed before we remove them
       const metadataBefore = await getTokenMetadata(mint);
@@ -192,9 +214,9 @@ describe("metadata-update", () => {
       );
 
       // ── Remove all custom fields ───────────────────────────────────────────────
-      await removeMetadataField({ deployer, mint }, { key: ISIN_KEY, idempotent: false });
-      await removeMetadataField({ deployer, mint }, { key: JURIS_KEY, idempotent: false });
-      const { signature } = await removeMetadataField({ deployer, mint }, { key: CAT_KEY, idempotent: false });
+      await removeMetadataField({ authority, mint }, { key: ISIN_KEY, idempotent: false });
+      await removeMetadataField({ authority, mint }, { key: JURIS_KEY, idempotent: false });
+      const { signature } = await removeMetadataField({ authority, mint }, { key: CAT_KEY, idempotent: false });
 
       // ── Assertions ─────────────────────────────────────────────────────────────
       const metadataAfter = await getTokenMetadata(mint);
@@ -211,7 +233,11 @@ describe("metadata-update", () => {
 
       assert.isNotNull(removedEvent, "MetadataFieldRemoved event should be emitted");
       assert.equal(removedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-      assert.equal(removedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+      assert.equal(
+        removedEvent!.operator.toBase58(),
+        authority.publicKey.toBase58(),
+        "event operator should match authority"
+      );
       assert.equal(removedEvent!.key, CAT_KEY, "event key should match the field that was removed");
     });
 
@@ -221,15 +247,19 @@ describe("metadata-update", () => {
       const ISIN_VALUE = "CH0012221716";
 
       // Deploy with a custom field present so there is something to remove
-      const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
+      const { mint } = await deployMint(
+        { deployer: authority.publicKey },
+        { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
+      );
       await setAssetClassVersionForMint(mint, {
         functionalities: [PAUSE_PAUSE, METADATA_UPDATE_REMOVE_METADATA_FIELD],
       });
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER, ROLE_PAUSER]);
 
-      await pauseMint({ deployer, mint });
+      await pauseMint({ authority, mint });
 
       try {
-        await removeMetadataField({ deployer, mint });
+        await removeMetadataField({ authority, mint });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -241,14 +271,16 @@ describe("metadata-update", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("remove_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
       // ── Deploy a fresh mint ────────────────────────────────────────────────
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint({ deployer: authority.publicKey });
       await setAssetClassVersionForMint(mint, {
         functionalities: [DEACTIVATE_DEACTIVATE, METADATA_UPDATE_REMOVE_METADATA_FIELD],
       });
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
+
       await setDeactivateMarker(mint);
 
       try {
-        await removeMetadataField({ deployer, mint });
+        await removeMetadataField({ authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -258,26 +290,25 @@ describe("metadata-update", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("remove_metadata_field: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    it("remove_metadata_field: fails with MissingRole when authority doesn't have required role", async () => {
       const ISIN_KEY = "isin";
       const ISIN_VALUE = "CH0012221716";
-      const rogueKeypair = Keypair.generate();
 
       // Deploy with a custom field present so there is something to remove.
-      const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
+      const { mint } = await deployMint(
+        { deployer: authority.publicKey },
+        { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
+      );
       await setAssetClassVersionForMint(mint, { functionalities: [METADATA_UPDATE_UPDATE_METADATA_FIELD] });
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await updateMetadataField({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await updateMetadataField({ authority, mint });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "UnauthorizedDeployer",
-          "error code should be UnauthorizedDeployer"
-        );
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
       }
     });
 
@@ -286,13 +317,17 @@ describe("metadata-update", () => {
       const ISIN_KEY = "isin";
       const ISIN_VALUE = "CH0012221716";
 
-      const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
+      const { mint } = await deployMint(
+        { deployer: authority.publicKey },
+        { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
+      );
 
       // Re-seed the asset-class version WITHOUT the remove_metadata_field functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
 
       try {
-        await removeMetadataField({ deployer, mint });
+        await removeMetadataField({ authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -310,16 +345,20 @@ describe("metadata-update", () => {
       const ISIN_KEY = "isin";
       const ISIN_VALUE = "CH0012221716";
 
-      const { mint } = await deployMint({ deployer }, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
+      const { mint } = await deployMint(
+        { deployer: authority.publicKey },
+        { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
+      );
 
       // Re-seed the asset-class version WITHOUT finalizing it.
       await setAssetClassVersionForMint(mint, {
         state: ASSET_CLASS_VERSION_STATE_DRAFT,
         functionalities: [METADATA_UPDATE_REMOVE_METADATA_FIELD],
       });
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
 
       try {
-        await removeMetadataField({ deployer, mint });
+        await removeMetadataField({ authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -336,27 +375,23 @@ describe("metadata-update", () => {
   describe("update_metadata_field", async () => {
     let mint: PublicKey;
     beforeEach(async () => {
-      ({ mint } = await deployMint({ deployer }));
+      ({ mint } = await deployMint({ deployer: authority.publicKey }));
       await setAssetClassVersionForMint(mint, {
         functionalities: [PAUSE_PAUSE, METADATA_UPDATE_UPDATE_METADATA_FIELD],
       });
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("update_metadata_field: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const rogueKeypair = Keypair.generate();
+    it("update_metadata_field: fails with MissingRole when authority doesn't have required role", async () => {
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await updateMetadataField({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await updateMetadataField({ authority, mint });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "UnauthorizedDeployer",
-          "error code should be UnauthorizedDeployer"
-        );
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
       }
     });
   });

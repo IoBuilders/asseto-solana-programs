@@ -1,6 +1,6 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { getPausableConfig } from "@solana/spl-token";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
@@ -11,23 +11,26 @@ import {
   unpauseMint,
 } from "./program_helpers/pause/pause_instruction_helper";
 import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
+import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { getMint } from "./program_helpers/spl_token_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
 import { DEACTIVATE_DEACTIVATE, PAUSE_PAUSE, PAUSE_UNPAUSE } from "./utils/functionalities";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_PAUSER } from "./utils/roles";
 
 describe("pause", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer }));
+    ({ mint } = await deployMint({ deployer: authority.publicKey }));
     await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, PAUSE_UNPAUSE, DEACTIVATE_DEACTIVATE] });
+    await setRoles(mint, authority.publicKey, [ROLE_PAUSER]);
   });
 
   describe("pause", async () => {
@@ -48,7 +51,7 @@ describe("pause", () => {
       assert.isFalse(pausableConfigInitial!.paused, "mint should not be paused after deployment");
 
       // ── Pause the mint ─────────────────────────────────────────────────
-      const { signature: pausedSignature } = await pauseMint({ deployer, mint });
+      const { signature: pausedSignature } = await pauseMint({ authority, mint });
 
       const mintInfoAfterPause = await getMint(mint);
       const pausableConfigAfterPause = getPausableConfig(mintInfoAfterPause);
@@ -59,24 +62,24 @@ describe("pause", () => {
 
       assert.isNotNull(pausedEvent, "Paused event should be emitted");
       assert.equal(pausedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-      assert.equal(pausedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+      assert.equal(
+        pausedEvent!.operator.toBase58(),
+        authority.publicKey.toBase58(),
+        "event operator should match authority"
+      );
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("pause: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const rogueKeypair = Keypair.generate();
+    it("pause: fails with MissingRole when authority doesn't have required role", async () => {
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await pauseMint({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await pauseMint({ authority, mint });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "UnauthorizedDeployer",
-          "error code should be UnauthorizedDeployer"
-        );
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
       }
     });
 
@@ -85,7 +88,7 @@ describe("pause", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await pauseMint({ deployer, mint });
+        await pauseMint({ authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -100,7 +103,7 @@ describe("pause", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await pauseMint({ deployer, mint });
+        await pauseMint({ authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -122,7 +125,7 @@ describe("pause", () => {
       });
 
       try {
-        await pauseMint({ deployer, mint });
+        await pauseMint({ authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -140,10 +143,10 @@ describe("pause", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("correctly toggles mint pause state to unpaused", async () => {
       // ── Step 1. Pause the mint ─────────────────────────────────────────────────
-      await pauseMint({ deployer, mint });
+      await pauseMint({ authority, mint });
 
       // ── Step 2. Unpause the mint ─────────────────────────────────────────────────
-      const { signature: unpausedSignature } = await unpauseMint({ deployer, mint });
+      const { signature: unpausedSignature } = await unpauseMint({ authority, mint });
 
       const mintInfoAfterUnpause = await getMint(mint);
       const pausableConfigAfterUnpause = getPausableConfig(mintInfoAfterUnpause);
@@ -154,24 +157,24 @@ describe("pause", () => {
 
       assert.isNotNull(unpausedEvent, "Unpaused event should be emitted");
       assert.equal(unpausedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-      assert.equal(unpausedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+      assert.equal(
+        unpausedEvent!.operator.toBase58(),
+        authority.publicKey.toBase58(),
+        "event operator should match authority"
+      );
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("unpause: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const rogueKeypair = Keypair.generate();
+    it("unpause: fails with MissingRole when authority doesn't have required role", async () => {
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await pauseMint({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await unpauseMint({ authority, mint });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "UnauthorizedDeployer",
-          "error code should be UnauthorizedDeployer"
-        );
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
       }
     });
 
@@ -180,7 +183,7 @@ describe("pause", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await unpauseMint({ deployer, mint });
+        await unpauseMint({ authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -195,7 +198,7 @@ describe("pause", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE] });
 
       try {
-        await unpauseMint({ deployer, mint });
+        await unpauseMint({ authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -217,7 +220,7 @@ describe("pause", () => {
       });
 
       try {
-        await unpauseMint({ deployer, mint });
+        await unpauseMint({ authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
