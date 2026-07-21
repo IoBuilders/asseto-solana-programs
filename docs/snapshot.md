@@ -75,7 +75,7 @@ Creates `snapshot_counter` (`init_if_needed`) with `count = 1` on the first call
 
 `calling_authority` must be the `coupon_authority` PDA owned by `coupon` (seeds: `["coupon_authority", mint]`). Only `coupon::create_coupon` can produce that signature via `invoke_signed`, so every snapshot in the workspace is anchored to a coupon.
 
-Pause / deactivate / deployer checks live in `coupon::create_coupon` — `take_snapshot` itself trusts its caller, matching the style of the other auxiliaries (`update_totalsupply_snapshot`, `update_holderbalance_snapshot`).
+Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause / deactivate checks live in `coupon::create_coupon` — `take_snapshot` itself trusts its caller, matching the style of the other auxiliaries (`update_totalsupply_snapshot`, `update_holderbalance_snapshot`).
 
 ### Accounts
 
