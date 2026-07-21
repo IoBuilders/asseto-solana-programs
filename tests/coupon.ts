@@ -4,7 +4,6 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { COUPON_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_PAUSER } from "./utils/roles";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import {
@@ -308,6 +307,7 @@ describe("coupon", () => {
     it("create_coupon: fails with MintPaused when mint is paused", async () => {
       await setRoles(mint, deployer, [ROLE_PAUSER]);
       await pauseMint({ deployer, mint });
+      await setRoles(mint, authority!.publicKey, [ROLE_CORPORATE_ACTION]); // restore corporate action role to authority
 
       try {
         await createCoupon({ payer, authority, mint });
@@ -551,7 +551,9 @@ describe("coupon", () => {
     it("set_coupon_rate: fails with MintPaused when mint is paused", async () => {
       const couponId = new anchor.BN(1);
       await createCoupon({ payer, authority, mint }, { couponId });
+      await setRoles(mint, deployer, [ROLE_PAUSER]);
       await pauseMint({ deployer, mint });
+      await setRoles(mint, authority!.publicKey, [ROLE_CORPORATE_ACTION]); // restore corporate action role to authority
 
       try {
         await setCouponRate({ authority, mint }, { couponId });

@@ -1,14 +1,14 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::Mint;
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
 use crate::errors::ErrorCode;
 use crate::events::PaymentTokenSet;
 use crate::state::TreasuryConfig;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
 
 /// Stores `payment_mint`'s pubkey and decimals in `treasury_config` (creating
 /// the PDA on the first call). The payment mint may be owned by either
@@ -23,7 +23,10 @@ use common::state::{AssetClassVersion, MintOwner};
 /// created and the counter advances.
 pub fn set_payment_token(ctx: Context<SetPaymentToken>) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_TREASURER,
+    )?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
     require_functionality(
@@ -66,10 +69,9 @@ pub struct SetPaymentToken<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// Deployer recorded as mint owner — must sign to authorise the change.
-    pub deployer: Signer<'info>,
+    /// Authority with the necessary roles to authorise the payment.
+    pub authority: Signer<'info>,
 
-    /// PDA created by deploy that records the deployer for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -129,4 +131,11 @@ pub struct SetPaymentToken<'info> {
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub system_program: Program<'info, System>,
+
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 }
