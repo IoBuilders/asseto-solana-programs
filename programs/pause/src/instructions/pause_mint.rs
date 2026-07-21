@@ -3,22 +3,22 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::{pda_seeds, require_active};
-use common::{pda_utils, require_functionality, verify_deployer_account};
+use common::{pda_utils, require_functionality, require_role, roles};
 use spl_token_2022::extension::pausable::instruction::pause as spl_pause;
 
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 
 /// Pauses the Token-2022 mint.
 ///
 /// Once paused, all minting, burning, and transfers on this mint are blocked
 /// by Token-2022 until `unpause` is called.
 ///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+/// Management instruction — only an account holding `ROLE_PAUSER` may call this.
 /// The `pausable_authority` PDA (owned by this program) signs the Token-2022 pause CPI.
 pub fn pause(ctx: Context<PauseMint>) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ───────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    // ── Verify caller holds the pauser role ──────────────────────────────────
+    require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_PAUSER)?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
@@ -54,7 +54,7 @@ pub fn pause(ctx: Context<PauseMint>) -> Result<()> {
 
     emit_cpi!(Paused {
         mint: mint_key,
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
     });
 
     Ok(())
@@ -63,8 +63,16 @@ pub fn pause(ctx: Context<PauseMint>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct PauseMint<'info> {
-    /// The deployer recorded as mint owner — must sign to authorise pausing.
-    pub deployer: Signer<'info>,
+    /// The caller — must sign and hold `ROLE_PAUSER`.
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA — read to verify `ROLE_PAUSER`.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(

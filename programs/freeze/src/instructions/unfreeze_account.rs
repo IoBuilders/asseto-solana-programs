@@ -1,23 +1,26 @@
 use crate::events::AccountUnfrozen;
 use anchor_lang::prelude::*;
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
 use crate::state::FrozenAccountStatus;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 
 /// Unfreezes a specific token account at the management level by closing
 /// the frozen account marker PDA previously created by `freeze_account`.
 ///
 /// The `frozen_account_pda` (seeds: `["frozen_account", mint, account]`) is closed
-/// here and its rent lamports are returned to the deployer.
+/// here and its rent lamports are returned to the caller.
 ///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+/// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
 pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    // ── Verify caller holds the freeze-manager role ───────────────────────────
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_FREEZE_MANAGER,
+    )?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
@@ -33,7 +36,7 @@ pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
     emit_cpi!(AccountUnfrozen {
         mint: ctx.accounts.mint.key(),
         account: ctx.accounts.account.key(),
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
     });
 
     Ok(())
@@ -42,9 +45,17 @@ pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct UnfreezeAccount<'info> {
-    /// The deployer recorded as mint owner — must sign; receives the closed PDA's lamports.
+    /// The caller — must sign and hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports.
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA — read to verify `ROLE_FREEZE_MANAGER`.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(
@@ -75,11 +86,11 @@ pub struct UnfreezeAccount<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// Frozen account marker PDA — closed here; rent returned to deployer.
+    /// Frozen account marker PDA — closed here; rent returned to the caller.
     /// Seeds: `["frozen_account", mint, account]`.
     #[account(
         mut,
-        close = deployer,
+        close = authority,
         seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), account.key().as_ref()],
         bump = frozen_account_pda.bump,
     )]

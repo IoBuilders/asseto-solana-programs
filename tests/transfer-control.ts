@@ -3,6 +3,8 @@ import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_PAUSER } from "./utils/roles";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { createTokenAccount } from "./program_helpers/spl_token_helper";
 import {
@@ -220,6 +222,7 @@ describe("transfer-control", () => {
     // ── Error case: set_modes — MintPaused ────────────────────────────────────────
     it("set_modes: fails with MintPaused when mint is paused", async () => {
       const { mint } = await deployMint({ deployer });
+      await setRoles(mint, deployer, [ROLE_PAUSER]);
       await pauseMint({ deployer, mint });
 
       try {
@@ -335,6 +338,7 @@ describe("transfer-control", () => {
     // ── Error case: add_to_whitelist — MintPaused ────────────────────────────────
     it("add_to_whitelist: fails with MintPaused when mint is paused", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      await setRoles(mint, deployer, [ROLE_PAUSER]);
       await pauseMint({ deployer, mint });
 
       try {
@@ -471,6 +475,7 @@ describe("transfer-control", () => {
     it("remove_from_whitelist: fails with MintPaused when mint is paused", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: deployer });
       await addToWhitelist({ deployer, mint, account: tokenAccount });
+      await setRoles(mint, deployer, [ROLE_PAUSER]);
       await pauseMint({ deployer, mint });
 
       try {
