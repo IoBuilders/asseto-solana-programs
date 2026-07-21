@@ -465,6 +465,7 @@ dependencies = [
  "operations",
  "pause",
  "snapshot",
+ "solana-system-interface 2.0.0",
  "spl-token-2022",
  "transfer",
  "transfer-control",
