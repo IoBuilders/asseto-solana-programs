@@ -222,8 +222,7 @@ describe("treasury", () => {
         MINT_MINT,
       ],
     });
-    await setRoles(mint, deployer, [ROLE_CORPORATE_ACTION]);
-    await setRoles(mint, authority!.publicKey, [ROLE_TREASURER]);
+    await setRoles(mint, authority!.publicKey, [ROLE_CORPORATE_ACTION, ROLE_TREASURER]);
   });
 
   describe("set_payment_token", async () => {
