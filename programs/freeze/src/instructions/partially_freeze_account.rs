@@ -1,22 +1,25 @@
 use crate::events::AccountPartiallyFrozen;
 use anchor_lang::prelude::*;
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
 use crate::state::FrozenBalance;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 
 /// Records (or updates) a frozen balance for a specific token account.
 ///
 /// The `frozen_balance_pda` (seeds: `["frozen_balance", mint, account]`) is
 /// created on first call and its `balance` field overwritten on subsequent calls.
 ///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+/// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
 pub fn partially_freeze_account(ctx: Context<PartiallyFreezeAccount>, balance: u64) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    // ── Verify caller holds the freeze-manager role ───────────────────────────
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_FREEZE_MANAGER,
+    )?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
@@ -37,7 +40,7 @@ pub fn partially_freeze_account(ctx: Context<PartiallyFreezeAccount>, balance: u
         mint: ctx.accounts.mint.key(),
         account: ctx.accounts.account.key(),
         frozen_balance: balance,
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
     });
 
     Ok(())
@@ -46,9 +49,17 @@ pub fn partially_freeze_account(ctx: Context<PartiallyFreezeAccount>, balance: u
 #[event_cpi]
 #[derive(Accounts)]
 pub struct PartiallyFreezeAccount<'info> {
-    /// The deployer recorded as mint owner — must sign and fund PDA creation if needed.
+    /// The caller — must sign, fund PDA creation if needed, and hold `ROLE_FREEZE_MANAGER`.
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA — read to verify `ROLE_FREEZE_MANAGER`.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(
@@ -83,7 +94,7 @@ pub struct PartiallyFreezeAccount<'info> {
     /// Seeds: `["frozen_balance", mint, account]`.
     #[account(
         init_if_needed,
-        payer = deployer,
+        payer = authority,
         space = FrozenBalance::DISCRIMINATOR.len() + FrozenBalance::INIT_SPACE,
         seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), account.key().as_ref()],
         bump,

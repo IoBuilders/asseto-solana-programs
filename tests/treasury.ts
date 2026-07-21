@@ -3,6 +3,8 @@ import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey, SendTransactionError, Signer } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_PAUSER } from "./utils/roles";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
@@ -270,6 +272,7 @@ describe("treasury", () => {
     it("set_payment_token: fails with MintPaused when mint is paused", async () => {
       const paymentMint = await createMint();
 
+      await setRoles(mint, deployer, [ROLE_PAUSER]);
       await pauseMint({ deployer, mint });
 
       try {
@@ -705,6 +708,7 @@ describe("treasury", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("pay_coupon: fails with MintPaused when the bond mint is paused", async () => {
       const ctx = await deployBondAndCoupon();
+      await setRoles(ctx.mint, deployer, [ROLE_PAUSER]);
       await pauseMint({ deployer, mint: ctx.mint });
 
       try {

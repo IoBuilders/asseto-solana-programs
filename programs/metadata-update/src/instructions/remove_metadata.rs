@@ -4,10 +4,10 @@ use anchor_spl::token_2022::Token2022;
 use spl_token_metadata_interface::instruction::remove_key;
 
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 use common::{
-    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused,
-    verify_deployer_account,
+    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
+    roles,
 };
 
 use crate::events::MetadataFieldRemoved;
@@ -23,8 +23,11 @@ pub fn remove_metadata_field(
     key: String,
     idempotent: bool,
 ) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ───────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    // ── Verify caller holds the custom-data-manager role ─────────────────────
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_CUSTOM_DATA_MANAGER,
+    )?;
 
     // ── Verify mint is not paused ───────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
@@ -63,7 +66,7 @@ pub fn remove_metadata_field(
 
     emit_cpi!(MetadataFieldRemoved {
         mint: mint_key,
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
         key: event_key,
     });
 
@@ -77,9 +80,16 @@ pub struct RemoveMetadata<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The deployer recorded as mint owner in mint_owner_pda.
-    /// Must sign to authorise metadata field removal.
-    pub deployer: Signer<'info>,
+    /// The caller — must sign and hold `ROLE_CUSTOM_DATA_MANAGER`.
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA — read to verify `ROLE_CUSTOM_DATA_MANAGER`.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// The Token-2022 mint whose embedded metadata is being modified.
     ///

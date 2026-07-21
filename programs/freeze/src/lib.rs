@@ -30,20 +30,20 @@ pub mod freeze {
     }
 
     /// Freezes a token account at the management level by creating a marker PDA.
-    /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+    /// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
     pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
         freeze_account::freeze_account(ctx)
     }
 
     /// Unfreezes a token account at the management level by closing the marker PDA.
-    /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+    /// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
     pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
         unfreeze_account::unfreeze_account(ctx)
     }
 
     /// Records or updates the frozen balance for a token account.
     /// Creates the `frozen_balance_pda` on first call; overwrites `balance` on subsequent calls.
-    /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+    /// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
     pub fn partially_freeze_account(
         ctx: Context<PartiallyFreezeAccount>,
         balance: u64,
@@ -52,8 +52,8 @@ pub mod freeze {
     }
 
     /// Removes the frozen balance for a token account by closing the `frozen_balance_pda`.
-    /// Rent lamports are returned to the deployer.
-    /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+    /// Rent lamports are returned to the caller.
+    /// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
     pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
         remove_partial_freeze::remove_partial_freeze(ctx)
     }

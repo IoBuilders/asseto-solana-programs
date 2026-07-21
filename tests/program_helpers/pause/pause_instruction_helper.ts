@@ -11,6 +11,7 @@ import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { PAUSE_PROGRAM_ID } from "../../utils/address_utils";
 import { pausableAuthorityPda, pauseEventAuthorityPda } from "./pause_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 function getPauseProgram(): Program<Pause> {
   return anchor.workspace.Pause as Program<Pause>;
@@ -19,14 +20,17 @@ function getPauseProgram(): Program<Pause> {
 // ── pause ────────────────────────────────────────────────────────────────────
 
 export async function pauseMint(callContext: MintWriteContext): Promise<{ signature: string }> {
+  const program = getPauseProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
-  const signature = await getPauseProgram()
-    .methods.pause()
+  const signature = await program.methods
+    .pause()
     .accountsStrict({
-      deployer: callContext.deployer,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
@@ -36,7 +40,7 @@ export async function pauseMint(callContext: MintWriteContext): Promise<{ signat
       eventAuthority: pauseEventAuthorityPda(),
       program: PAUSE_PROGRAM_ID,
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
@@ -59,14 +63,17 @@ export async function getPausedEvent(signature: string) {
 // ── unpause ──────────────────────────────────────────────────────────────────
 
 export async function unpauseMint(callContext: MintWriteContext): Promise<{ signature: string }> {
+  const program = getPauseProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
-  const signature = await getPauseProgram()
-    .methods.unpause()
+  const signature = await program.methods
+    .unpause()
     .accountsStrict({
-      deployer: callContext.deployer,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
@@ -76,6 +83,7 @@ export async function unpauseMint(callContext: MintWriteContext): Promise<{ sign
       eventAuthority: pauseEventAuthorityPda(),
       program: PAUSE_PROGRAM_ID,
     })
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

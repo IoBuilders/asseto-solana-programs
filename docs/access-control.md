@@ -16,8 +16,12 @@ account that already holds `ROLE_ADMIN` on the mint, the relevant functionality
 (`ACCESS_CONTROL_GRANT_ROLES` / `ACCESS_CONTROL_REVOKE_ROLES`) must be enabled in the mint's
 asset-class version, and the mint must be neither paused nor deactivated.
 
-Role identifiers are the `u16` constants in [`common::roles`](common.md) (currently
-`ROLE_ADMIN = 0` … `ROLE_DEACTIVATE = 8`); they index bit positions in the `Roles.mask`.
+Role identifiers are the `u16` constants in [`common::roles`](common.md) (`ROLE_ADMIN = 0`,
+`ROLE_PAUSER = 6`, `ROLE_FREEZE_MANAGER = 7`, `ROLE_CUSTOM_DATA_MANAGER = 9`, …); they index bit
+positions in the `Roles.mask`. Beyond `access-control` itself (which uses `ROLE_ADMIN` to gate
+`grant_roles` / `revoke_roles`), management instructions in other programs are guarded by their own
+role — e.g. `pause`/`unpause` by `ROLE_PAUSER`, `freeze`'s management instructions by
+`ROLE_FREEZE_MANAGER`, and `metadata-update`'s by `ROLE_CUSTOM_DATA_MANAGER`.
 
 ---
 
