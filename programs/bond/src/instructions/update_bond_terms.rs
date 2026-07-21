@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 use common::state::{AssetClassVersion, MintOwner, Roles};
 use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
-    verify_deployer_account,
 };
 
 use crate::events::BondTermsUpdated;

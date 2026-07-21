@@ -24,8 +24,6 @@ import {
 } from "./program_helpers/spl_token_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
-  addToWhitelist,
-  setTransferControlModes,
   TRANSFER_CONTROL_CLEARING,
   TRANSFER_CONTROL_WHITELIST,
 } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
@@ -50,6 +48,10 @@ import {
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import {
+  setTransferControlModesMarker,
+  setWhitelistMarker,
+} from "./program_helpers/transfer_control/transfer_control_pda_helper";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -669,7 +671,7 @@ describe("transfer", () => {
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_CLEARING] });
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING]);
 
       await fundTransferHookAuthority(mint);
 
@@ -721,12 +723,9 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // Activate [Clearing, Whitelist] and whitelist both ends.
-      await setTransferControlModes(
-        { deployer, mint },
-        { modes: [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST] }
-      );
-      await addToWhitelist({ deployer, mint, account: source });
-      await addToWhitelist({ deployer, mint, account: destination });
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST]);
+      await setWhitelistMarker(mint, source);
+      await setWhitelistMarker(mint, destination);
 
       await fundTransferHookAuthority(mint);
 
@@ -781,13 +780,13 @@ describe("transfer", () => {
       const rogueKeypair = Keypair.generate();
 
       // Whitelist both ends — PDAs persist across the mode swap.
-      await addToWhitelist({ deployer, mint, account: source });
-      await addToWhitelist({ deployer, mint, account: destination });
+      await setWhitelistMarker(mint, source);
+      await setWhitelistMarker(mint, destination);
 
       await fundTransferHookAuthority(mint);
 
       // ── Phase A: modes = [Whitelist] → transfer succeeds ────────────────────
-      await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_WHITELIST] });
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
 
       const sourceBefore = (await getTokenAccount(source)).amount;
       const destBefore = (await getTokenAccount(destination)).amount;
@@ -811,10 +810,7 @@ describe("transfer", () => {
       );
 
       // ── Phase B: same transfer params, now must fail under [Clearing, Whitelist] ──
-      await setTransferControlModes(
-        { deployer, mint },
-        { modes: [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST] }
-      );
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST]);
 
       try {
         await verifyTransfer(
@@ -933,12 +929,9 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // Activate [Clearing, Whitelist] and whitelist BOTH ends so whitelist passes.
-      await setTransferControlModes(
-        { deployer, mint },
-        { modes: [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST] }
-      );
-      await addToWhitelist({ deployer, mint, account: source });
-      await addToWhitelist({ deployer, mint, account: destination });
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST]);
+      await setWhitelistMarker(mint, source);
+      await setWhitelistMarker(mint, destination);
 
       // Rogue signer that is NOT the recorded deployer.
       const rogueKeypair = Keypair.generate();
@@ -989,7 +982,7 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // Activate clearing mode
-      await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_CLEARING] });
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING]);
 
       // A rogue keypair that is NOT the recorded deployer
       const rogueKeypair = Keypair.generate();
@@ -1046,10 +1039,10 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // Activate whitelist mode
-      await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_WHITELIST] });
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
 
       // Add destination to whitelist — source is NOT whitelisted
-      await addToWhitelist({ deployer, mint, account: destination });
+      await setWhitelistMarker(mint, destination);
 
       const sourceBefore = (await getTokenAccount(source)).amount;
       const destBefore = (await getTokenAccount(destination)).amount;
@@ -1094,11 +1087,8 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // Activate [Clearing, Whitelist] and whitelist ONLY source — destination check will fail.
-      await setTransferControlModes(
-        { deployer, mint },
-        { modes: [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST] }
-      );
-      await addToWhitelist({ deployer, mint, account: source });
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST]);
+      await setWhitelistMarker(mint, source);
 
       await fundTransferHookAuthority(mint);
 
@@ -1145,10 +1135,10 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // Activate whitelist mode
-      await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_WHITELIST] });
+      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
 
       // Add source to whitelist — destination is NOT whitelisted
-      await addToWhitelist({ deployer, mint, account: source });
+      await setWhitelistMarker(mint, source);
 
       const sourceBefore = (await getTokenAccount(source)).amount;
       const destBefore = (await getTokenAccount(destination)).amount;

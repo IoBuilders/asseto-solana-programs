@@ -12,10 +12,7 @@ import {
   getHolderBalanceSnapshotAt,
   getTotalSupplySnapshotAt,
 } from "./program_helpers/snapshot/snapshot_instruction_helper";
-import {
-  setTransferControlModes,
-  TRANSFER_CONTROL_WHITELIST,
-} from "./program_helpers/transfer_control/transfer_control_instruction_helper";
+import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { beforeEach } from "mocha";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -29,6 +26,7 @@ import {
   TRANSFER_CONTROL_SET_MODES,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setTransferControlModesMarker } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
@@ -163,7 +161,7 @@ describe("mint", () => {
 
   it("mint: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
     const destination = await createTokenAccount({ mint, owner: deployer });
-    await setTransferControlModes({ deployer, mint }, { modes: [TRANSFER_CONTROL_WHITELIST] });
+    await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
 
     try {
       await mintTokens({ deployer, mint, destination, authority });

@@ -199,7 +199,7 @@ describe("bond", () => {
       try {
         await updateBondTerms({ authority, mint });
 
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
