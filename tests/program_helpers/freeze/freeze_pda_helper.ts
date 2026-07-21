@@ -1,6 +1,8 @@
 import { PublicKey } from "@solana/web3.js";
+import * as anchor from "@anchor-lang/core";
 import { FREEZE_PROGRAM_ID } from "../../utils/address_utils";
 import { getFreezeProgram } from "./freeze_instruction_helper";
+import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
 
 // ── freeze_authority PDA ───────────────────────────────────────────────────────
 
@@ -40,6 +42,24 @@ export function frozenBalancePdaWithBump(mint: PublicKey, account: PublicKey): [
 
 export async function getFrozenBalanceByPda(pda: PublicKey) {
   return await getFreezeProgram().account.frozenBalance.fetchNullable(pda, "confirmed");
+}
+
+/**
+ * Test-only: plants the `frozen_balance` PDA for `(mint, account)` directly via
+ * surfpool, without invoking the `partially_freeze_account` instruction. Lets a
+ * test set up the partial-freeze precondition in isolation.
+ */
+export async function setFrozenBalance(mint: PublicKey, account: PublicKey, balance: anchor.BN): Promise<void> {
+  const [pda, bump] = frozenBalancePdaWithBump(mint, account);
+  const data = await getFreezeProgram().coder.accounts.encode("frozenBalance", { balance, bump });
+  const lamports = await getBalanceForRentExeption(data.length);
+  await surfnetSetAccount(pda, {
+    lamports,
+    owner: FREEZE_PROGRAM_ID.toBase58(),
+    data: data.toString("hex"),
+    executable: false,
+    rentEpoch: 0,
+  });
 }
 
 // ── __event_authority PDA ──────────────────────────────────────────────────────

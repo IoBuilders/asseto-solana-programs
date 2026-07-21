@@ -18,6 +18,7 @@ import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, operationsEventAuthorityPda } from "./burn_pda_helper";
 import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
 import { snapshotCounterPda, snapshotTotalSupplyPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getOperationsProgram(): Program<Operations> {
   return anchor.workspace.Operations as Program<Operations>;
@@ -43,6 +44,8 @@ export async function burnTokens(
   callContext: BurnTokensContext,
   args?: BurnTokensArgs
 ): Promise<{ signature: string }> {
+  const program = getOperationsProgram();
+
   const effectiveArgs: Required<BurnTokensArgs> = {
     ...getDefaultArgs(),
     ...args,
@@ -52,10 +55,13 @@ export async function burnTokens(
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
 
+  const authority = callContext.authority ?? program.provider.wallet.payer;
+
   const signature = await getOperationsProgram()
     .methods.burn(effectiveArgs.amount)
     .accountsStrict({
       deployer: callContext.deployer,
+      authority: authority.publicKey,
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
@@ -72,6 +78,7 @@ export async function burnTokens(
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: operationsEventAuthorityPda(),
       program: OPERATIONS_PROGRAM_ID,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
     .signers(callContext?.signers ?? [])
     .rpc({ commitment: "confirmed" });

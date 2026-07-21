@@ -1,16 +1,14 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
-use common::{
-    pda_seeds, pda_utils, require_active, require_functionality, verify_deployer_account,
-};
+use common::{pda_seeds, pda_utils, require_active, require_functionality, require_role, roles};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
 use spl_token_2022::instruction::burn as spl_burn;
 
 use crate::events::ControllerRedemption;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
 
 /// Burns `amount` tokens from any `token_account` for the given mint.
 ///
@@ -22,8 +20,10 @@ use common::state::{AssetClassVersion, MintOwner};
 /// snapshot (CPIs to snapshot, both signed by `permanent_delegate`).
 /// Both CPIs are no-ops when no snapshot has been taken yet.
 pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ───────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_CONTROLLER,
+    )?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
@@ -123,7 +123,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
     // Emitted last so it only fires when the full burn succeeds.
     emit_cpi!(ControllerRedemption {
         mint: mint_key,
-        controller: ctx.accounts.deployer.key(),
+        controller: ctx.accounts.authority.key(),
         from: ctx.accounts.token_account.key(),
         value: amount,
     });
@@ -138,6 +138,9 @@ pub struct BurnTokens<'info> {
     /// marked mutable to pay for snapshot PDA creation.
     #[account(mut)]
     pub deployer: Signer<'info>,
+
+    /// The caller — must sign and hold `ROLE_CONTROLLER` on this mint.
+    pub authority: Signer<'info>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(
@@ -237,4 +240,15 @@ pub struct BurnTokens<'info> {
 
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
+
+    /// The caller's own `Roles` PDA — read to verify `ROLE_CONTROLLER`. Seeds: `["roles", mint, authority]`.
+    ///
+    /// CHECK: Address verified by seeds/bump; controller bit checked by require_role.
+    /// An absent PDA fails at account resolution (AccountOwnedByWrongProgram).
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 }

@@ -6,8 +6,13 @@ import { deployMint } from "./program_helpers/deploy_helper";
 import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
-import { createMint, createTokenAccount, getTokenAccount, mintTo } from "./program_helpers/spl_token_helper";
-import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
+import {
+  createMint,
+  createTokenAccount,
+  getTokenAccount,
+  mintTo,
+  mintTokensViaSurfpool,
+} from "./program_helpers/spl_token_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
   getCouponPaidEvent,
@@ -103,7 +108,7 @@ describe("treasury", () => {
 
     // 1. Mint bond tokens to a brand-new holder bond-mint token account.
     const holderTokenAccount = await createTokenAccount({ mint, owner: deployer });
-    await mintTokens({ deployer, mint, destination: holderTokenAccount }, { amount: BOND_HOLDER_AMOUNT });
+    await mintTokensViaSurfpool(mint, holderTokenAccount, BOND_HOLDER_AMOUNT);
 
     // 2. update_bond_terms
     const bondArgs = opts?.bondArgs ?? DEFAULT_UPDATE_BOND_ARGS;

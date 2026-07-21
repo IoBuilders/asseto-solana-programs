@@ -2,11 +2,16 @@ import { PublicKey } from "@solana/web3.js";
 import * as anchor from "@anchor-lang/core";
 import { SNAPSHOT_PROGRAM_ID } from "../../utils/address_utils";
 import { getSnapshotProgram } from "./snapshot_instruction_helper";
+import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
 
 // ── snapshot_counter PDA ───────────────────────────────────────────────────────
 
 export function snapshotCounterPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("snapshot_counter"), mint.toBuffer()], SNAPSHOT_PROGRAM_ID)[0];
+  return snapshotCounterPdaWithBump(mint)[0];
+}
+
+export function snapshotCounterPdaWithBump(mint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("snapshot_counter"), mint.toBuffer()], SNAPSHOT_PROGRAM_ID);
 }
 
 export async function getSnapshotCounter(mint: PublicKey) {
@@ -25,6 +30,26 @@ export async function getSnapshotCounterByPda(pda: PublicKey) {
  */
 export async function encodeSnapshotCounter(bump: number, count: anchor.BN): Promise<Buffer> {
   return getSnapshotProgram().coder.accounts.encode("snapshotCounter", { bump, count });
+}
+
+/**
+ * Test-only: plants the `snapshot_counter` PDA for `mint` at `count` directly via
+ * surfpool, without invoking `take_snapshot` (nor the `create_coupon` CPI that
+ * drives it). Activates snapshot recording at index `count`: the snapshot CPIs
+ * fired by mint/burn/transfer treat an existing counter as the current snapshot
+ * id and stop exiting silently.
+ */
+export async function setSnapshotCounter(mint: PublicKey, count: anchor.BN): Promise<void> {
+  const [pda, bump] = snapshotCounterPdaWithBump(mint);
+  const data = await encodeSnapshotCounter(bump, count);
+  const lamports = await getBalanceForRentExeption(data.length);
+  await surfnetSetAccount(pda, {
+    lamports,
+    owner: SNAPSHOT_PROGRAM_ID.toBase58(),
+    data: data.toString("hex"),
+    executable: false,
+    rentEpoch: 0,
+  });
 }
 
 // ── snapshot_totalsupply PDA ───────────────────────────────────────────────────

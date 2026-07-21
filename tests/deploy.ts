@@ -17,12 +17,8 @@ import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "./program_helpers/metadata_update/metadata_update_pda_helper";
 import { deployMint, getMintDeployedEvent, getMintOwner } from "./program_helpers/deploy_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
-import {
-  getRoles,
-  isRoleGranted,
-  ROLE_ADMIN,
-  rolesPdaWithBump,
-} from "./program_helpers/access_control/access_control_pda_helper";
+import { getRoles, isRoleGranted, rolesPdaWithBump } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_ADMIN } from "./utils/roles";
 
 // ── Test mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
