@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
+    verify_deployer_account,
 };
 
 use crate::events::BondTermsUpdated;
@@ -15,7 +16,10 @@ use common::program_ids as constants;
 /// `require_not_paused` + `require_active` + `require_functionality`
 /// (`BOND_UPDATE_BOND_TERMS` must be enabled in the asset-class version).
 pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> Result<()> {
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_CORPORATE_ACTION,
+    )?;
 
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
@@ -38,7 +42,7 @@ pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> 
 
     emit_cpi!(BondTermsUpdated {
         mint: ctx.accounts.mint.key(),
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
         interest_rate: args.interest_rate,
         interest_rate_decimals: args.interest_rate_decimals,
         par_value: args.par_value,
@@ -54,13 +58,22 @@ pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> 
 #[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateBondTerms<'info> {
-    /// Pays for the `bond_terms` PDA on the first call. Distinct from `deployer`
+    /// Pays for the `bond_terms` PDA on the first call. Distinct from `authority`
     /// so a wallet can fund the call without holding the mint-owner signature.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The deployer recorded as mint owner — must sign to authorise changes.
-    pub deployer: Signer<'info>,
+    /// The authority — must sign and fund the PDA creation.
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(

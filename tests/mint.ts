@@ -4,10 +4,9 @@ import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_ADMIN, ROLE_ISSUER, ROLE_PAUSER } from "./utils/roles";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
+import { ROLE_ADMIN, ROLE_ISSUER } from "./utils/roles";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
-import { createTokenAccount, getMint, getTokenAccount } from "./program_helpers/spl_token_helper";
+import { createTokenAccount, getMint, getTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
 import { mintTokens, getIssuedEvent } from "./program_helpers/mint/mint_instruction_helper";
 import {
   getHolderBalanceSnapshotAt,
@@ -118,10 +117,7 @@ describe("mint", () => {
 
   it("mint: fails with MintPaused when mint is paused", async () => {
     const destination = await createTokenAccount({ mint, owner: deployer });
-    // deployer == authority here, and setRoles overwrites the mask — grant ISSUER
-    // too so mint clears its role check and actually reaches the paused error.
-    await setRoles(mint, deployer, [ROLE_PAUSER, ROLE_ISSUER]);
-    await pauseMint({ deployer, mint });
+    await setMintPaused(mint, true);
 
     try {
       await mintTokens({ deployer, mint, destination, authority });

@@ -75,7 +75,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 }
 

@@ -5,8 +5,7 @@ import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_FREEZE_MANAGER, ROLE_PAUSER } from "./utils/roles";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
+import { ROLE_FREEZE_MANAGER } from "./utils/roles";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
   freezeAccount,
@@ -21,6 +20,7 @@ import {
   getMint,
   getTokenAccount,
   mintTokensViaSurfpool,
+  setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
@@ -530,8 +530,7 @@ describe("transfer", () => {
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
+      await setMintPaused(mint, true);
 
       await fundTransferHookAuthority(mint);
       try {

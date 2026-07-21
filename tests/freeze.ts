@@ -3,7 +3,6 @@ import { AnchorError } from "@anchor-lang/core";
 import { PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   freezeAccount,
@@ -17,7 +16,7 @@ import {
 } from "./program_helpers/freeze/freeze_instruction_helper";
 import { getFrozenAccountStatusByPda, getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
 import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
-import { createTokenAccount } from "./program_helpers/spl_token_helper";
+import { createTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
 import { beforeEach } from "mocha";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -32,7 +31,7 @@ import {
   PAUSE_PAUSE,
 } from "./utils/functionalities";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_FREEZE_MANAGER, ROLE_PAUSER } from "./utils/roles";
+import { ROLE_FREEZE_MANAGER } from "./utils/roles";
 
 describe("freeze", () => {
   const provider = anchor.AnchorProvider.env();
@@ -153,10 +152,7 @@ describe("freeze", () => {
     // ── Error case: freeze_account — MintPaused ─────────────────────────────────
     it("freeze_account: fails with MintPaused when mint is paused", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-
-      // ── Pause the mint ────────────────────────────────────────────────────────
-      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER, ROLE_PAUSER]);
-      await pauseMint({ authority, mint });
+      await setMintPaused(mint, true);
 
       try {
         await freezeAccount({ authority, mint, account: tokenAccount });
@@ -267,9 +263,8 @@ describe("freeze", () => {
     // ── Error case: unfreeze_account — MintPaused ───────────────────────────────
     it("unfreeze_account: fails with MintPaused when mint is paused", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER, ROLE_PAUSER]);
       await freezeAccount({ authority, mint, account: tokenAccount });
-      await pauseMint({ authority, mint });
+      await setMintPaused(mint, true);
 
       try {
         await unfreezeAccount({ authority, mint, account: tokenAccount });
@@ -406,8 +401,7 @@ describe("freeze", () => {
     // ── Error case: partially_freeze_account — MintPaused ───────────────────────
     it("partially_freeze_account: fails with MintPaused when mint is paused", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER, ROLE_PAUSER]);
-      await pauseMint({ authority, mint });
+      await setMintPaused(mint, true);
 
       try {
         await partiallyFreezeAccount({ authority, mint, account: tokenAccount });
@@ -514,9 +508,8 @@ describe("freeze", () => {
     // ── Error case: remove_partial_freeze — MintPaused ──────────────────────────
     it("remove_partial_freeze: fails with MintPaused when mint is paused", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER, ROLE_PAUSER]);
       await partiallyFreezeAccount({ authority, mint, account: tokenAccount });
-      await pauseMint({ authority, mint });
+      await setMintPaused(mint, true);
 
       try {
         await removePartialFreeze({ authority, mint, account: tokenAccount });
