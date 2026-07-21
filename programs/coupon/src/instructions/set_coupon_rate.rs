@@ -1,12 +1,12 @@
 use anchor_lang::prelude::*;
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
 use crate::events::CouponRateSet;
 use crate::state::Coupon;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
 
 /// Overrides the interest rate for a single, already-issued coupon.
 ///
@@ -28,7 +28,10 @@ pub fn set_coupon_rate(
     interest_rate: Option<u64>,
     interest_rate_decimals: Option<u8>,
 ) -> Result<()> {
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_CORPORATE_ACTION,
+    )?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
     require_functionality(
@@ -53,10 +56,8 @@ pub fn set_coupon_rate(
 #[derive(Accounts)]
 #[instruction(coupon_id: u64, interest_rate: Option<u64>, interest_rate_decimals: Option<u8>)]
 pub struct SetCouponRate<'info> {
-    /// The deployer recorded as mint owner — must sign to authorise the change.
-    pub deployer: Signer<'info>,
+    pub authority: Signer<'info>,
 
-    /// PDA created by deploy that records the deployer for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -95,4 +96,11 @@ pub struct SetCouponRate<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 }

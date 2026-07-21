@@ -34,11 +34,15 @@ import {
   PAUSE_PAUSE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { ROLE_ADMIN, ROLE_CORPORATE_ACTION } from "./utils/roles";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 
 describe("coupon", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
+  const payer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
   let mint: PublicKey;
 
   beforeEach(async () => {
@@ -46,6 +50,7 @@ describe("coupon", () => {
     await setAssetClassVersionForMint(mint, {
       functionalities: [PAUSE_PAUSE, COUPON_CREATE_COUPON, COUPON_SET_COUPON_RATE, DEACTIVATE_DEACTIVATE],
     });
+    await setRoles(mint, authority!.publicKey, [ROLE_CORPORATE_ACTION]);
   });
 
   describe("create_coupon", async () => {
@@ -66,7 +71,7 @@ describe("coupon", () => {
       assert.isNull(await getAccountInfo(snapshotCounterPda));
 
       const { signature } = await createCoupon(
-        { deployer, mint },
+        { payer, authority, mint },
         { periodStartDate, periodEndDate, paymentDate, couponId }
       );
 
@@ -138,7 +143,7 @@ describe("coupon", () => {
       const periodEndDate1 = new anchor.BN(1_750_000_000);
       const paymentDate1 = new anchor.BN(1_800_000_000);
       await createCoupon(
-        { deployer, mint },
+        { payer, authority, mint },
         {
           couponId: couponId1,
           periodStartDate: periodStartDate1,
@@ -153,7 +158,7 @@ describe("coupon", () => {
       const periodEndDate2 = new anchor.BN(1_850_000_000);
       const paymentDate2 = new anchor.BN(1_900_000_000);
       await createCoupon(
-        { deployer, mint },
+        { payer, authority, mint },
         {
           couponId: couponId2,
           periodStartDate: periodStartDate2,
@@ -184,7 +189,7 @@ describe("coupon", () => {
       const overrideDecimals = 5;
 
       const { signature } = await createCoupon(
-        { deployer, mint },
+        { payer, authority, mint },
         { couponId, interestRateOverride: overrideRate, interestRateOverrideDecimals: overrideDecimals }
       );
 
@@ -225,7 +230,7 @@ describe("coupon", () => {
     it("create_coupon: fails with InconsistentRateOverride when only interest_rate_override is provided", async () => {
       try {
         await createCoupon(
-          { deployer, mint },
+          { payer, authority, mint },
           { interestRateOverride: new anchor.BN(5275), interestRateOverrideDecimals: null }
         );
         assert.fail("Expected InconsistentRateOverride error but instruction succeeded");
@@ -238,7 +243,7 @@ describe("coupon", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("create_coupon: fails with InconsistentRateOverride when only interest_rate_override_decimals is provided", async () => {
       try {
-        await createCoupon({ deployer, mint }, { interestRateOverride: null, interestRateOverrideDecimals: 5 });
+        await createCoupon({ payer, authority, mint }, { interestRateOverride: null, interestRateOverrideDecimals: 5 });
         assert.fail("Expected InconsistentRateOverride error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -252,7 +257,7 @@ describe("coupon", () => {
       const wrongId = new anchor.BN(2);
 
       try {
-        await createCoupon({ deployer, mint }, { couponId: wrongId });
+        await createCoupon({ payer, authority, mint }, { couponId: wrongId });
         assert.fail("Expected InvalidCouponId error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -289,7 +294,7 @@ describe("coupon", () => {
       // The overflow check runs before the coupon_id comparison, so the default
       // coupon_id is irrelevant — the instruction reverts on the checked_add.
       try {
-        await createCoupon({ deployer, mint });
+        await createCoupon({ payer, authority, mint });
         assert.fail("Expected CouponCounterOverflow error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -302,7 +307,7 @@ describe("coupon", () => {
       await pauseMint({ deployer, mint });
 
       try {
-        await createCoupon({ deployer, mint });
+        await createCoupon({ payer, authority, mint });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -315,7 +320,7 @@ describe("coupon", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await createCoupon({ deployer, mint });
+        await createCoupon({ payer, authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -324,15 +329,16 @@ describe("coupon", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("create_coupon: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    it("create_coupon: fails with MissingRole when authority does not have the corporate action role", async () => {
       const rogueKeypair = Keypair.generate();
+      await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not issuer role
 
       try {
-        await createCoupon({ payer: deployer, deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await createCoupon({ payer, authority: rogueKeypair, mint, signers: [rogueKeypair] });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
+        assert.equal((err as AnchorError).error.errorCode.code, "MissingRole");
       }
     });
 
@@ -341,7 +347,7 @@ describe("coupon", () => {
       // start == end (zero-length period) — must fail.
       const sameDate = new anchor.BN(1_700_000_000);
       try {
-        await createCoupon({ deployer, mint }, { periodStartDate: sameDate, periodEndDate: sameDate });
+        await createCoupon({ payer, authority, mint }, { periodStartDate: sameDate, periodEndDate: sameDate });
         assert.fail("Expected InvalidCouponPeriod error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -354,7 +360,7 @@ describe("coupon", () => {
       // payment_date == period_end_date — must fail (strict `>` is required).
       const sameDate = new anchor.BN(1_750_000_000);
       try {
-        await createCoupon({ deployer, mint }, { periodEndDate: sameDate, paymentDate: sameDate });
+        await createCoupon({ payer, authority, mint }, { periodEndDate: sameDate, paymentDate: sameDate });
         assert.fail("Expected InvalidPaymentDate error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -368,7 +374,7 @@ describe("coupon", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await createCoupon({ deployer, mint });
+        await createCoupon({ payer, authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -390,7 +396,7 @@ describe("coupon", () => {
       });
 
       try {
-        await createCoupon({ deployer, mint });
+        await createCoupon({ payer, authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -412,7 +418,7 @@ describe("coupon", () => {
 
       // Create coupon without an override
       await createCoupon(
-        { deployer, mint },
+        { payer, authority, mint },
         { couponId, interestRateOverride: null, interestRateOverrideDecimals: null }
       );
 
@@ -426,7 +432,7 @@ describe("coupon", () => {
       const overrideDecimals = 5;
 
       const { signature } = await setCouponRate(
-        { deployer, mint },
+        { authority, mint },
         {
           couponId,
           interestRate: overrideRate,
@@ -471,7 +477,7 @@ describe("coupon", () => {
 
       // Create coupon with an initial override: 5 %
       await createCoupon(
-        { deployer, mint },
+        { payer, authority, mint },
         { couponId, interestRateOverride: new anchor.BN(5000), interestRateOverrideDecimals: 5 }
       );
 
@@ -480,7 +486,7 @@ describe("coupon", () => {
       const overrideDecimals = 5;
 
       await setCouponRate(
-        { deployer, mint },
+        { authority, mint },
         {
           couponId,
           interestRate: overrideRate,
@@ -503,13 +509,13 @@ describe("coupon", () => {
 
       // Create coupon with an initial override: 5 %
       await createCoupon(
-        { deployer, mint },
+        { payer, authority, mint },
         { couponId, interestRateOverride: new anchor.BN(5000), interestRateOverrideDecimals: 5 }
       );
 
       // Clear the override — coupon reverts to the asset-level rate
       await setCouponRate(
-        { deployer, mint },
+        { authority, mint },
         {
           couponId,
           interestRate: null,
@@ -523,28 +529,29 @@ describe("coupon", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("set_coupon_rate: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    it("set_coupon_rate: fails with MissingRole when authority does not have the corporate action role", async () => {
       const couponId = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId });
+      await createCoupon({ payer, authority, mint }, { couponId });
       const rogueKeypair = Keypair.generate();
+      await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not issuer role
 
       try {
-        await setCouponRate({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] }, { couponId });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await setCouponRate({ authority: rogueKeypair, mint, signers: [rogueKeypair] }, { couponId });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
+        assert.equal((err as AnchorError).error.errorCode.code, "MissingRole");
       }
     });
 
     // ────────────────────────────────────────────────────────────────────────────
     it("set_coupon_rate: fails with MintPaused when mint is paused", async () => {
       const couponId = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId });
+      await createCoupon({ payer, authority, mint }, { couponId });
       await pauseMint({ deployer, mint });
 
       try {
-        await setCouponRate({ deployer, mint }, { couponId });
+        await setCouponRate({ authority, mint }, { couponId });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -555,11 +562,11 @@ describe("coupon", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("set_coupon_rate: fails with Deactivated when mint has been deactivated", async () => {
       const couponId = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId });
+      await createCoupon({ payer, authority, mint }, { couponId });
       await setDeactivateMarker(mint);
 
       try {
-        await setCouponRate({ deployer, mint }, { couponId });
+        await setCouponRate({ authority, mint }, { couponId });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -570,14 +577,14 @@ describe("coupon", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("set_coupon_rate: fails with FunctionalityNotSupportedError when the set_coupon_rate functionality is not enabled", async () => {
       const couponId = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId });
+      await createCoupon({ payer, authority, mint }, { couponId });
 
       // Re-seed the asset-class version WITH create_coupon (needed for the fixture
       // above to have already succeeded) but WITHOUT set_coupon_rate.
       await setAssetClassVersionForMint(mint, { functionalities: [COUPON_CREATE_COUPON] });
 
       try {
-        await setCouponRate({ deployer, mint }, { couponId });
+        await setCouponRate({ authority, mint }, { couponId });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -593,7 +600,7 @@ describe("coupon", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("set_coupon_rate: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
       const couponId = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId });
+      await createCoupon({ payer, authority, mint }, { couponId });
 
       // Re-seed the asset-class version WITHOUT finalizing it.
       await setAssetClassVersionForMint(mint, {
@@ -602,7 +609,7 @@ describe("coupon", () => {
       });
 
       try {
-        await setCouponRate({ deployer, mint }, { couponId });
+        await setCouponRate({ authority, mint }, { couponId });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

@@ -1,8 +1,8 @@
 use crate::events::CouponCreated;
 use anchor_lang::prelude::*;
 use common::{
-    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused,
-    verify_deployer_account,
+    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
+    roles,
 };
 use snapshot::cpi::accounts::TakeSnapshot;
 use snapshot::state::SnapshotCounter;
@@ -10,10 +10,10 @@ use snapshot::state::SnapshotCounter;
 use crate::errors::ErrorCode;
 use crate::state::{Coupon, CouponCounter};
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
 
 /// Creates a coupon for the mint:
-/// 1. Verifies the deployer signature, mint not paused, mint not deactivated.
+/// 1. Verifies the authority role, mint not paused, mint not deactivated.
 /// 2. Validates the date triple: `period_start_date < period_end_date < payment_date`
 ///    (strict, not enforcing chaining with previous coupons).
 /// 3. Validates that `interest_rate_override` and `interest_rate_override_decimals`
@@ -43,7 +43,10 @@ pub fn create_coupon(
     interest_rate_override_decimals: Option<u8>,
 ) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_CORPORATE_ACTION,
+    )?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
     require_functionality(
@@ -131,15 +134,13 @@ pub fn create_coupon(
 pub struct CreateCoupon<'info> {
     /// Funds rent for the new PDAs (`coupon_counter` on first call, `coupon`
     /// always, and `snapshot_counter` when this is the very first snapshot).
-    /// Distinct from `deployer` so a wallet can pay without holding the
+    /// Distinct from `authority` so a wallet can pay without holding the
     /// mint-owner signature.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The deployer recorded as mint owner — must sign to authorise the coupon.
-    pub deployer: Signer<'info>,
+    pub authority: Signer<'info>,
 
-    /// PDA created by deploy that records the deployer for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -224,4 +225,11 @@ pub struct CreateCoupon<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 }
