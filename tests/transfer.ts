@@ -48,6 +48,7 @@ import {
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -147,7 +148,7 @@ describe("transfer", () => {
       const couponId = new anchor.BN(1);
 
       // ── Take snapshot via create_coupon (counter: 0 → 1) ─────────────────────
-      await createCoupon({ deployer, mint }, { couponId });
+      await setCoupon(mint, couponId);
 
       // ── Fund and transfer ─────────────────────────────────────────────────────
       await fundTransferHookAuthority(mint);
@@ -187,7 +188,7 @@ describe("transfer", () => {
       const couponId1 = new anchor.BN(1);
 
       // ── Take snapshot 1 (counter: 0 → 1) ─────────────────────────────────────
-      await createCoupon({ deployer, mint }, { couponId: couponId1 });
+      await setCoupon(mint, couponId1);
 
       await fundTransferHookAuthority(mint);
 
@@ -243,7 +244,7 @@ describe("transfer", () => {
 
       // ── Take snapshot 2 (counter: 1 → 2) ─────────────────────────────────────
       const couponId2 = new anchor.BN(2);
-      await createCoupon({ deployer, mint }, { couponId: couponId2 });
+      await setCoupon(mint, couponId2);
 
       // ── Third transfer in snapshot period 2 (100 tokens) ──────────────────────
       // Hook appends: sender (key=2, value=MINT_AMOUNT-300-200), receiver (key=2, value=300+200).

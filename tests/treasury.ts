@@ -41,6 +41,7 @@ import {
 } from "./utils/functionalities";
 import { beforeEach } from "mocha";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 
 // ── Bond mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -119,7 +120,7 @@ describe("treasury", () => {
     const periodStartDate = opts?.periodStartDate ?? PERIOD_START;
     const periodEndDate = opts?.periodEndDate ?? PERIOD_END;
     const paymentDate = opts?.paymentDate ?? PAYMENT_DATE;
-    await createCoupon({ deployer, mint }, { couponId, periodStartDate, periodEndDate, paymentDate });
+    await setCoupon(mint, couponId, { periodStartDate, periodEndDate, paymentDate });
 
     // 4. Create the payment mint + the holder's payment-mint TA.
     const paymentMint = await createMint({ decimals: paymentMintDecimals });
