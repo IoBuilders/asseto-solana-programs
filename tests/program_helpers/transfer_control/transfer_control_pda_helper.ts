@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { TRANSFER_CONTROL_PROGRAM_ID } from "../../utils/address_utils";
 import { getTransferControlProgram } from "./transfer_control_instruction_helper";
+import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
 
 // ── transfer_control_mode PDA ─────────────────────────────────────────────────
 
@@ -19,6 +20,19 @@ export async function getTransferControlModeByPda(pda: PublicKey) {
   return await getTransferControlProgram().account.transferControlMode.fetchNullable(pda, "confirmed");
 }
 
+export async function setTransferControlModesMarker(mint: PublicKey, modes: any[]): Promise<void> {
+  const [pda, bump] = transferControlModePdaWithBump(mint);
+  const data = await getTransferControlProgram().coder.accounts.encode("transferControlMode", { modes, bump });
+  const lamports = await getBalanceForRentExeption(data.length);
+  await surfnetSetAccount(pda, {
+    lamports,
+    owner: TRANSFER_CONTROL_PROGRAM_ID.toBase58(),
+    data: data.toString("hex"),
+    executable: false,
+    rentEpoch: 0,
+  });
+}
+
 // ── whitelist PDA ──────────────────────────────────────────────────────────────
 
 export function whitelistPda(mint: PublicKey, account: PublicKey): PublicKey {
@@ -34,6 +48,19 @@ export function whitelistPdaWithBump(mint: PublicKey, account: PublicKey): [Publ
 
 export async function getWhitelistStatusByPda(pda: PublicKey) {
   return await getTransferControlProgram().account.whitelistStatus.fetchNullable(pda, "confirmed");
+}
+
+export async function setWhitelistMarker(mint: PublicKey, account: PublicKey): Promise<void> {
+  const [pda, bump] = whitelistPdaWithBump(mint, account);
+  const data = await getTransferControlProgram().coder.accounts.encode("whitelistStatus", { bump });
+  const lamports = await getBalanceForRentExeption(data.length);
+  await surfnetSetAccount(pda, {
+    lamports,
+    owner: TRANSFER_CONTROL_PROGRAM_ID.toBase58(),
+    data: data.toString("hex"),
+    executable: false,
+    rentEpoch: 0,
+  });
 }
 
 // ── __event_authority PDA ─────────────────────────────────────────────────────

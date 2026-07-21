@@ -80,7 +80,7 @@ export async function burnTokens(
       program: OPERATIONS_PROGRAM_ID,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

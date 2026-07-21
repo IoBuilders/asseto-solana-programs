@@ -10,6 +10,7 @@ import { getEvent } from "../event_helper";
 import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { transferControlModePda, transferControlEventAuthorityPda, whitelistPda } from "./transfer_control_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export const TRANSFER_CONTROL_WHITELIST = { whitelist: {} };
 export const TRANSFER_CONTROL_CLEARING = { clearing: {} };
@@ -34,6 +35,7 @@ export async function setTransferControlModes(
   callContext: MintWriteContext,
   args?: SetModesArgs
 ): Promise<{ signature: string }> {
+  const program = getTransferControlProgram();
   const effectiveArgs: Required<SetModesArgs> = {
     ...getDefaultSetModesArgs(),
     ...args,
@@ -42,11 +44,13 @@ export async function setTransferControlModes(
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
-  const signature = await getTransferControlProgram()
-    .methods.setModes(effectiveArgs.modes)
+  const signature = await program.methods
+    .setModes(effectiveArgs.modes)
     .accountsStrict({
-      deployer: callContext.deployer,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
@@ -56,7 +60,7 @@ export async function setTransferControlModes(
       eventAuthority: transferControlEventAuthorityPda(),
       program: TRANSFER_CONTROL_PROGRAM_ID,
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
@@ -84,14 +88,15 @@ export type AddToWhitelistContext = MintWriteContext & {
 };
 
 export async function addToWhitelist(callContext: AddToWhitelistContext): Promise<{ signature: string }> {
-  // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
+  const program = getTransferControlProgram();
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
-  const signature = await getTransferControlProgram()
-    .methods.addToWhitelist()
+  const signature = await program.methods
+    .addToWhitelist()
     .accountsStrict({
-      deployer: callContext.deployer,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       account: callContext.account,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
@@ -102,7 +107,7 @@ export async function addToWhitelist(callContext: AddToWhitelistContext): Promis
       eventAuthority: transferControlEventAuthorityPda(),
       program: TRANSFER_CONTROL_PROGRAM_ID,
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
@@ -130,14 +135,15 @@ export type RemoveFromWhitelistContext = MintWriteContext & {
 };
 
 export async function removeFromWhitelist(callContext: RemoveFromWhitelistContext): Promise<{ signature: string }> {
-  // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
+  const program = getTransferControlProgram();
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
-  const signature = await getTransferControlProgram()
-    .methods.removeFromWhitelist()
+  const signature = await program.methods
+    .removeFromWhitelist()
     .accountsStrict({
-      deployer: callContext.deployer,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       account: callContext.account,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
@@ -147,7 +153,7 @@ export async function removeFromWhitelist(callContext: RemoveFromWhitelistContex
       eventAuthority: transferControlEventAuthorityPda(),
       program: TRANSFER_CONTROL_PROGRAM_ID,
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

@@ -10,6 +10,7 @@ import { getEvent } from "../event_helper";
 import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { bondEventAuthorityPda, bondTermsPda } from "./bond_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getBondProgram(): Program<Bond> {
   return anchor.workspace.Bond as Program<Bond>;
@@ -43,6 +44,7 @@ export async function updateBondTerms(
   callContext: MintWriteWithPayerContext,
   args?: UpdateBondArgs
 ): Promise<{ signature: string }> {
+  const program = getBondProgram();
   const effectiveArgs: Required<UpdateBondArgs> = {
     ...getDefaultBondTermsArgs(),
     ...args,
@@ -51,9 +53,10 @@ export async function updateBondTerms(
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
-  const signature = await getBondProgram()
-    .methods.updateBondTerms({
+  const signature = await program.methods
+    .updateBondTerms({
       interestRate: effectiveArgs.interestRate,
       interestRateDecimals: effectiveArgs.interestRateDecimals,
       parValue: effectiveArgs.parValue,
@@ -63,8 +66,9 @@ export async function updateBondTerms(
       dayCountConvention: effectiveArgs.dayCountConvention,
     })
     .accountsStrict({
-      payer: callContext.payer ?? callContext.deployer,
-      deployer: callContext.deployer,
+      payer: callContext.payer ?? authority.publicKey,
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
@@ -74,7 +78,7 @@ export async function updateBondTerms(
       eventAuthority: bondEventAuthorityPda(),
       program: BOND_PROGRAM_ID,
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

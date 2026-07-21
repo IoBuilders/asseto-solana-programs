@@ -76,21 +76,25 @@ Callers match on the returned `Vec<TransferMode>` instead of calling two boolean
 modes: Vec<TransferMode>
 ```
 
-Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when not empty. When empty, closes the PDA and returns its rent to the deployer — no transfer controls.
+Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when not empty. When empty, closes the PDA and returns its rent to `authority` — no transfer controls.
 
 ### Preconditions
 
-- `verify_deployer`, `require_not_paused`, `require_active`
+- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint (checked against its own `["roles", mint, authority]` PDA). Replaces the previous `verify_deployer` gate.
+- `require_not_paused`, `require_active`
+- `require_functionality(TRANSFER_CONTROL_SET_MODES)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_SET_MODES` functionality bit enabled.
 
 ### Accounts
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `deployer` | yes | yes | Signer | Funds PDA creation if needed |
-| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; funds PDA creation if needed |
+| `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
+| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
 | `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | created if empty using `SystemProgram.create_account`; seeds `["transfer_control_mode", mint]` |
+| `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
 | `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
@@ -105,18 +109,22 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 
 ### Preconditions
 
-- `verify_deployer`, `require_not_paused`, `require_active`
+- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint. Replaces the previous `verify_deployer` gate.
+- `require_not_paused`, `require_active`
+- `require_functionality(TRANSFER_CONTROL_ADD_TO_WHITELIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_ADD_TO_WHITELIST` functionality bit enabled.
 
 ### Accounts
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `deployer` | yes | yes | Signer | Funds PDA creation |
-| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; funds PDA creation |
+| `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
+| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | Token account to whitelist; used as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| `whitelist_pda` | yes | no | Account | `init_if_needed`; seeds `["whitelist", mint, account]` |
+| `whitelist_pda` | yes | no | Account | `init_if_needed`; seeds `["whitelist", mint, account]`, `payer = authority` |
+| `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
 | `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
@@ -127,15 +135,17 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 
 No parameters.
 
-Closes the `whitelist_pda` and returns rent to `deployer`. If the PDA does not exist, the instruction is a no-op.
+Closes the `whitelist_pda` and returns rent to `authority`. If the PDA does not exist, the instruction is a no-op.
 
 ### Preconditions
 
-- `verify_deployer`, `require_not_paused`, `require_active`
+- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint. Replaces the previous `verify_deployer` gate.
+- `require_not_paused`, `require_active`
+- `require_functionality(TRANSFER_CONTROL_REMOVE_FROM_WHITELIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_REMOVE_FROM_WHITELIST` functionality bit enabled.
 
 ### Accounts
 
-Same shape as `add_to_whitelist` but the `whitelist_pda` constraint uses `close = deployer`.
+Same shape as `add_to_whitelist` but the `whitelist_pda` constraint uses `close = authority`.
 
 ---
 
@@ -188,7 +198,7 @@ pub struct AccountRemovedFromWhitelist {
 }
 ```
 
-`operator` is the `deployer` that signed the instruction in all three events.
+`operator` is the `authority` that signed the instruction in all three events (must hold `ROLE_CONTROL_LIST`).
 
 ---
 

@@ -1,12 +1,12 @@
 use anchor_lang::prelude::*;
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, verify_deployer_account,
+    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
 use crate::events::AccountWhitelisted;
 use crate::state::WhitelistStatus;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 
 /// Adds a token account to the whitelist for a mint by creating a marker PDA.
 ///
@@ -15,8 +15,10 @@ use common::state::{AssetClassVersion, MintOwner};
 ///
 /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
 pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_CONTROL_LIST,
+    )?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
@@ -35,7 +37,7 @@ pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
     emit_cpi!(AccountWhitelisted {
         mint: ctx.accounts.mint.key(),
         account: ctx.accounts.account.key(),
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
     });
 
     Ok(())
@@ -44,9 +46,17 @@ pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct AddToWhitelist<'info> {
-    /// The deployer recorded as mint owner — must sign and fund PDA creation if needed.
+    /// The authority — must sign and fund the PDA creation.
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(
@@ -81,7 +91,7 @@ pub struct AddToWhitelist<'info> {
     /// Seeds: `["whitelist", mint, account]`.
     #[account(
         init_if_needed,
-        payer = deployer,
+        payer = authority,
         space = WhitelistStatus::DISCRIMINATOR.len() + WhitelistStatus::INIT_SPACE,
         seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), account.key().as_ref()],
         bump,
