@@ -24,6 +24,7 @@ import { setMintPaused } from "./program_helpers/spl_token_helper";
 describe("bond", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
+  const deployer = provider.wallet.publicKey;
   const authority = provider.wallet.payer;
   let mint: PublicKey;
 
@@ -34,7 +35,7 @@ describe("bond", () => {
   // Anchor loads it (via the `bump = ...load()?.bump` constraint) before the
   // handler body's checks run. Tests that need it disabled re-seed it themselves.
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer: authority.publicKey }));
+    ({ mint } = await deployMint({ deployer }));
     await setAssetClassVersionForMint(mint, {
       functionalities: [PAUSE_PAUSE, BOND_UPDATE_BOND_TERMS, DEACTIVATE_DEACTIVATE],
     });
