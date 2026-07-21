@@ -69,20 +69,23 @@ Creates the `bond_terms` PDA on the first call (`init_if_needed`) and overwrites
 
 ### Preconditions
 
-- `verify_deployer` — only the deployer recorded in `mint_owner_pda` may call.
+- `require_role(ROLE_CORPORATE_ACTION)` — the `authority` caller must sign and hold `ROLE_CORPORATE_ACTION` on this mint (checked against its own `["roles", mint, authority]` PDA). Replaces the previous `verify_deployer` gate.
 - `require_not_paused` — mint must not be paused.
 - `require_active` — mint must not have been deactivated.
+- `require_functionality(BOND_UPDATE_BOND_TERMS)` — the mint's asset-class version must be finalized and have the `BOND_UPDATE_BOND_TERMS` functionality bit enabled.
 
 ### Accounts
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `payer` | yes | yes | Signer | Funds the `bond_terms` PDA on the first call. Distinct from `deployer` so a wallet can pay rent without holding the mint-owner signature (and so the rogue-deployer test-case fails at the auth check, not at System-Program insufficient-funds). |
-| `deployer` | no | yes | Signer | Authorisation target for `verify_deployer`. |
-| `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `payer` | yes | yes | Signer | Funds the `bond_terms` PDA on the first call. Distinct from `authority` so a wallet can pay rent without holding the role-holder's signature. |
+| `authority` | yes | yes | Signer | Must hold `ROLE_CORPORATE_ACTION`; also funds the PDA creation |
+| `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
+| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `require_not_paused` |
 | `bond_terms` | yes | no | `Account<BondTerms>` | `init_if_needed`; seeds `["bond_terms", mint]`, `payer = payer`, `space = BondTerms::LEN` |
+| `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
 | `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
@@ -116,7 +119,7 @@ pub struct BondTermsUpdated {
 }
 ```
 
-`operator` is the `deployer` that signed the instruction. The remaining fields mirror `args` (the full
+`operator` is the `authority` that signed the instruction (must hold `ROLE_CORPORATE_ACTION`). The remaining fields mirror `args` (the full
 term sheet as written), not the account's `bump` — so the event alone is enough to reconstruct the new
 `BondTerms` state without re-fetching the PDA.
 

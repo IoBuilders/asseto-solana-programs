@@ -18,6 +18,7 @@ Pauses the Token-2022 mint. All minting, burning, and transfers are blocked by T
 
 - `require_role` — signer must hold `ROLE_PAUSER`.
 - `require_active` — mint must not be deactivated.
+- `require_functionality(PAUSE_PAUSE)` — the mint's asset-class version must be finalized and have the `PAUSE_PAUSE` functionality bit enabled.
 
 ### Accounts
 
@@ -29,6 +30,7 @@ Pauses the Token-2022 mint. All minting, burning, and transfers are blocked by T
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to pause |
 | `pausable_authority` | no | no | UncheckedAccount | seeds `["pausable_authority", mint]` (owned by this program); signs the Token-2022 pause CPI |
+| `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `Paused` |
 | `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
@@ -37,8 +39,9 @@ Pauses the Token-2022 mint. All minting, burning, and transfers are blocked by T
 
 1. `require_role(authority_roles_pda, ROLE_PAUSER)`
 2. `require_active(&deactivate_pda)`
-3. `invoke_signed` → `spl_pause(mint, pausable_authority)` signed with `["pausable_authority", mint, bump]`
-4. Emit `Paused { mint, operator: authority }` via `emit_cpi!`
+3. `require_functionality(asset_class_version_pda, PAUSE_PAUSE)`
+4. `invoke_signed` → `spl_pause(mint, pausable_authority)` signed with `["pausable_authority", mint, bump]`
+5. Emit `Paused { mint, operator: authority }` via `emit_cpi!`
 
 ### Events
 
@@ -60,10 +63,11 @@ Unpauses the Token-2022 mint. Resumes normal minting, burning, and transfers.
 
 - `require_role` — signer must hold `ROLE_PAUSER`.
 - `require_active` — mint must not be deactivated.
+- `require_functionality(PAUSE_UNPAUSE)` — the mint's asset-class version must be finalized and have the `PAUSE_UNPAUSE` functionality bit enabled.
 
 ### Accounts
 
-Same shape as `pause` (including the `authority` + `authority_roles_pda` role accounts and the `#[event_cpi]`-injected `event_authority` and `program` accounts) but calls `spl_resume` (Token-2022 unpause instruction).
+Same shape as `pause` (including the `authority` + `authority_roles_pda` role accounts, `asset_class_version_pda`, and the `#[event_cpi]`-injected `event_authority` and `program` accounts) but calls `spl_resume` (Token-2022 unpause instruction).
 
 ### Events
 

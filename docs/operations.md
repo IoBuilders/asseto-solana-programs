@@ -72,7 +72,7 @@ the same pattern `deploy` uses for `MintDeployed`.
 #[event]
 pub struct ControllerRedemption {
     pub mint: Pubkey,
-    pub controller: Pubkey,  // the deployer (payer); authorization is now the `authority` holding ROLE_CONTROLLER
+    pub controller: Pubkey,  // the `authority` that signed and holds ROLE_CONTROLLER (not the `deployer`/payer)
     pub from: Pubkey,        // the token account burned from
     pub value: u64,          // raw token units burned
 }
