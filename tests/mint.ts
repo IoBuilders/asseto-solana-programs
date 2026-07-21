@@ -27,7 +27,8 @@ import {
   PAUSE_PAUSE,
   TRANSFER_CONTROL_SET_MODES,
 } from "./utils/functionalities";
-import { ROLE_ADMIN, ROLE_ISSUER, setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_ADMIN, ROLE_ISSUER } from "./utils/roles";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 
 describe("mint", () => {

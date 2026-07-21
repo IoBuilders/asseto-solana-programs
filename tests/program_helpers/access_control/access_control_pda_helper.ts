@@ -3,11 +3,6 @@ import { ACCESS_CONTROL_PROGRAM_ID } from "../../utils/address_utils";
 import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
 import { getAccessControlProgram } from "./access_control_instruction_helper";
 
-/** Role id for the admin role (mirrors `common::roles::ROLE_ADMIN`). */
-export const ROLE_ADMIN = 0;
-export const ROLE_CONTROLLER = 1;
-export const ROLE_ISSUER = 4;
-
 /** Role mask capacity in bits (mirrors `ROLES_BITS_MASK` on-chain). */
 export const ROLES_BITS_MASK = 8192;
 /** Bits packed into each mask byte (mirrors `common::bitmask::MASK_CHUNK_BITS`). */

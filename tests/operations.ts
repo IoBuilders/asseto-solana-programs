@@ -24,7 +24,8 @@ import {
 } from "./program_helpers/factory/factory_pda_helper";
 import { OPERATIONS_BURN } from "./utils/functionalities";
 import { beforeEach } from "mocha";
-import { ROLE_ADMIN, ROLE_CONTROLLER, setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_ADMIN, ROLE_CONTROLLER } from "./utils/roles";
 
 describe("operations", () => {
   const provider = anchor.AnchorProvider.env();
