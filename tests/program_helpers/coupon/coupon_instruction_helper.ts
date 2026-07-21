@@ -83,7 +83,7 @@ export async function createCoupon(
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
@@ -154,7 +154,7 @@ export async function setCouponRate(
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
       authorityRolesPda: rolesPda(context.mint, authority.publicKey),
     })
-    .signers(context?.signers ?? [])
+    .signers(context?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

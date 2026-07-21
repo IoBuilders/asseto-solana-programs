@@ -57,7 +57,7 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
       program: TREASURY_PROGRAM_ID,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
@@ -124,7 +124,7 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       program: TREASURY_PROGRAM_ID,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
