@@ -1,12 +1,11 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { BOND_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_PAUSER } from "./utils/roles";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
+import { ROLE_CORPORATE_ACTION } from "./utils/roles";
 import {
   getBondTermsUpdatedEvent,
   UpdateBondArgs,
@@ -20,11 +19,13 @@ import {
 import { BOND_UPDATE_BOND_TERMS, DEACTIVATE_DEACTIVATE, PAUSE_PAUSE } from "./utils/functionalities";
 import { getAccountInfo } from "./program_helpers/account_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setMintPaused } from "./program_helpers/spl_token_helper";
 
 describe("bond", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
   let mint: PublicKey;
 
   // `deployMint` records config 0 / version 0 on the mint_owner, so every test's
@@ -38,6 +39,7 @@ describe("bond", () => {
     await setAssetClassVersionForMint(mint, {
       functionalities: [PAUSE_PAUSE, BOND_UPDATE_BOND_TERMS, DEACTIVATE_DEACTIVATE],
     });
+    await setRoles(mint, authority.publicKey, [ROLE_CORPORATE_ACTION]);
   });
 
   describe("update_bond_terms", async () => {
@@ -61,7 +63,7 @@ describe("bond", () => {
       const before = await getAccountInfo(bondPda);
       assert.isNull(before, "bond_terms PDA should not exist before update");
 
-      const { signature } = await updateBondTerms({ deployer, mint }, updateArgs);
+      const { signature } = await updateBondTerms({ authority, mint }, updateArgs);
 
       // PDA must now exist and be owned by bond
       const after = await getAccountInfo(bondPda);
@@ -88,7 +90,11 @@ describe("bond", () => {
 
       assert.isNotNull(updatedEvent, "BondTermsUpdated event should be emitted");
       assert.equal(updatedEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-      assert.equal(updatedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+      assert.equal(
+        updatedEvent!.operator.toBase58(),
+        authority.publicKey.toBase58(),
+        "event operator should match deployer"
+      );
       assert.equal(
         updatedEvent!.interestRate.toString(),
         updateArgs.interestRate?.toString(),
@@ -124,7 +130,7 @@ describe("bond", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await updateBondTerms({ deployer, mint });
+        await updateBondTerms({ authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -146,7 +152,7 @@ describe("bond", () => {
       });
 
       try {
-        await updateBondTerms({ deployer, mint });
+        await updateBondTerms({ authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -161,11 +167,10 @@ describe("bond", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("update_bond_terms: fails with MintPaused when mint is paused", async () => {
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
+      await setMintPaused(mint, true);
 
       try {
-        await updateBondTerms({ deployer, mint });
+        await updateBondTerms({ authority, mint });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -179,7 +184,7 @@ describe("bond", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await updateBondTerms({ deployer, mint });
+        await updateBondTerms({ authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -189,22 +194,17 @@ describe("bond", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("update_bond_terms: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
-      const rogueKeypair = Keypair.generate();
+    it("update_bond_terms: fails with MissingRole when authority doesn't have required role", async () => {
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await updateBondTerms({ payer: deployer, deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
+        await updateBondTerms({ authority, mint });
 
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "UnauthorizedDeployer",
-          "error code should be UnauthorizedDeployer"
-        );
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole");
       }
     });
   });

@@ -1,14 +1,14 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
 use common::{
-    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused,
-    verify_deployer_account,
+    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
+    roles,
 };
 
 use crate::events::TransferControlModesSet;
 use crate::state::{TransferControlMode, TransferMode};
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles};
 
 /// Sets, updates, or removes the transfer control modes for a mint.
 ///
@@ -22,8 +22,10 @@ use common::state::{AssetClassVersion, MintOwner};
 ///
 /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
 pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> {
-    // ── Verify deployer is the recorded mint owner ────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_CONTROL_LIST,
+    )?;
 
     // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
@@ -44,7 +46,7 @@ pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> 
     let pda = &ctx.accounts.transfer_control_mode_pda;
 
     if modes.is_empty() {
-        close_pda(pda, &ctx.accounts.deployer)?;
+        close_pda(pda, &ctx.accounts.authority)?;
     } else {
         let bump = ctx.bumps.transfer_control_mode_pda;
         let new_space = TransferControlMode::space(modes.len());
@@ -53,7 +55,7 @@ pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> 
         } else if pda.data_len() != new_space {
             resize_pda(
                 pda,
-                &ctx.accounts.deployer,
+                &ctx.accounts.authority,
                 &ctx.accounts.system_program,
                 new_space,
             )?;
@@ -69,7 +71,7 @@ pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> 
 
     emit_cpi!(TransferControlModesSet {
         mint: ctx.accounts.mint.key(),
-        operator: ctx.accounts.deployer.key(),
+        operator: ctx.accounts.authority.key(),
         modes,
     });
 
@@ -77,13 +79,13 @@ pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> 
 }
 
 /// Closes the PDA and returns rent to the deployer. No-op if already absent.
-fn close_pda<'info>(pda: &UncheckedAccount<'info>, deployer: &Signer<'info>) -> Result<()> {
+fn close_pda<'info>(pda: &UncheckedAccount<'info>, authority: &Signer<'info>) -> Result<()> {
     if pda.data_is_empty() {
         return Ok(());
     }
     let lamports = pda.lamports();
     **pda.try_borrow_mut_lamports()? = 0;
-    **deployer.try_borrow_mut_lamports()? = deployer.lamports().checked_add(lamports).unwrap();
+    **authority.try_borrow_mut_lamports()? = authority.lamports().checked_add(lamports).unwrap();
     pda.try_borrow_mut_data()?.fill(0);
     Ok(())
 }
@@ -100,14 +102,14 @@ fn create_pda<'info>(
         pda_utils::build_pda_signer_seeds(pda_seeds::transfer_control_mode_seeds(&mint_key), &bump);
     invoke_signed(
         &system_instruction::create_account(
-            ctx.accounts.deployer.key,
+            ctx.accounts.authority.key,
             pda.key,
             Rent::get()?.minimum_balance(space),
             space as u64,
             ctx.program_id,
         ),
         &[
-            ctx.accounts.deployer.to_account_info(),
+            ctx.accounts.authority.to_account_info(),
             pda.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
         ],
@@ -161,9 +163,17 @@ fn write_pda(pda: &UncheckedAccount, content: TransferControlMode) -> Result<()>
 #[event_cpi]
 #[derive(Accounts)]
 pub struct SetMode<'info> {
-    /// The deployer recorded as mint owner — must sign and fund PDA creation if needed.
+    /// The authority — must sign and fund the PDA creation.
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// The authority's own `Roles` PDA.
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     /// PDA created by deploy that records the deployer for this mint.
     #[account(

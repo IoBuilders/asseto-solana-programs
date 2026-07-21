@@ -4,8 +4,6 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { COUPON_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { ROLE_PAUSER } from "./utils/roles";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import {
   createCoupon,
   getCouponCreatedEvent,
@@ -37,6 +35,7 @@ import {
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { ROLE_ADMIN, ROLE_CORPORATE_ACTION } from "./utils/roles";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { setMintPaused } from "./program_helpers/spl_token_helper";
 
 describe("coupon", () => {
   const provider = anchor.AnchorProvider.env();
@@ -305,9 +304,7 @@ describe("coupon", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("create_coupon: fails with MintPaused when mint is paused", async () => {
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
-      await setRoles(mint, authority!.publicKey, [ROLE_CORPORATE_ACTION]); // restore corporate action role to authority
+      await setMintPaused(mint, true);
 
       try {
         await createCoupon({ payer, authority, mint });
@@ -550,10 +547,8 @@ describe("coupon", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("set_coupon_rate: fails with MintPaused when mint is paused", async () => {
       const couponId = new anchor.BN(1);
-      await createCoupon({ payer, authority, mint }, { couponId });
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
-      await setRoles(mint, authority!.publicKey, [ROLE_CORPORATE_ACTION]); // restore corporate action role to authority
+      await createCoupon({ deployer, mint }, { couponId });
+      await setMintPaused(mint, true);
 
       try {
         await setCouponRate({ authority, mint }, { couponId });

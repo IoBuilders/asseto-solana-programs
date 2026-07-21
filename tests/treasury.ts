@@ -4,8 +4,7 @@ import { Keypair, PublicKey, SendTransactionError, Signer } from "@solana/web3.j
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_PAUSER, ROLE_ADMIN, ROLE_TREASURER } from "./utils/roles";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
+import { ROLE_ADMIN, ROLE_TREASURER, ROLE_CORPORATE_ACTION } from "./utils/roles";
 import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
 import {
   createMint,
@@ -13,6 +12,7 @@ import {
   getTokenAccount,
   mintTo,
   mintTokensViaSurfpool,
+  setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
@@ -222,6 +222,7 @@ describe("treasury", () => {
         MINT_MINT,
       ],
     });
+    await setRoles(mint, deployer, [ROLE_CORPORATE_ACTION]);
     await setRoles(mint, authority!.publicKey, [ROLE_TREASURER]);
   });
 
@@ -273,9 +274,8 @@ describe("treasury", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("set_payment_token: fails with MintPaused when mint is paused", async () => {
       const paymentMint = await createMint();
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
-      await setRoles(mint, authority!.publicKey, [ROLE_TREASURER]);
+
+      await setMintPaused(mint, true);
 
       try {
         await setPaymentToken({ payer, authority, mint, paymentMint });
@@ -711,9 +711,7 @@ describe("treasury", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("pay_coupon: fails with MintPaused when the bond mint is paused", async () => {
       const ctx = await deployBondAndCoupon();
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
-      await setRoles(mint, authority!.publicKey, [ROLE_TREASURER]);
+      await setMintPaused(ctx.mint, true);
 
       try {
         await payCouponInternal(ctx);

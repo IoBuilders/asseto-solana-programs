@@ -1,12 +1,9 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_PAUSER } from "./utils/roles";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
-import { createTokenAccount } from "./program_helpers/spl_token_helper";
+import { createTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
 import {
   addToWhitelist,
   getAccountRemovedFromWhitelistEvent,
@@ -38,11 +35,14 @@ import {
   whitelistPdaWithBump,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_CONTROL_LIST } from "./utils/roles";
 
 describe("transfer-control", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
   let mint: PublicKey;
 
   beforeEach(async () => {
@@ -56,6 +56,7 @@ describe("transfer-control", () => {
         DEACTIVATE_DEACTIVATE,
       ],
     });
+    await setRoles(mint, authority.publicKey, [ROLE_CONTROL_LIST]);
   });
 
   describe("set_modes", async () => {
@@ -74,7 +75,7 @@ describe("transfer-control", () => {
       const stateBefore = await getTransferControlModeByPda(transferControlMode);
 
       // ── Call set_modes(TRANSFER_CONTROL_CLEARING) ────────────────────────────────────
-      const { signature } = await setTransferControlModes({ deployer, mint }, { modes });
+      const { signature } = await setTransferControlModes({ authority, mint }, { modes });
 
       // ── Fetch and verify the PDA ─────────────────────────────────────────────
       const stateAfter = await getTransferControlModeByPda(transferControlMode);
@@ -91,7 +92,11 @@ describe("transfer-control", () => {
       const modesSetEvent = await getTransferControlModesSetEvent(signature);
       assert.isNotNull(modesSetEvent, "TransferControlModesSet event should be emitted");
       assert.equal(modesSetEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-      assert.equal(modesSetEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+      assert.equal(
+        modesSetEvent!.operator.toBase58(),
+        authority.publicKey.toBase58(),
+        "event operator should match authority"
+      );
       assert.deepEqual(modesSetEvent!.modes, modes, `event modes should be ${modes}`);
     });
 
@@ -102,7 +107,7 @@ describe("transfer-control", () => {
       const transferControlMode = transferControlModePda(mint);
 
       // ── First call: create with modes = [Clearing] ────────────────────────────
-      await setTransferControlModes({ deployer, mint }, { modes: initialModes });
+      await setTransferControlModes({ authority, mint }, { modes: initialModes });
 
       const stateAfterFirst = await getTransferControlModeByPda(transferControlMode);
       const accountInfoBefore = await getAccountInfo(transferControlMode);
@@ -120,7 +125,7 @@ describe("transfer-control", () => {
       );
 
       // ── Second call: Add Whitelist to modes ──────────────────
-      await setTransferControlModes({ deployer, mint }, { modes: newModes });
+      await setTransferControlModes({ authority, mint }, { modes: newModes });
 
       const stateAfterUpdate = await getTransferControlModeByPda(transferControlMode);
 
@@ -148,7 +153,7 @@ describe("transfer-control", () => {
       const transferControlMode = transferControlModePda(mint);
 
       // ── First call: create with modes = [Clearing, Whitelist] ────────────────
-      await setTransferControlModes({ deployer, mint }, { modes: initialModes });
+      await setTransferControlModes({ authority, mint }, { modes: initialModes });
 
       const stateAfterFirst = await getTransferControlModeByPda(transferControlMode);
       const accountInfoBefore = await getAccountInfo(transferControlMode);
@@ -166,7 +171,7 @@ describe("transfer-control", () => {
       );
 
       // ── Second call: remove Whitelist, keeping only [Clearing] ───────────────
-      await setTransferControlModes({ deployer, mint }, { modes: newModes });
+      await setTransferControlModes({ authority, mint }, { modes: newModes });
 
       const stateAfterUpdate = await getTransferControlModeByPda(transferControlMode);
 
@@ -192,41 +197,39 @@ describe("transfer-control", () => {
       const transferControlMode = transferControlModePda(mint);
 
       // ── First: create the PDA with any mode ────────────────────────────────
-      await setTransferControlModes({ deployer, mint });
+      await setTransferControlModes({ authority, mint });
 
       const stateAfterCreate = await getTransferControlModeByPda(transferControlMode);
       assert.isNotNull(stateAfterCreate, "transfer_control_mode PDA should exist after set_modes([clearing])");
 
       // ── Then: remove it by passing empty vector ────────────────────
-      await setTransferControlModes({ deployer, mint }, { modes: [] });
+      await setTransferControlModes({ authority, mint }, { modes: [] });
 
       // ── Verify the PDA has been closed ────────────────────────────────────
       const stateAfterRemove = await getTransferControlModeByPda(transferControlMode);
       assert.isNull(stateAfterRemove, "transfer_control_mode PDA should not exist after set_modes([])");
     });
 
-    // ── Error case: set_modes — UnauthorizedDeployer ──────────────────────────────
-    it("set_modes: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const rogueKeypair = Keypair.generate();
+    // ── Error case: set_modes — MissingRole ──────────────────────────────
+    it("set_modes: fails with MissingRole when authority doesn't have required role", async () => {
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await setTransferControlModes({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await setTransferControlModes({ authority, mint });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer");
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole");
       }
     });
 
     // ── Error case: set_modes — MintPaused ────────────────────────────────────────
     it("set_modes: fails with MintPaused when mint is paused", async () => {
-      const { mint } = await deployMint({ deployer });
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
+      await setMintPaused(mint, true);
 
       try {
-        await setTransferControlModes({ deployer, mint });
+        await setTransferControlModes({ authority, mint });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -240,7 +243,7 @@ describe("transfer-control", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await setTransferControlModes({ deployer, mint });
+        await setTransferControlModes({ authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -255,7 +258,7 @@ describe("transfer-control", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await setTransferControlModes({ deployer, mint });
+        await setTransferControlModes({ authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -277,7 +280,7 @@ describe("transfer-control", () => {
       });
 
       try {
-        await setTransferControlModes({ deployer, mint });
+        await setTransferControlModes({ authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -294,7 +297,7 @@ describe("transfer-control", () => {
   describe("add_to_whitelist", async () => {
     // ── Happy-path: add_to_whitelist ─────────────────────────────────────────────
     it("add_to_whitelist: creates the whitelist PDA for a token account", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
       const whitelist = whitelistPda(mint, tokenAccount);
       const [, expectedBump] = whitelistPdaWithBump(mint, tokenAccount);
 
@@ -302,7 +305,7 @@ describe("transfer-control", () => {
       const stateBefore = await getWhitelistStatusByPda(whitelist);
 
       // ── Call add_to_whitelist ───────────────────────────────────────────────
-      const { signature } = await addToWhitelist({ deployer, mint, account: tokenAccount });
+      const { signature } = await addToWhitelist({ authority, mint, account: tokenAccount });
 
       // ── Fetch and verify the PDA ─────────────────────────────────────────────
       const stateAfter = await getWhitelistStatusByPda(whitelist);
@@ -318,31 +321,34 @@ describe("transfer-control", () => {
         tokenAccount.toBase58(),
         "event account should match the whitelisted token account"
       );
-      assert.equal(whitelistedEvent!.operator.toBase58(), deployer.toBase58(), "event operator should match deployer");
+      assert.equal(
+        whitelistedEvent!.operator.toBase58(),
+        authority.publicKey.toBase58(),
+        "event operator should match authority"
+      );
     });
 
-    // ── Error case: add_to_whitelist — UnauthorizedDeployer ──────────────────────
-    it("add_to_whitelist: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const rogueKeypair = Keypair.generate();
+    // ── Error case: add_to_whitelist — MissingRole ──────────────────────
+    it("add_to_whitelist: fails with MissingRole when authority doesn't have required role", async () => {
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await setTransferControlModes({ deployer: rogueKeypair.publicKey, mint, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await setTransferControlModes({ authority, mint });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer");
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole");
       }
     });
 
     // ── Error case: add_to_whitelist — MintPaused ────────────────────────────────
     it("add_to_whitelist: fails with MintPaused when mint is paused", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
+      await setMintPaused(mint, true);
 
       try {
-        await addToWhitelist({ deployer, mint, account: tokenAccount });
+        await addToWhitelist({ authority, mint, account: tokenAccount });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -353,11 +359,11 @@ describe("transfer-control", () => {
 
     // ── Error case: add_to_whitelist — Deactivated ───────────────────────────────
     it("add_to_whitelist: fails with Deactivated when mint has been deactivated", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
       await setDeactivateMarker(mint);
 
       try {
-        await addToWhitelist({ deployer, mint, account: tokenAccount });
+        await addToWhitelist({ authority, mint, account: tokenAccount });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -368,13 +374,13 @@ describe("transfer-control", () => {
 
     // ── Error case: add_to_whitelist — FunctionalityNotSupportedError ─────────────
     it("add_to_whitelist: fails with FunctionalityNotSupportedError when the add_to_whitelist functionality is not enabled", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
 
       // Re-seed the asset-class version WITHOUT the add_to_whitelist functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await addToWhitelist({ deployer, mint, account: tokenAccount });
+        await addToWhitelist({ authority, mint, account: tokenAccount });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -389,7 +395,7 @@ describe("transfer-control", () => {
 
     // ── Error case: add_to_whitelist — AssetClassVersionNotFinalized ──────────────
     it("add_to_whitelist: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
 
       // Re-seed the asset-class version WITHOUT finalizing it.
       await setAssetClassVersionForMint(mint, {
@@ -398,7 +404,7 @@ describe("transfer-control", () => {
       });
 
       try {
-        await addToWhitelist({ deployer, mint, account: tokenAccount });
+        await addToWhitelist({ authority, mint, account: tokenAccount });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -415,17 +421,17 @@ describe("transfer-control", () => {
   describe("remove_from_whitelist", async () => {
     // ── Happy-path: remove_from_whitelist ────────────────────────────────────────
     it("remove_from_whitelist: closes the whitelist PDA for a token account", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
       const whitelist = whitelistPda(mint, tokenAccount);
 
       // ── First: add to whitelist ─────────────────────────────────────────────
-      await addToWhitelist({ deployer, mint, account: tokenAccount });
+      await addToWhitelist({ authority, mint, account: tokenAccount });
 
       const stateAfterAdd = await getWhitelistStatusByPda(whitelist);
       assert.isNotNull(stateAfterAdd, "whitelist PDA should exist after add_to_whitelist");
 
       // ── Then: remove from whitelist ─────────────────────────────────────────
-      const { signature } = await removeFromWhitelist({ deployer, mint, account: tokenAccount });
+      const { signature } = await removeFromWhitelist({ authority, mint, account: tokenAccount });
 
       // ── Verify the PDA has been closed ──────────────────────────────────────
       const stateAfterRemove = await getWhitelistStatusByPda(whitelist);
@@ -445,41 +451,35 @@ describe("transfer-control", () => {
       );
       assert.equal(
         accountRemovedFromWhitelistEvent!.operator.toBase58(),
-        deployer.toBase58(),
-        "event operator should match deployer"
+        authority.publicKey.toBase58(),
+        "event operator should match authority"
       );
     });
 
-    // ── Error case: remove_from_whitelist — UnauthorizedDeployer ─────────────────
-    it("remove_from_whitelist: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      await addToWhitelist({ deployer, mint, account: tokenAccount });
-      const rogueKeypair = Keypair.generate();
+    // ── Error case: remove_from_whitelist — MissingRole ─────────────────
+    it("remove_from_whitelist: fails with MissingRole when authority doesn't have required role", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
+      await addToWhitelist({ authority, mint, account: tokenAccount });
+      await setRoles(mint, authority.publicKey, []);
 
       try {
-        await removeFromWhitelist({
-          deployer: rogueKeypair.publicKey,
-          mint,
-          account: tokenAccount,
-          signers: [rogueKeypair],
-        });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await removeFromWhitelist({ authority, mint, account: tokenAccount });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(anchorErr.error.errorCode.code, "UnauthorizedDeployer");
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole");
       }
     });
 
     // ── Error case: remove_from_whitelist — MintPaused ───────────────────────────
     it("remove_from_whitelist: fails with MintPaused when mint is paused", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      await addToWhitelist({ deployer, mint, account: tokenAccount });
-      await setRoles(mint, deployer, [ROLE_PAUSER]);
-      await pauseMint({ deployer, mint });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
+      await addToWhitelist({ authority, mint, account: tokenAccount });
+      await setMintPaused(mint, true);
 
       try {
-        await removeFromWhitelist({ deployer, mint, account: tokenAccount });
+        await removeFromWhitelist({ authority, mint, account: tokenAccount });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -490,12 +490,12 @@ describe("transfer-control", () => {
 
     // ── Error case: remove_from_whitelist — Deactivated ──────────────────────────
     it("remove_from_whitelist: fails with Deactivated when mint has been deactivated", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      await addToWhitelist({ deployer, mint, account: tokenAccount });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
+      await addToWhitelist({ authority, mint, account: tokenAccount });
       await setDeactivateMarker(mint);
 
       try {
-        await removeFromWhitelist({ deployer, mint, account: tokenAccount });
+        await removeFromWhitelist({ authority, mint, account: tokenAccount });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -506,15 +506,15 @@ describe("transfer-control", () => {
 
     // ── Error case: remove_from_whitelist — FunctionalityNotSupportedError ────────
     it("remove_from_whitelist: fails with FunctionalityNotSupportedError when the remove_from_whitelist functionality is not enabled", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      await addToWhitelist({ deployer, mint, account: tokenAccount });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
+      await addToWhitelist({ authority, mint, account: tokenAccount });
 
       // Re-seed the asset-class version WITH add_to_whitelist (needed to have set up the
       // fixture above) but WITHOUT the remove_from_whitelist functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [TRANSFER_CONTROL_ADD_TO_WHITELIST] });
 
       try {
-        await removeFromWhitelist({ deployer, mint, account: tokenAccount });
+        await removeFromWhitelist({ authority, mint, account: tokenAccount });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -529,8 +529,8 @@ describe("transfer-control", () => {
 
     // ── Error case: remove_from_whitelist — AssetClassVersionNotFinalized ─────────
     it("remove_from_whitelist: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-      const tokenAccount = await createTokenAccount({ mint, owner: deployer });
-      await addToWhitelist({ deployer, mint, account: tokenAccount });
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
+      await addToWhitelist({ authority, mint, account: tokenAccount });
 
       // Re-seed the asset-class version WITHOUT finalizing it.
       await setAssetClassVersionForMint(mint, {
@@ -539,7 +539,7 @@ describe("transfer-control", () => {
       });
 
       try {
-        await removeFromWhitelist({ deployer, mint, account: tokenAccount });
+        await removeFromWhitelist({ authority, mint, account: tokenAccount });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

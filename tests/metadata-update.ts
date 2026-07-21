@@ -3,7 +3,6 @@ import { AnchorError } from "@anchor-lang/core";
 import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
-import { pauseMint } from "./program_helpers/pause/pause_instruction_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   getMetadataFieldRemovedEvent,
@@ -11,7 +10,7 @@ import {
   removeMetadataField,
   updateMetadataField,
 } from "./program_helpers/metadata_update/metadata_update_instruction_helper";
-import { getTokenMetadata } from "./program_helpers/spl_token_helper";
+import { getTokenMetadata, setMintPaused } from "./program_helpers/spl_token_helper";
 import { beforeEach } from "mocha";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -24,7 +23,7 @@ import {
   PAUSE_PAUSE,
 } from "./utils/functionalities";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_CUSTOM_DATA_MANAGER, ROLE_PAUSER } from "./utils/roles";
+import { ROLE_CUSTOM_DATA_MANAGER } from "./utils/roles";
 
 describe("metadata-update", () => {
   const provider = anchor.AnchorProvider.env();
@@ -108,8 +107,7 @@ describe("metadata-update", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("update_metadata_field: fails with MintPaused when mint is paused", async () => {
-      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER, ROLE_PAUSER]);
-      await pauseMint({ authority, mint });
+      await setMintPaused(mint, true);
 
       try {
         await updateMetadataField({ authority, mint });
@@ -252,11 +250,10 @@ describe("metadata-update", () => {
         { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
       );
       await setAssetClassVersionForMint(mint, {
-        functionalities: [PAUSE_PAUSE, METADATA_UPDATE_REMOVE_METADATA_FIELD],
+        functionalities: [METADATA_UPDATE_REMOVE_METADATA_FIELD],
       });
-      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER, ROLE_PAUSER]);
-
-      await pauseMint({ authority, mint });
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
+      await setMintPaused(mint, true);
 
       try {
         await removeMetadataField({ authority, mint });

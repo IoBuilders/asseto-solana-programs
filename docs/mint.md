@@ -38,6 +38,7 @@ amount: u64  // raw token units (accounting for decimals)
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read to verify `authority` holds `ROLE_ISSUER` |
+| `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `Issued` |
 | `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
 
@@ -45,13 +46,14 @@ amount: u64  // raw token units (accounting for decimals)
 
 1. `require_role(authority_roles_pda.load()?, ROLE_ISSUER)` — errors with `MissingRole` if `authority` does not hold the issuer role (or `RoleOutOfBounds` if the role id exceeds the mask)
 2. `require_active(&deactivate_pda)` — errors if the mint has been deactivated
-3. If whitelist mode is active (`get_transfer_mode(&transfer_control_mode_pda) == Some(TransferMode::Whitelist)`): `verify_whitelist(&destination_whitelist_pda)` — errors if destination is not whitelisted
-4. CPI → `snapshot::update_totalsupply_snapshot` signed with `["mint_authority", mint, bump]` — records pre-mint supply into the active snapshot (no-op if none)
-5. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["mint_authority", mint, bump]` — records pre-mint destination balance (no adjustment)
-6. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`
-7. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
-8. Emit `Issued { mint, operator: deployer, to: destination, value: amount }` via `emit_cpi!`
-9. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`
+3. `require_functionality(asset_class_version_pda.load()?, MINT_MINT)` — errors if the mint's asset-class version isn't finalized or doesn't enable `MINT_MINT`
+4. If whitelist mode is active (`get_transfer_mode(&transfer_control_mode_pda) == Some(TransferMode::Whitelist)`): `verify_whitelist(&destination_whitelist_pda)` — errors if destination is not whitelisted
+5. CPI → `snapshot::update_totalsupply_snapshot` signed with `["mint_authority", mint, bump]` — records pre-mint supply into the active snapshot (no-op if none)
+6. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["mint_authority", mint, bump]` — records pre-mint destination balance (no adjustment)
+7. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`
+8. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
+9. Emit `Issued { mint, operator: authority, to: destination, value: amount }` via `emit_cpi!`
+10. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`
 
 Steps 4–7 and 9 all sign with the same `mint_authority` PDA seeds. The thaw/re-freeze pattern is necessary because all token accounts are frozen by default (`DefaultAccountState::Frozen`). Snapshot CPIs run before the balance change so the recorded value reflects the pre-mint state.
 
@@ -59,7 +61,7 @@ Steps 4–7 and 9 all sign with the same `mint_authority` PDA seeds. The thaw/re
 
 | Event | Fields | Emitted |
 |---|---|---|
-| `Issued` | `mint: Pubkey`, `operator: Pubkey`, `to: Pubkey`, `value: u64` | After the `mint_to` CPI succeeds (step 8) |
+| `Issued` | `mint: Pubkey`, `operator: Pubkey`, `to: Pubkey`, `value: u64` | After the `mint_to` CPI succeeds (step 8, emitted at step 9) |
 
 `Issued` is emitted with `emit_cpi!` rather than `emit!`. This instruction already performs 5 CPIs before minting (2× snapshot, 2× freeze thaw/re-freeze, 1× Token-2022 `mint_to`), each contributing its own program logs — `emit!` writes to the same log buffer (`Program data:`), which validators/RPC providers truncate around 10KB, risking silent event loss for off-chain indexers. `emit_cpi!` instead records the event as a self-CPI captured in the transaction's `innerInstructions`, which isn't subject to log truncation. This requires `#[event_cpi]` on `MintTokens`, which injects the `event_authority` and `program` accounts above, and the `event-cpi` feature enabled on `anchor-lang` in `Cargo.toml`.
 

@@ -17,9 +17,11 @@ as the metadata update authority during `deploy_mint`. Only an account holding `
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint whose metadata is being modified |
 | `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `metadata_update_authority` | no | no | UncheckedAccount | seeds `["metadata_update_authority", mint]` (owned) |
+| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
+| `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
-| `rent` | no | no | Sysvar<Rent> | |
+| `rent` | no | no | Sysvar<Rent> | `remove_metadata_field` only — not present on `update_metadata_field` |
 | `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
 | `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
 
@@ -73,9 +75,8 @@ pub struct MetadataFieldRemoved {
 ### Parameters
 
 ```rust
-key: String,               // "name" | "symbol" | "uri" | any custom key
+key: String,    // "name" | "symbol" | "uri" | any custom key
 value: String,
-new_mint_size: Option<u64> // required when the account data grows
 ```
 
 ### Key → Field mapping
@@ -90,18 +91,22 @@ _        => Field::Key(key)   // custom field; created if it doesn't exist
 ### Execution
 
 1. `require_role(authority_roles_pda, ROLE_CUSTOM_DATA_MANAGER)`
-2. If `new_mint_size` is `Some(new_size)` and `new_size > current_size`:
-   - Calculate `additional_lamports = rent.minimum_balance(new_size) - mint.lamports()`
-   - `invoke` `SystemProgram::transfer(payer, mint, additional_lamports)` to top up before the CPI so
-     Token-2022 can realloc in-place
-3. `invoke_signed` → `update_field(mint, metadata_update_authority, field, value)` signed with seeds
+2. `require_not_paused(&mint)`
+3. `require_active(&deactivate_pda)`
+4. `require_functionality(asset_class_version_pda, METADATA_UPDATE_UPDATE_METADATA_FIELD)`
+5. Reads the mint's current `TokenMetadata` extension, simulates the field write, and computes the
+   byte growth (`new_size - old_size`)
+6. If that growth requires more rent than the mint account currently holds: `invoke` →
+   `SystemProgram::transfer(payer, mint, additional_lamports)` to top up before the CPI so Token-2022
+   can realloc in-place
+7. `invoke_signed` → `update_field(mint, metadata_update_authority, field, value)` signed with seeds
    `["metadata_update_authority", mint, bump]`
 
 ### Account growth note
 
-Always pass `new_mint_size` when adding a new custom field or replacing a value with a longer one. Pass
-`None` only when you are certain the account already has enough space (e.g. updating core fields with
-equal or shorter values). The caller is responsible for calculating the target size off-chain.
+The additional-rent calculation is automatic — the instruction reads the mint's existing metadata,
+simulates the update, and computes the exact byte growth itself. Callers don't need to precompute or
+pass a target size; `payer` just needs enough lamports to cover the (possible) top-up.
 
 ---
 
@@ -119,7 +124,10 @@ Core fields (name, symbol, uri) cannot be removed — Token-2022 will reject the
 ### Execution
 
 1. `require_role(authority_roles_pda, ROLE_CUSTOM_DATA_MANAGER)`
-2. `invoke_signed` → `remove_key(mint, metadata_update_authority, key, idempotent)` signed with seeds `["metadata_update_authority", mint, bump]`
+2. `require_not_paused(&mint)`
+3. `require_active(&deactivate_pda)`
+4. `require_functionality(asset_class_version_pda, METADATA_UPDATE_REMOVE_METADATA_FIELD)`
+5. `invoke_signed` → `remove_key(mint, metadata_update_authority, key, idempotent)` signed with seeds `["metadata_update_authority", mint, bump]`
 
 ---
 
