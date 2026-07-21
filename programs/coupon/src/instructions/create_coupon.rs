@@ -19,7 +19,9 @@ use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
 /// 3. Validates that `interest_rate_override` and `interest_rate_override_decimals`
 ///    are either both `Some` or both `None` (`InconsistentRateOverride` otherwise).
 /// 4. Increments `coupon_counter` (creating it on the first call).
-/// 5. CPIs `snapshot::take_snapshot` signed by the `coupon_authority` PDA.
+/// 5. CPIs `snapshot::take_snapshot` (forwarding `merkle_root`) signed by the
+///    `coupon_authority` PDA. `take_snapshot` stores the root in a new immutable
+///    `snapshot_merkle_root` PDA keyed by the freshly-allocated snapshot id.
 /// 6. Reads the resulting snapshot id from `snapshot_counter`.
 /// 7. Stores `(snapshot_id, period_start_date, period_end_date, payment_date,
 ///    interest_rate_override, interest_rate_override_decimals)` in the new `coupon` PDA.
@@ -41,6 +43,7 @@ pub fn create_coupon(
     coupon_id: u64,
     interest_rate_override: Option<u64>,
     interest_rate_override_decimals: Option<u8>,
+    merkle_root: [u8; 32],
 ) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
     require_role(
@@ -85,19 +88,23 @@ pub fn create_coupon(
         &ctx.bumps.coupon_authority,
     );
 
-    snapshot::cpi::take_snapshot(CpiContext::new_with_signer(
-        constants::SNAPSHOT_PROGRAM_ID,
-        TakeSnapshot {
-            calling_authority: ctx.accounts.coupon_authority.to_account_info(),
-            payer: ctx.accounts.payer.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            snapshot_counter: ctx.accounts.snapshot_counter.to_account_info(),
-            system_program: ctx.accounts.system_program.to_account_info(),
-            event_authority: ctx.accounts.snapshot_event_authority.to_account_info(),
-            program: ctx.accounts.snapshot_program.to_account_info(),
-        },
-        &[coupon_authority_signer_seeds.as_slice()],
-    ))?;
+    snapshot::cpi::take_snapshot(
+        CpiContext::new_with_signer(
+            constants::SNAPSHOT_PROGRAM_ID,
+            TakeSnapshot {
+                calling_authority: ctx.accounts.coupon_authority.to_account_info(),
+                payer: ctx.accounts.payer.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                snapshot_counter: ctx.accounts.snapshot_counter.to_account_info(),
+                snapshot_merkle_root: ctx.accounts.snapshot_merkle_root.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+                event_authority: ctx.accounts.snapshot_event_authority.to_account_info(),
+                program: ctx.accounts.snapshot_program.to_account_info(),
+            },
+            &[coupon_authority_signer_seeds.as_slice()],
+        ),
+        merkle_root,
+    )?;
 
     // ── Read the snapshot id that take_snapshot just wrote ───────────────────
     let snapshot_id = {
@@ -208,6 +215,16 @@ pub struct CreateCoupon<'info> {
         bump,
     )]
     pub snapshot_counter: UncheckedAccount<'info>,
+
+    /// The immutable Merkle-root PDA that `take_snapshot` creates for the new
+    /// snapshot. Its address depends on the snapshot id, only known inside
+    /// `take_snapshot` after the counter increments, so it's forwarded
+    /// unchecked; the snapshot program derives, verifies, and creates it.
+    /// Seeds: `["snapshot_merkle_root", mint, snapshot_id]`, owned by snapshot.
+    ///
+    /// CHECK: Writable; address verified and account created inside snapshot::take_snapshot.
+    #[account(mut)]
+    pub snapshot_merkle_root: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint.
     #[account(address = constants::SNAPSHOT_PROGRAM_ID)]

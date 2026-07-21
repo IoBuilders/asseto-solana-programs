@@ -24,6 +24,20 @@ pub struct SnapshotCounter {
 
 Holds the current snapshot id. Created by `take_snapshot` on its first call with `count = 1`; each subsequent call increments. When the PDA does not exist, no coupon has been created yet and all `update_*_snapshot` CPIs exit silently.
 
+### `SnapshotMerkleRoot`
+
+```rust
+#[account]
+pub struct SnapshotMerkleRoot {
+    pub bump: u8,
+    pub merkle_root: [u8; 32],
+}
+// LEN = 8 + 1 + 32 = 41 bytes
+// Seeds: ["snapshot_merkle_root", mint, snapshot_id.to_le_bytes()]
+```
+
+One **immutable** commitment per snapshot. Created by `take_snapshot` with the caller-supplied 32-byte root of the off-chain Sorted-pair Merkle tree whose leaves are `(account, balance)` pairs at that snapshot. Because the snapshot id is strictly increasing, each snapshot maps to a unique address; the account is created with `create_account` (which fails if the address already holds lamports), so the root can never be rewritten for a given id.
+
 ### `SnapshotEntry`
 
 ```rust
@@ -60,6 +74,8 @@ pub enum ErrorCode {
     Unauthorized,        // calling_authority not in the allowed set
     InvalidTokenAccount, // holder_token_account.mint does not match the mint arg
     DeltaOverflow,       // balance ± delta would overflow/underflow u64
+    SnapshotCounterOverflow,   // counter at u64::MAX when taking a new snapshot
+    InvalidMerkleRootAccount,  // passed snapshot_merkle_root != expected PDA
 }
 ```
 
@@ -67,9 +83,17 @@ pub enum ErrorCode {
 
 ## Instruction: `take_snapshot` (Auxiliary)
 
-No parameters.
+### Parameters
+
+```rust
+merkle_root: [u8; 32]
+```
 
 Creates `snapshot_counter` (`init_if_needed`) with `count = 1` on the first call, or increments the existing counter. The snapshot id is always `>= 1` whenever the counter PDA exists.
+
+After incrementing the counter, it creates the immutable `snapshot_merkle_root` PDA at `["snapshot_merkle_root", mint, snapshot_id]` and stores `merkle_root` in it. The PDA is **not** declared with an `init` constraint: the snapshot id is only known after the counter is incremented (Anchor resolves accounts before the handler runs), so the address is derived and verified (`InvalidMerkleRootAccount` on mismatch) inside the handler.
+
+Immutability is enforced explicitly: the handler requires the account to be uninitialized (`data_is_empty`) before writing — a given snapshot id's root can never be overwritten. Account creation goes through `common::create_or_adopt_pda`, which tolerates an attacker having pre-funded the (deterministic) PDA address: a bare `system_instruction::create_account` fails with `AccountAlreadyInUse` if the address already holds lamports, so anyone could otherwise permanently DoS coupon/snapshot creation by sending 1 lamport to the next id's PDA. The helper falls back to `transfer` (top-up) + `allocate` + `assign` when the account is already funded, mirroring Anchor's `#[account(init)]`.
 
 ### Authorization
 
@@ -85,6 +109,7 @@ Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause 
 | `payer` | yes | yes | Signer | Funds the `snapshot_counter` PDA on the first call. Distinct from `calling_authority` because PDAs cannot pay rent. |
 | `mint` | no | no | UncheckedAccount | Used as the seed for the `coupon_authority` PDA derivation |
 | `snapshot_counter` | yes | no | `Account<SnapshotCounter>` | `init_if_needed`; seeds `["snapshot_counter", mint]` |
+| `snapshot_merkle_root` | yes | no | UncheckedAccount | seeds `["snapshot_merkle_root", mint, snapshot_id]`; no `seeds` constraint (id unknown at resolution) — address verified + account created via `invoke_signed` in the handler |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `SnapshotTriggered` |
 | `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
@@ -93,7 +118,7 @@ Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause 
 
 | Event | Fields | Emitted |
 |---|---|---|
-| `SnapshotTriggered` | `mint: Pubkey`, `snapshot_id: u64` | After the counter is created/incremented, with `snapshot_id` set to the new `count` |
+| `SnapshotTriggered` | `mint: Pubkey`, `snapshot_id: u64`, `merkle_root: [u8; 32]` | After the counter is created/incremented and the root PDA is written, with `snapshot_id` set to the new `count` |
 
 Emitted with `emit_cpi!` (not `emit!`), which records the event as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on `TakeSnapshot` (injecting the `event_authority` and `program` accounts above) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`).
 

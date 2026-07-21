@@ -2,6 +2,7 @@ use crate::state::{AssetClassVersion, MintOwner, Roles};
 use anchor_lang::prelude::*;
 use std::cell::Ref;
 
+pub mod account_utils;
 pub mod bitmask;
 pub mod functionalities;
 pub mod pda_seeds;
@@ -9,6 +10,8 @@ pub mod pda_utils;
 pub mod program_ids;
 pub mod roles;
 pub mod state;
+
+pub use account_utils::create_or_adopt_pda;
 
 #[cfg(test)]
 pub(crate) mod test_support;

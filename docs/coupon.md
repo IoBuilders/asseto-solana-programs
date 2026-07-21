@@ -83,6 +83,7 @@ payment_date:                    i64
 coupon_id:                       u64
 interest_rate_override:          Option<u64>
 interest_rate_override_decimals: Option<u8>
+merkle_root:                     [u8; 32]
 ```
 
 `coupon_id` is supplied by the client because Anchor's `init` constraint needs it at macro-evaluation time to derive the `coupon` PDA seeds. The handler re-checks it: `coupon_id` must equal `coupon_counter.count + 1` (or `1` on the first call). The client computes this by reading `coupon_counter.count` (or assuming the counter doesn't exist yet).
@@ -90,6 +91,8 @@ interest_rate_override_decimals: Option<u8>
 The three dates must satisfy `period_start_date < period_end_date < payment_date` (strict). No cross-coupon validation — the deployer chooses arbitrary windows.
 
 `interest_rate_override` / `interest_rate_override_decimals` are optional. Pass `None` for both to inherit the asset-level rate from `bond_terms` (default). Pass `Some` for both to pin a coupon-specific rate — `treasury::pay_coupon` will use it instead of `bond_terms`. Passing `Some` for one and `None` for the other is rejected with `InconsistentRateOverride`. The rate can also be set or updated after creation via `set_coupon_rate`.
+
+`merkle_root` is the 32-byte root of the off-chain Sorted-pair Merkle tree of `(account, balance)` pairs for the snapshot this coupon triggers. It is forwarded verbatim to `snapshot::take_snapshot`, which stores it in a new immutable `snapshot_merkle_root` PDA keyed by the allocated snapshot id.
 
 ### Preconditions
 
@@ -103,7 +106,7 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 1. Run the four precondition checks (role, pause, deactivation, functionality) in that order.
 2. Validate `period_end_date > period_start_date` (else `InvalidCouponPeriod`) and `payment_date > period_end_date` (else `InvalidPaymentDate`).
 3. Increment `coupon_counter` (initialise to 1 on the first call, `+1` thereafter, else `CouponCounterOverflow`). Verify `coupon_id` matches (else `InvalidCouponId`).
-4. CPI `snapshot::take_snapshot`, signed by the `coupon_authority` PDA via `invoke_signed`. Passes through `payer`, `mint`, and `snapshot_counter`.
+4. CPI `snapshot::take_snapshot`, forwarding `merkle_root`, signed by the `coupon_authority` PDA via `invoke_signed`. Passes through `payer`, `mint`, `snapshot_counter`, and `snapshot_merkle_root`.
 5. Re-borrow `snapshot_counter` data and Borsh-deserialise `SnapshotCounter` to read the freshly-written snapshot id.
 6. Write the new `Coupon` PDA with `bump`, `snapshot_id`, `period_start_date`, `period_end_date`, `payment_date`, and the interest-rate override via `set_interest_rate`, which validates that `interest_rate_override` and `interest_rate_override_decimals` are both `Some` or both `None` (else `InconsistentRateOverride`).
 7. Emit `CouponCreated` via `emit_cpi!`.
@@ -121,6 +124,7 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 | `coupon_counter`          | yes | no     | `Account<CouponCounter>`      | `init_if_needed`; seeds `["coupon_counter", mint]`, `payer = payer`                                    |
 | `coupon`                  | yes | no     | `Account<Coupon>`             | `init`; seeds `["coupon", mint, coupon_id.to_le_bytes()]`, `payer = payer`                             |
 | `snapshot_counter`        | yes | no     | UncheckedAccount              | seeds `["snapshot_counter", mint]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; passed through to the CPI  |
+| `snapshot_merkle_root`    | yes | no     | UncheckedAccount              | seeds `["snapshot_merkle_root", mint, snapshot_id]`, owned by snapshot; forwarded to the CPI, which derives + creates it |
 | `snapshot_program`        | no  | no     | UncheckedAccount              | Address-pinned to `SNAPSHOT_PROGRAM_ID`                                                                |
 | `system_program`          | no  | no     | Program<System>               |                                                                                                        |
 | `snapshot_event_authority`| no  | no     | UncheckedAccount              | `snapshot`'s `#[event_cpi]` authority; passed through to the `take_snapshot` CPI                       |

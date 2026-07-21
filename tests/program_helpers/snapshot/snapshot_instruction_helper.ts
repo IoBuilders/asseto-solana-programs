@@ -9,8 +9,12 @@ import {
   snapshotCounterPda,
   snapshotTotalSupplyPda,
   snapshotHolderBalancePda,
+  snapshotMerkleRootPda,
   snapshotTriggeredEventAuthorityPda,
+  nextSnapshotId,
 } from "./snapshot_pda_helper";
+
+export const ZERO_MERKLE_ROOT: number[] = new Array(32).fill(0);
 
 export function getSnapshotProgram(): Program<Snapshot> {
   return anchor.workspace.Snapshot as Program<Snapshot>;
@@ -18,14 +22,21 @@ export function getSnapshotProgram(): Program<Snapshot> {
 
 // ── take_snapshot ──────────────────────────────────────────────────────────────
 
-export async function takeSnapshot(callContext: MintWriteWithPayerContext): Promise<void> {
+export async function takeSnapshot(
+  callContext: MintWriteWithPayerContext,
+  args?: { merkleRoot?: number[] }
+): Promise<void> {
+  const merkleRoot = args?.merkleRoot ?? ZERO_MERKLE_ROOT;
+  const snapshotId = await nextSnapshotId(callContext.mint);
+
   await getSnapshotProgram()
-    .methods.takeSnapshot()
+    .methods.takeSnapshot(merkleRoot)
     .accountsStrict({
       callingAuthority: callContext.deployer,
       payer: callContext.payer ?? callContext.deployer,
       mint: callContext.mint,
       snapshotCounter: snapshotCounterPda(callContext.mint),
+      snapshotMerkleRoot: snapshotMerkleRootPda(callContext.mint, snapshotId),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: snapshotTriggeredEventAuthorityPda(),
       program: getSnapshotProgram().programId,
@@ -36,6 +47,7 @@ export async function takeSnapshot(callContext: MintWriteWithPayerContext): Prom
 type SnapshotTriggeredEvent = {
   mint: PublicKey;
   snapshotId: anchor.BN;
+  merkleRoot: number[];
 };
 
 /**

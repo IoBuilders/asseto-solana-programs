@@ -75,6 +75,44 @@ export function snapshotHolderBalancePdaWithBump(mint: PublicKey, tokenAccount: 
   );
 }
 
+// ── snapshot_merkle_root PDA ───────────────────────────────────────────────────
+
+export function snapshotMerkleRootPda(mint: PublicKey, snapshotId: anchor.BN): PublicKey {
+  return snapshotMerkleRootPdaWithBump(mint, snapshotId)[0];
+}
+
+export function snapshotMerkleRootPdaWithBump(mint: PublicKey, snapshotId: anchor.BN): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("snapshot_merkle_root"), mint.toBuffer(), snapshotId.toArrayLike(Buffer, "le", 8)],
+    SNAPSHOT_PROGRAM_ID
+  );
+}
+
+export async function getSnapshotMerkleRoot(mint: PublicKey, snapshotId: anchor.BN) {
+  const pda = snapshotMerkleRootPda(mint, snapshotId);
+  return await getSnapshotProgram().account.snapshotMerkleRoot.fetch(pda, "confirmed");
+}
+
+/**
+ * Computes the snapshot id that the next `take_snapshot` call will allocate for
+ * `mint` (current counter + 1, or 1 when no counter exists yet). Needed
+ * client-side to derive the `snapshot_merkle_root` PDA, since its address
+ * depends on the yet-to-be-incremented id.
+ */
+export async function nextSnapshotId(mint: PublicKey): Promise<anchor.BN> {
+  let count = new anchor.BN(0);
+  try {
+    count = (await getSnapshotCounterByPda(snapshotCounterPda(mint))).count;
+  } catch {
+    count = new anchor.BN(0);
+  }
+  const next = count.add(new anchor.BN(1));
+  // The on-chain counter is u64; when saturated the program rejects with
+  // SnapshotCounterOverflow before deriving the PDA, so cap here to keep the
+  // 8-byte LE seed encoding valid for the (then unused) address.
+  return next.bitLength() > 64 ? count : next;
+}
+
 // ── __event_authority PDA ──────────────────────────────────────────────────────
 
 export function snapshotTriggeredEventAuthorityPda(): PublicKey {

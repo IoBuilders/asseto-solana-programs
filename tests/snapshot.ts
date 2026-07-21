@@ -2,7 +2,7 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
-import { SNAPSHOT_PROGRAM_ID } from "./utils/address_utils";
+import { SNAPSHOT_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
@@ -14,7 +14,13 @@ import {
   updateHolderBalanceSnapshot,
   updateTotalSupplySnapshot,
 } from "./program_helpers/snapshot/snapshot_instruction_helper";
-import { encodeSnapshotCounter, getSnapshotCounterByPda } from "./program_helpers/snapshot/snapshot_pda_helper";
+import {
+  encodeSnapshotCounter,
+  getSnapshotCounterByPda,
+  getSnapshotMerkleRoot,
+  snapshotMerkleRootPda,
+  nextSnapshotId,
+} from "./program_helpers/snapshot/snapshot_pda_helper";
 import { getBalanceForRentExeption, surfnetSetAccount } from "./program_helpers/account_helper";
 import { U64_MAX } from "./constants";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
@@ -78,6 +84,72 @@ describe.skip("snapshot", () => {
         assert.instanceOf(err, AnchorError);
         assert.equal((err as AnchorError).error.errorCode.code, "SnapshotCounterOverflow");
       }
+    });
+
+    it("take_snapshot: stores the provided merkle root in a per-snapshot PDA", async () => {
+      const { mint } = await deployMint({ deployer });
+      await setAssetClassVersionForMint(mint, {
+        functionalities: [COUPON_CREATE_COUPON],
+      });
+
+      const merkleRoot = Array.from({ length: 32 }, (_, i) => (i + 1) & 0xff);
+      // take_snapshot is CPI-only; drive it through create_coupon (snapshot id 1).
+      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot });
+
+      const record = await getSnapshotMerkleRoot(mint, new anchor.BN(1));
+      assert.deepEqual(Array.from(record.merkleRoot), merkleRoot, "stored root should match the provided root");
+    });
+
+    it("take_snapshot: each snapshot gets its own immutable root PDA (prior roots untouched)", async () => {
+      const { mint } = await deployMint({ deployer });
+      await setAssetClassVersionForMint(mint, {
+        functionalities: [COUPON_CREATE_COUPON],
+      });
+
+      const rootA = Array.from({ length: 32 }, (_, i) => (i + 1) & 0xff);
+      const rootB = Array.from({ length: 32 }, (_, i) => (0xff - i) & 0xff);
+
+      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot: rootA });
+      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(2), merkleRoot: rootB });
+
+      const recordA = await getSnapshotMerkleRoot(mint, new anchor.BN(1));
+      const recordB = await getSnapshotMerkleRoot(mint, new anchor.BN(2));
+
+      // Snapshot 2 gets a distinct PDA with rootB, and snapshot 1's root is
+      // still rootA — the address per id is unique and never overwritten.
+      assert.deepEqual(Array.from(recordA.merkleRoot), rootA, "snapshot 1 root should remain rootA");
+      assert.deepEqual(Array.from(recordB.merkleRoot), rootB, "snapshot 2 root should be rootB");
+    });
+
+    it("take_snapshot: succeeds even if the merkle-root PDA was pre-funded by a griefer (create-or-adopt)", async () => {
+      const { mint } = await deployMint({ deployer });
+      await setAssetClassVersionForMint(mint, {
+        functionalities: [COUPON_CREATE_COUPON],
+      });
+
+      // Attacker pre-funds the predictable PDA of the next snapshot (id 1) with
+      // lamports but no data. A bare `create_account` would then fail forever
+      // (AccountAlreadyInUse), permanently DoS'ing coupon/snapshot creation.
+      const snapshotId = await nextSnapshotId(mint); // 1 (no counter yet)
+      const pda = snapshotMerkleRootPda(mint, snapshotId);
+      await surfnetSetAccount(pda, {
+        lamports: 1,
+        owner: SYSTEM_PROGRAM_ID.toBase58(),
+        data: "",
+        executable: false,
+        rentEpoch: 0,
+      });
+
+      const merkleRoot = Array.from({ length: 32 }, (_, i) => (i + 7) & 0xff);
+      // Must still succeed thanks to create-or-adopt (top-up + allocate + assign).
+      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot });
+
+      const record = await getSnapshotMerkleRoot(mint, snapshotId);
+      assert.deepEqual(
+        Array.from(record.merkleRoot),
+        merkleRoot,
+        "root should be stored despite the pre-funding griefing attempt"
+      );
     });
   });
 

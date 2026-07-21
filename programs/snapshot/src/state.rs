@@ -8,6 +8,21 @@ pub struct SnapshotCounter {
     pub count: u64,
 }
 
+/// One immutable Merkle-root commitment per snapshot.
+///
+/// Created by `take_snapshot` at `["snapshot_merkle_root", mint, snapshot_id]`.
+/// Holds the 32-byte root of the off-chain Sorted-pair Merkle tree whose leaves
+/// are `(account, balance)` pairs at that snapshot. The account is created once
+/// and never rewritten — the snapshot id is strictly increasing, so its address
+/// is never reused, and `take_snapshot` creates it with `create_account` (which
+/// fails if the PDA already exists).
+#[account]
+#[derive(InitSpace)]
+pub struct SnapshotMerkleRoot {
+    pub bump: u8,
+    pub merkle_root: [u8; 32],
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct SnapshotEntry {
     pub key: u64,
