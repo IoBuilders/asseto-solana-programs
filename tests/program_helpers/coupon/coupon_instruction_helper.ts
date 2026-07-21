@@ -11,6 +11,7 @@ import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { couponAuthorityPda, couponCounterPda, couponPda, couponEventAuthorityPda } from "./coupon_pda_helper";
 import { snapshotCounterPda, snapshotTriggeredEventAuthorityPda } from "../snapshot/snapshot_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getCouponProgram(): Program<Coupon> {
   return anchor.workspace.Coupon as Program<Coupon>;
@@ -47,9 +48,13 @@ export async function createCoupon(
     ...args,
   };
 
+  const program = getCouponProgram();
+
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
+
+  const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await getCouponProgram()
     .methods.createCoupon(
@@ -62,7 +67,7 @@ export async function createCoupon(
     )
     .accountsStrict({
       payer: callContext.payer ?? callContext.deployer,
-      deployer: callContext.deployer,
+      authority: authority.publicKey,
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
@@ -76,8 +81,9 @@ export async function createCoupon(
       eventAuthority: couponEventAuthorityPda(),
       program: getCouponProgram().programId,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
@@ -127,14 +133,18 @@ export async function setCouponRate(
     ...args,
   };
 
+  const program = getCouponProgram();
+
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(context.mint);
 
+  const authority = context.authority ?? program.provider.wallet.payer;
+
   const signature = await getCouponProgram()
     .methods.setCouponRate(effectiveArgs.couponId, effectiveArgs.interestRate, effectiveArgs.interestRateDecimals)
     .accountsStrict({
-      deployer: context.deployer,
+      authority: authority.publicKey,
       mint: context.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(context.mint),
       deactivatePda: deactivatePda(context.mint),
@@ -142,8 +152,9 @@ export async function setCouponRate(
       eventAuthority: couponEventAuthorityPda(),
       program: getCouponProgram().programId,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      authorityRolesPda: rolesPda(context.mint, authority.publicKey),
     })
-    .signers(context?.signers ?? [])
+    .signers(context?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

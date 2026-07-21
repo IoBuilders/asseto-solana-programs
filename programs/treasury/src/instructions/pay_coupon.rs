@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 use bond::state::{BondTerms, DayCountConvention};
 use common::{
-    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused,
-    verify_deployer_account,
+    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
+    roles,
 };
 use coupon::state::Coupon;
 use snapshot::cpi::accounts::GetHolderBalanceSnapshotAt;
@@ -12,11 +12,11 @@ use crate::errors::ErrorCode;
 use crate::events::CouponPaid;
 use crate::state::{CouponPaidMarker, TreasuryConfig};
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
 
 /// Computes and pays the coupon to a single holder.
 ///
-/// 1. Verifies the deployer signature, mint not paused, mint not deactivated.
+/// 1. Verifies the authority signature, mint not paused, mint not deactivated.
 /// 2. Maturity check: rejects with `CouponNotMature` if the cluster clock
 ///    hasn't reached `coupon.payment_date` yet.
 /// 3. CPIs `snapshot::get_holderbalance_snapshot_at(coupon.snapshot_id)`
@@ -55,7 +55,10 @@ use common::state::{AssetClassVersion, MintOwner};
 ///   (`token::token_program` / `mint::token_program`)
 pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
-    verify_deployer_account(&ctx.accounts.mint_owner_pda, &ctx.accounts.deployer.key())?;
+    require_role(
+        ctx.accounts.authority_roles_pda.load()?,
+        roles::ROLE_TREASURER,
+    )?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
     require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
     require_functionality(
@@ -206,10 +209,9 @@ pub struct PayCoupon<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// Deployer recorded as mint owner — must sign to authorise the payment.
-    pub deployer: Signer<'info>,
+    /// Authority with the necessary roles to authorise the payment.
+    pub authority: Signer<'info>,
 
-    /// PDA created by deploy that records the deployer for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -357,4 +359,11 @@ pub struct PayCoupon<'info> {
     pub snapshot_program: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
+
+    #[account(
+        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
+        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
+        bump = authority_roles_pda.load()?.bump,
+    )]
+    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 }

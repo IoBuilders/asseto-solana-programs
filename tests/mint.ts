@@ -5,7 +5,7 @@ import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN, ROLE_ISSUER } from "./utils/roles";
-import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
+import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 import { createTokenAccount, getMint, getTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
 import { mintTokens, getIssuedEvent } from "./program_helpers/mint/mint_instruction_helper";
 import {
@@ -85,9 +85,9 @@ describe("mint", () => {
     const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
     await mintTokens({ deployer, mint, destination, authority }, { amount: balanceBeforeSnapshot });
 
-    // ── Take snapshot via create_coupon (counter 0 → 1) ──────────────────────
+    // ── Take snapshot via a planted coupon (snapshot counter 0 → 1) ──────────
     const couponId = new anchor.BN(1);
-    await createCoupon({ deployer, mint }, { couponId });
+    await setCoupon(mint, couponId);
 
     // ── First mint under the snapshot period — snapshot CPIs fire and record pre-mint balance ──────────
     await mintTokens({ deployer, mint, destination, authority });

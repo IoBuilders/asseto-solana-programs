@@ -4,7 +4,9 @@ Program ID: `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA`
 
 Pays coupon interest to bond holders in a separate token mint (the *payment mint*, e.g. a stablecoin) — distinct from the bond mint the rest of the workspace targets. The payment mint may be **classic SPL Token or Token-2022** — `treasury` uses Anchor's token *interface* so either is accepted.
 
-Both instructions are **management** — only callable by the deployer recorded in `deploy`'s `mint_owner_pda`, and only while the bond mint is neither paused nor deactivated.
+Both instructions are **role- and functionality-gated**: the `authority` signer must hold `ROLE_TREASURER` on the bond mint (checked against its `access-control` `Roles` PDA via `require_role`), the mint's finalized asset-class version must enable the relevant functionality bit (`TREASURY_SET_PAYMENT_TOKEN` / `TREASURY_PAY_COUPON`, via `require_functionality`), and the bond mint must be neither paused nor deactivated. The deployer signature is no longer verified — `authority` need not be the recorded mint owner, only a `ROLE_TREASURER` holder.
+
+The check order in both handlers is `require_role → require_not_paused → require_active → require_functionality`.
 
 ---
 
@@ -18,12 +20,15 @@ pub struct TreasuryConfig {
     pub bump: u8,
     pub payment_mint: Pubkey,
     pub payment_mint_decimals: u8,
+    pub locked_for_coupon_id: u64,
 }
-// LEN = 8 + 1 + 32 + 1 = 42 bytes
+// LEN = 8 + 1 + 32 + 1 + 8 = 50 bytes
 // Seeds: ["treasury_config", mint]
 ```
 
-Per-mint treasury config. Stores the payment-mint pubkey and a cached copy of its decimals (avoids re-parsing the mint on every `pay_coupon`). Mint decimals are immutable on both classic SPL Token and Token-2022, so the cache stays correct for as long as `payment_mint` is unchanged. If the deployer points the treasury at a different payment mint via another `set_payment_token` call, both fields are overwritten.
+Per-mint treasury config. Stores the payment-mint pubkey and a cached copy of its decimals (avoids re-parsing the mint on every `pay_coupon`). Mint decimals are immutable on both classic SPL Token and Token-2022, so the cache stays correct for as long as `payment_mint` is unchanged. If the treasurer points the treasury at a different payment mint via another `set_payment_token` call, `payment_mint` / `payment_mint_decimals` are overwritten.
+
+`locked_for_coupon_id` is `0` while no claims have been made. The first `pay_coupon` for a coupon sets it to that coupon's id, which locks the payment mint against change: `set_payment_token` then fails with `ClaimsInProgress` until a **new** coupon is created and `coupon_counter.count` advances past `locked_for_coupon_id`. This prevents swapping the payment mint mid-distribution of a coupon.
 
 ### `CouponPaidMarker`
 
@@ -57,8 +62,11 @@ pub enum ErrorCode {
     NegativeElapsedTime,                // coupon.payment_date < bond_terms.issuance_date
     AmountOverflow,                     // u128 overflow during interest calculation
     CouponNotMature,                    // cluster clock < coupon.payment_date
+    ClaimsInProgress,                   // set_payment_token while a coupon is mid-distribution
 }
 ```
+
+Access-control and state errors come from `common`: `MissingRole` / `RoleOutOfBounds` (role check), `FunctionalityNotSupportedError` / `FunctionalityOutOfBounds` / `AssetClassVersionNotFinalized` (functionality gate), and `MintPaused` / `Deactivated` (pause / deactivation).
 
 Account-shape mismatches (wrong mint, wrong owner, wrong token program, wrong payment-mint key) surface as Anchor's built-in constraint errors and need no custom variants:
 
@@ -75,24 +83,32 @@ Account-shape mismatches (wrong mint, wrong owner, wrong token program, wrong pa
 
 ### `set_payment_token()`
 
-Sets (or replaces) the Token-2022 mint used to settle coupon payments for this bond mint.
+Sets (or replaces) the mint used to settle coupon payments for this bond mint.
 
-- Creates `treasury_config` on the first call (`init_if_needed`); overwrites both fields on subsequent calls.
+- Creates `treasury_config` on the first call (`init_if_needed`); overwrites `payment_mint` / `payment_mint_decimals` on subsequent calls (`locked_for_coupon_id` is left untouched).
 - Reads `payment_mint`'s decimals from its account data and caches them in `treasury_config`.
 - The payment mint is **not** the bond mint — it's the mint used to pay interest (e.g. USDC, classic SPL or Token-2022).
+- **Claims guard:** if `treasury_config.locked_for_coupon_id != 0` and `coupon_counter.count` has not advanced past it (a coupon is mid-distribution), the call fails with `ClaimsInProgress`. The `coupon_counter` account may be uninitialized (no coupon created yet); in that case the guard is skipped.
+
+**Preconditions:** `require_role(ROLE_TREASURER)` → `require_not_paused` → `require_active` → `require_functionality(TREASURY_SET_PAYMENT_TOKEN)`.
 
 **Accounts**
 
 | # | Name | Notes |
 |---|---|---|
-| 0 | `payer` | Signer, mut. Funds rent on first call. |
-| 1 | `deployer` | Signer. Verified against `mint_owner_pda` via `verify_deployer`. |
-| 2 | `mint_owner_pda` | Owned by `deploy`. Seeds `["mint_owner", mint]`. |
+| 0 | `payer` | Signer, mut. Funds rent for `treasury_config` on the first call. |
+| 1 | `authority` | Signer. Must hold `ROLE_TREASURER` on this mint. |
+| 2 | `mint_owner_pda` | `Account<MintOwner>`, owned by `deploy`. Seeds `["mint_owner", mint]`. Used to derive `asset_class_version_pda`. |
 | 3 | `deactivate_pda` | Owned by `deactivate`. Seeds `["deactivate", mint]`. Must not exist (verified by `require_active`). |
 | 4 | `mint` | Bond's Token-2022 mint. Pause state checked by `require_not_paused`. |
 | 5 | `treasury_config` | Owned by `treasury`. `init_if_needed`. Seeds `["treasury_config", mint]`. |
-| 6 | `payment_mint` | `InterfaceAccount<Mint>` — classic SPL or Token-2022. Decimals read here. |
-| 7 | `system_program` | — |
+| 6 | `coupon_counter` | Owned by `coupon`. Seeds `["coupon_counter", mint]`. Read manually for the claims guard; may be uninitialized. |
+| 7 | `payment_mint` | `InterfaceAccount<Mint>` — classic SPL or Token-2022. Decimals read here. |
+| 8 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>`, owned by `factory`. Seeds `["asset_class_version", config_id, version_id]`. Functionality gate. |
+| 9 | `system_program` | — |
+| 10 | `authority_roles_pda` | `AccountLoader<Roles>`, owned by `access-control`. Seeds `["roles", mint, authority]`. Read to verify `authority` holds `ROLE_TREASURER`. |
+| 11 | `event_authority` | `#[event_cpi]`-injected PDA `["__event_authority"]`; signs the `PaymentTokenSet` self-CPI. |
+| 12 | `program` | `#[event_cpi]`-injected; this program's own ID, target of the self-CPI. |
 
 ---
 
@@ -100,9 +116,11 @@ Sets (or replaces) the Token-2022 mint used to settle coupon payments for this b
 
 Computes and pays the coupon to a single holder.
 
+**Preconditions:** `require_role(ROLE_TREASURER)` → `require_not_paused` → `require_active` → `require_functionality(TREASURY_PAY_COUPON)`, run before the maturity gate below.
+
 **Maturity gate**
 
-Before doing anything else, the handler reads the cluster clock (`Clock::get()?.unix_timestamp`) and rejects with `CouponNotMature` if it has not yet reached `coupon.payment_date`. This prevents paying a coupon early.
+After the precondition checks, the handler reads the cluster clock (`Clock::get()?.unix_timestamp`) and rejects with `CouponNotMature` if it has not yet reached `coupon.payment_date`. This prevents paying a coupon early.
 
 **Computation**
 
@@ -134,6 +152,10 @@ applied to one side of the fraction (multiply numerator if `net_power ≥ 0`, mu
 
 `transfer_checked` via the **token interface** (`anchor_spl::token_interface::transfer_checked`) — dispatches through whichever token program owns the mint (classic SPL or Token-2022). Source: `treasury_token_account`. Destination: `holder_payment_account`. Signed by `treasury_authority` PDA via `invoke_signed`. The decimals argument comes from the cached `payment_mint_decimals` in `treasury_config`.
 
+**Config lock**
+
+On success the handler sets `treasury_config.locked_for_coupon_id = coupon_id` (idempotent across holders of the same coupon). This blocks `set_payment_token` from swapping the payment mint while this coupon is still being distributed — see `ClaimsInProgress` above. `treasury_config` is therefore `mut` in this instruction (it was read-only before).
+
 **Double-payment guard**
 
 The `coupon_paid` marker PDA is created via `init` (not `init_if_needed`). The second `pay_coupon(coupon_id)` for the same `holder_token_account` fails to create the account and reverts the whole transaction — so the holder receives the coupon at most once.
@@ -143,23 +165,27 @@ The `coupon_paid` marker PDA is created via `init` (not `init_if_needed`). The s
 | # | Name | Notes |
 |---|---|---|
 | 0 | `payer` | Signer, mut. Funds rent for the `coupon_paid` marker. |
-| 1 | `deployer` | Signer. Verified via `verify_deployer`. |
-| 2 | `mint_owner_pda` | Seeds `["mint_owner", mint]`. |
+| 1 | `authority` | Signer. Must hold `ROLE_TREASURER` on this mint. |
+| 2 | `mint_owner_pda` | `Account<MintOwner>`. Seeds `["mint_owner", mint]`. Used to derive `asset_class_version_pda`. |
 | 3 | `deactivate_pda` | Seeds `["deactivate", mint]`. Must not exist. |
 | 4 | `mint` | Bond's Token-2022 mint, loaded as `InterfaceAccount<Mint>` so `decimals` is available for the payout math. Pause state checked by `require_not_paused` from the same account data. |
-| 5 | `treasury_config` | Read-only. Seeds `["treasury_config", mint]`. |
+| 5 | `treasury_config` | **mut** (locked to `coupon_id` on success). Seeds `["treasury_config", mint]`. |
 | 6 | `treasury_authority` | PDA. Seeds `["treasury_authority", mint]`. Signs the transfer via `invoke_signed`. |
 | 7 | `payment_mint` | `InterfaceAccount<Mint>`. Anchor enforces `address = treasury_config.payment_mint` and `mint::token_program = token_program`. |
 | 8 | `treasury_token_account` | `InterfaceAccount<TokenAccount>`, mut. Anchor enforces `token::mint = payment_mint`, `token::authority = treasury_authority`, `token::token_program = token_program`. |
-| 9 | `holder_payment_account` | `InterfaceAccount<TokenAccount>`, mut. Anchor enforces `token::mint = payment_mint` and `token::token_program = token_program`. **Owner intentionally NOT enforced** — deployer chooses where the payment lands. |
+| 9 | `holder_payment_account` | `InterfaceAccount<TokenAccount>`, mut. Anchor enforces `token::mint = payment_mint` and `token::token_program = token_program`. **Owner intentionally NOT enforced** — the treasurer chooses where the payment lands. |
 | 10 | `holder_token_account` | Bond-mint token account for the holder. Used as a seed for the snapshot PDA + `coupon_paid` marker, and forwarded to the snapshot CPI for the live-balance fallback. |
 | 11 | `bond_terms` | Read-only. Seeds `["bond_terms", mint]`, owned by `bond`. |
 | 12 | `coupon` | Read-only. Seeds `["coupon", mint, coupon_id]`, owned by `coupon`. |
 | 13 | `holder_balance_snapshot` | Forwarded to the snapshot CPI. Seeds `["snapshot_holderbalance", mint, holder_token_account]`, owned by `snapshot`. |
 | 14 | `coupon_paid` | `init`. Seeds `["coupon_paid", mint, coupon_id, holder_token_account]`. **The double-payment guard.** |
-| 15 | `token_program` | `Interface<TokenInterface>` — classic SPL or Token-2022. The mint and both token accounts must all be owned by this program. |
-| 16 | `snapshot_program` | Address-pinned to `snapshot::ID`. |
-| 17 | `system_program` | — |
+| 15 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>`, owned by `factory`. Seeds `["asset_class_version", config_id, version_id]`. Functionality gate. |
+| 16 | `token_program` | `Interface<TokenInterface>` — classic SPL or Token-2022. The mint and both token accounts must all be owned by this program. |
+| 17 | `snapshot_program` | Address-pinned to `snapshot::ID`. |
+| 18 | `system_program` | — |
+| 19 | `authority_roles_pda` | `AccountLoader<Roles>`, owned by `access-control`. Seeds `["roles", mint, authority]`. Read to verify `authority` holds `ROLE_TREASURER`. |
+| 20 | `event_authority` | `#[event_cpi]`-injected PDA `["__event_authority"]`; signs the `CouponPaid` self-CPI. |
+| 21 | `program` | `#[event_cpi]`-injected; this program's own ID, target of the self-CPI. |
 
 ### A note on `Box<…>` in the accounts struct
 
@@ -229,4 +255,4 @@ pub struct PaymentTokenSet {
 
 ## Why two-step (config + pay) instead of one-shot
 
-`set_payment_token` is decoupled from `pay_coupon` so the deployer can fix or replace the payment mint without touching coupons, and so `pay_coupon` runs with a stable, on-chain-pinned payment mint that all callers verify against.
+`set_payment_token` is decoupled from `pay_coupon` so a treasurer can fix or replace the payment mint without touching coupons, and so `pay_coupon` runs with a stable, on-chain-pinned payment mint that all callers verify against.

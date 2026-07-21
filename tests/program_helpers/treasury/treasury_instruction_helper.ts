@@ -19,6 +19,7 @@ import {
   treasuryEventAuthorityPda,
 } from "./treasury_pda_helper";
 import { snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getTreasuryProgram(): Program<Treasury> {
   return anchor.workspace.Treasury as Program<Treasury>;
@@ -35,11 +36,15 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
 
+  const program = getTreasuryProgram();
+
+  const authority = callContext.authority ?? program.provider.wallet.payer;
+
   const signature = await getTreasuryProgram()
     .methods.setPaymentToken()
     .accountsStrict({
-      payer: callContext.payer ?? callContext.deployer,
-      deployer: callContext.deployer,
+      payer: callContext.payer ?? callContext.authority?.publicKey,
+      authority: authority.publicKey,
       mint: callContext.mint,
       paymentMint: callContext.paymentMint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
@@ -50,8 +55,9 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: treasuryEventAuthorityPda(),
       program: TREASURY_PROGRAM_ID,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
@@ -88,11 +94,15 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
 
+  const program = getTreasuryProgram();
+
+  const authority = callContext.authority ?? program.provider.wallet.payer;
+
   const signature = await getTreasuryProgram()
     .methods.payCoupon(args.couponId)
     .accountsStrict({
-      payer: callContext.payer ?? callContext.deployer,
-      deployer: callContext.deployer,
+      payer: callContext.payer ?? callContext.authority?.publicKey,
+      authority: authority.publicKey,
       mint: callContext.mint,
       paymentMint: callContext.paymentMint,
       treasuryTokenAccount: callContext.treasuryTokenAccount,
@@ -112,8 +122,9 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: treasuryEventAuthorityPda(),
       program: TREASURY_PROGRAM_ID,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
-    .signers(callContext?.signers ?? [])
+    .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

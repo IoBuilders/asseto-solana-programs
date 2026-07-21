@@ -3,8 +3,9 @@ import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey, SendTransactionError, Signer } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_ADMIN, ROLE_TREASURER, ROLE_CORPORATE_ACTION } from "./utils/roles";
 import { UpdateBondArgs, updateBondTerms } from "./program_helpers/bond/bond_instruction_helper";
-import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
   createMint,
   createTokenAccount,
@@ -41,8 +42,7 @@ import {
 } from "./utils/functionalities";
 import { beforeEach } from "mocha";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
-import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_CORPORATE_ACTION } from "./utils/roles";
+import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 
 // ── Bond mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -77,6 +77,8 @@ describe("treasury", () => {
   anchor.setProvider(provider);
 
   const deployer = provider.wallet.publicKey;
+  const payer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
 
   // ── Helper: build & fund the treasury's payment-mint token account (owner = PDA) ──────
   async function createAndFundTreasuryTokenAccount(
@@ -121,7 +123,7 @@ describe("treasury", () => {
     const periodStartDate = opts?.periodStartDate ?? PERIOD_START;
     const periodEndDate = opts?.periodEndDate ?? PERIOD_END;
     const paymentDate = opts?.paymentDate ?? PAYMENT_DATE;
-    await createCoupon({ deployer, mint }, { couponId, periodStartDate, periodEndDate, paymentDate });
+    await setCoupon(mint, couponId, { periodStartDate, periodEndDate, paymentDate });
 
     // 4. Create the payment mint + the holder's payment-mint TA.
     const paymentMint = await createMint({ decimals: paymentMintDecimals });
@@ -131,7 +133,7 @@ describe("treasury", () => {
     const treasuryTokenAccount = await createAndFundTreasuryTokenAccount(mint, paymentMint, treasuryFunding);
 
     // 6. set_payment_token → caches (payment_mint, payment_mint_decimals).
-    await setPaymentToken({ deployer, mint, paymentMint });
+    await setPaymentToken({ authority, mint, paymentMint });
 
     return {
       mint,
@@ -152,14 +154,14 @@ describe("treasury", () => {
       treasuryTokenAccount: PublicKey;
       holderPaymentAccount: PublicKey;
       payer: PublicKey;
-      deployer: PublicKey;
+      authority: Keypair;
       signers: Signer[];
     }> = {}
   ) {
     return await payCoupon(
       {
-        payer: overrides?.payer,
-        deployer: overrides.deployer ?? deployer,
+        payer: overrides?.payer ?? payer,
+        authority: overrides?.authority ?? authority,
         mint: base.mint,
         paymentMint: overrides.paymentMint ?? base.paymentMint,
         treasuryTokenAccount: overrides.treasuryTokenAccount ?? base.treasuryTokenAccount,
@@ -220,7 +222,7 @@ describe("treasury", () => {
         MINT_MINT,
       ],
     });
-    await setRoles(mint, deployer, [ROLE_CORPORATE_ACTION]);
+    await setRoles(mint, authority!.publicKey, [ROLE_CORPORATE_ACTION, ROLE_TREASURER]);
   });
 
   describe("set_payment_token", async () => {
@@ -232,7 +234,7 @@ describe("treasury", () => {
       const before = await getTreasuryConfigByPda(treasuryConfigPda);
       assert.isNull(before, "treasury_config PDA should not exist before set_payment_token");
 
-      const { signature } = await setPaymentToken({ deployer, mint, paymentMint });
+      const { signature } = await setPaymentToken({ authority, mint, paymentMint });
 
       const cfg = await getTreasuryConfigByPda(treasuryConfigPda);
       assert.equal(cfg.paymentMint.toBase58(), paymentMint.toBase58(), "payment_mint should be cached");
@@ -254,14 +256,14 @@ describe("treasury", () => {
       const secondMint = await createMint({ decimals: 9 });
 
       // First call.
-      await setPaymentToken({ deployer, mint, paymentMint: firstMint });
+      await setPaymentToken({ authority, mint, paymentMint: firstMint });
 
       let cfg = await getTreasuryConfigByPda(treasuryConfigPda);
       assert.equal(cfg.paymentMint.toBase58(), firstMint.toBase58());
       assert.equal(cfg.paymentMintDecimals, firstMintDecimals);
 
       // Second call → overwrite.
-      await setPaymentToken({ deployer, mint, paymentMint: secondMint });
+      await setPaymentToken({ authority, mint, paymentMint: secondMint });
 
       cfg = await getTreasuryConfigByPda(treasuryConfigPda);
       assert.equal(cfg.paymentMint.toBase58(), secondMint.toBase58(), "payment_mint should be overwritten");
@@ -275,7 +277,7 @@ describe("treasury", () => {
       await setMintPaused(mint, true);
 
       try {
-        await setPaymentToken({ deployer, mint, paymentMint });
+        await setPaymentToken({ payer, authority, mint, paymentMint });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -290,7 +292,7 @@ describe("treasury", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await setPaymentToken({ deployer, mint, paymentMint });
+        await setPaymentToken({ authority, mint, paymentMint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -299,22 +301,23 @@ describe("treasury", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("set_payment_token: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    it("set_payment_token: fails with MissingRole when authority does not have the treasurer role", async () => {
       const paymentMint = await createMint();
       const rogueKeypair = Keypair.generate();
+      await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]);
 
       try {
         await setPaymentToken({
-          payer: deployer,
-          deployer: rogueKeypair.publicKey,
+          payer,
+          authority: rogueKeypair,
           mint,
           paymentMint,
           signers: [rogueKeypair],
         });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
+        assert.equal((err as AnchorError).error.errorCode.code, "MissingRole");
       }
     });
 
@@ -324,7 +327,7 @@ describe("treasury", () => {
       const invalidPaymentMint = Keypair.generate().publicKey;
 
       try {
-        await setPaymentToken({ deployer, mint, paymentMint: invalidPaymentMint });
+        await setPaymentToken({ authority, mint, paymentMint: invalidPaymentMint });
         assert.fail("Expected error for invalid payment_mint but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -339,7 +342,7 @@ describe("treasury", () => {
       // Execute one pay_coupon — this locks treasury_config.locked_for_coupon_id = 1.
       await payCoupon(
         {
-          deployer,
+          authority,
           mint: ctx.mint,
           paymentMint: ctx.paymentMint,
           treasuryTokenAccount: ctx.treasuryTokenAccount,
@@ -352,7 +355,7 @@ describe("treasury", () => {
       // Attempting to change the payment mint now must fail.
       const newPaymentMint = await createMint();
       try {
-        await setPaymentToken({ deployer, mint: ctx.mint, paymentMint: newPaymentMint });
+        await setPaymentToken({ authority, mint: ctx.mint, paymentMint: newPaymentMint });
         assert.fail("Expected ClaimsInProgress error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -368,7 +371,7 @@ describe("treasury", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await setPaymentToken({ deployer, mint, paymentMint });
+        await setPaymentToken({ authority, mint, paymentMint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -392,7 +395,7 @@ describe("treasury", () => {
       });
 
       try {
-        await setPaymentToken({ deployer, mint, paymentMint });
+        await setPaymentToken({ authority, mint, paymentMint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -569,7 +572,7 @@ describe("treasury", () => {
       const holderPaymentAccountB = await createTokenAccount({ mint: paymentMint, owner: deployer });
 
       // Update the config to point at paymentMint.
-      await setPaymentToken({ deployer, mint: ctx.mint, paymentMint: paymentMint });
+      await setPaymentToken({ authority, mint: ctx.mint, paymentMint: paymentMint });
 
       const treasuryBefore = (await getTokenAccount(treasuryTAB)).amount;
       const holderBefore = (await getTokenAccount(holderPaymentAccountB)).amount;
@@ -733,16 +736,17 @@ describe("treasury", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("pay_coupon: fails with UnauthorizedDeployer when signer is not the deployer", async () => {
+    it("pay_coupon: fails with MissingRole when signer is not the deployer", async () => {
       const ctx = await deployBondAndCoupon();
       const rogueKeypair = Keypair.generate();
+      await setRoles(ctx.mint, rogueKeypair.publicKey, [ROLE_ADMIN]);
 
       try {
-        await payCouponInternal(ctx, { payer: deployer, deployer: rogueKeypair.publicKey, signers: [rogueKeypair] });
-        assert.fail("Expected UnauthorizedDeployer error but instruction succeeded");
+        await payCouponInternal(ctx, { authority: rogueKeypair, signers: [rogueKeypair] });
+        assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "UnauthorizedDeployer");
+        assert.equal((err as AnchorError).error.errorCode.code, "MissingRole");
       }
     });
 
