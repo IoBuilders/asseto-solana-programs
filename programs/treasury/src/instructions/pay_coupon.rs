@@ -278,8 +278,7 @@ pub struct PayCoupon<'info> {
     pub treasury_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// Destination payment-mint token account. Mint and token program checked
-    /// by Anchor; ownership intentionally not enforced (deployer chooses
-    /// where the payment lands).
+    /// by Anchor; ownership intentionally not enforced
     #[account(
         mut,
         token::mint = payment_mint,

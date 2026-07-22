@@ -34,10 +34,9 @@ const MINT_ASSET_CLASS_VERSION_ID = 3;
 describe("deploy", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  // The wallet that signs as deployer and becomes the recorded mint owner.
-  const deployer = provider.wallet.publicKey;
 
   it("deploy_mint: deploys a Token-2022 mint with all extensions and metadata", async () => {
+    const deployer = provider.wallet.payer;
     const { mint, signature } = await deployMint(
       { deployer },
       {
@@ -116,11 +115,6 @@ describe("deploy", () => {
     );
 
     // ── Assertions: Mint owner PDA ─────────────────────────────────────────────
-    assert.equal(
-      mintOwnerAccount.deployer.toBase58(),
-      deployer.toBase58(),
-      "mint owner PDA should record the deployer"
-    );
     // Verify the stored bump is consistent with the derived PDA address.
     const [, expectedBump] = pdaUtils.mintOwnerPdaWithBump(mint);
     assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
@@ -137,9 +131,9 @@ describe("deploy", () => {
     );
 
     // ── Assertions: Deployer has been granted Admin Role ─────────
-    const [, expectedRolesBump] = rolesPdaWithBump(mint, deployer);
+    const [, expectedRolesBump] = rolesPdaWithBump(mint, deployer.publicKey);
     const roles = [ROLE_ADMIN];
-    const rolesAccount = await getRoles(mint, deployer);
+    const rolesAccount = await getRoles(mint, deployer.publicKey);
 
     assert.equal(rolesAccount.bump, expectedRolesBump, "stored bump should be the canonical PDA bump");
 
@@ -151,7 +145,7 @@ describe("deploy", () => {
     const event = await getMintDeployedEvent(signature);
     assert.isNotNull(event, "MintDeployed event should be emitted");
     assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-    assert.equal(event!.deployer.toBase58(), deployer.toBase58(), "event deployer should match");
+    assert.equal(event!.deployer.toBase58(), deployer.publicKey.toBase58(), "event deployer should match");
     assert.equal(event!.decimals, MINT_DECIMALS);
     assert.equal(event!.name, MINT_NAME);
     assert.equal(event!.symbol, MINT_SYMBOL);
@@ -170,7 +164,7 @@ describe("deploy", () => {
   });
 
   it("deploy_mint: MintDeployed event has a null isin when no isin metadata is provided", async () => {
-    const { signature } = await deployMint({ deployer }, { additionalMetadata: [] });
+    const { signature } = await deployMint({}, { additionalMetadata: [] });
 
     const event = await getMintDeployedEvent(signature);
 
@@ -179,13 +173,13 @@ describe("deploy", () => {
   });
 
   it("deploy_mint: fails when attempting to deploy an already-deployed mint", async () => {
-    const mintKeypair = Keypair.generate();
-    await deployMint({ deployer, signers: [mintKeypair] });
+    const mint = Keypair.generate();
+    await deployMint({ mint });
 
     // Attempt to deploy the same mint again (by using the same mint pda) — mint_owner_pda already exists,
     // so Anchor's `init` constraint rejects it before the instruction body runs.
     try {
-      await deployMint({ deployer, signers: [mintKeypair] });
+      await deployMint({ mint });
 
       assert.fail("Expected re-deploy to fail but it succeeded");
     } catch (err) {

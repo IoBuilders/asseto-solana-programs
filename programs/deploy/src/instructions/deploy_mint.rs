@@ -322,14 +322,13 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         &[temp_mint_authority_signer_seeds.as_slice()],
     )?;
 
-    // ── 13. Record the deployer as mint owner ────────────────────────────────
+    // ── 13. Record the mint configuration ────────────────────────────────
     //
     // The (config_id, version_id) pair is the seed of the factory asset-class
     // PDA (`["asset_class", config_id, version_id]`) this mint is hooked to.
     // Storing the seed — rather than the derived address — lets downstream
     // programs re-derive that PDA via `seeds::program = FACTORY_PROGRAM_ID`,
     // matching how every other cross-program PDA is referenced in this workspace.
-    ctx.accounts.mint_owner_pda.deployer = ctx.accounts.deployer.key();
     ctx.accounts.mint_owner_pda.asset_class_config_id = params.asset_class_config_id;
     ctx.accounts.mint_owner_pda.asset_class_version_id = params.asset_class_version_id;
     ctx.accounts.mint_owner_pda.bump = ctx.bumps.mint_owner_pda;
@@ -355,7 +354,6 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             },
             &[mint_owner_signer_seeds.as_slice()],
         ),
-        ctx.accounts.deployer.key(),
     )?;
 
     // ── 15. Grant ROLE_ADMIN to the deployer on this mint ─────────────────────
@@ -397,12 +395,11 @@ pub struct DeployMint<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The entity that becomes the recorded owner of this mint.
-    /// Must sign to authorize being stored as the deployer.
+    /// The entity that deploys the mint and is granted ROLE_ADMIN.
     /// Can be the same wallet as `payer`.
     pub deployer: Signer<'info>,
 
-    /// PDA that records the deployer as this mint's owner.
+    /// PDA that records the configuration of this mint.
     /// Seeds: `["mint_owner", mint]` — unique per mint, owned by this program.
     #[account(
         init,

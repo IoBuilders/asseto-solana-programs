@@ -10,10 +10,6 @@ use common::program_ids as constants;
 
 /// Creates the `bond_terms_pda` on the first call (init_if_needed) and
 /// overwrites every field with `args` on every call.
-///
-/// Management instruction — gated by `verify_deployer_account` +
-/// `require_not_paused` + `require_active` + `require_functionality`
-/// (`BOND_UPDATE_BOND_TERMS` must be enabled in the asset-class version).
 pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -74,7 +70,7 @@ pub struct UpdateBondTerms<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA created by deploy that records the configuration for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,

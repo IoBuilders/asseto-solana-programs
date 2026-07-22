@@ -40,7 +40,7 @@ describe("freeze", () => {
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer: authority.publicKey }));
+    ({ mint } = await deployMint());
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
@@ -105,7 +105,7 @@ describe("freeze", () => {
 
     // ── Happy-path: unfreeze_account ─────────────────────────────────────────────
     it("unfreeze_account: closes the frozen_account PDA for a token account", async () => {
-      const { mint } = await deployMint({ deployer: authority.publicKey });
+      const { mint } = await deployMint();
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
 
       // ── Create a token account to use as the freeze target ──────────────────

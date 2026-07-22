@@ -9,8 +9,6 @@ use common::{pda_seeds, require_functionality, require_not_paused, require_role,
 ///
 /// The `deactivate_pda` (seeds: `["deactivate", mint]`) is created here.
 /// Its existence on-chain signals that the mint has been permanently deactivated.
-///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
 pub fn deactivate(ctx: Context<Deactivate>) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -51,7 +49,7 @@ pub struct Deactivate<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA created by deploy that records the configuration for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,

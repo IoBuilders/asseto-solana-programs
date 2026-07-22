@@ -23,7 +23,7 @@ import { ACCESS_CONTROL_GRANT_ROLES, ACCESS_CONTROL_REVOKE_ROLES } from "./utils
 describe("access-control", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
 
   // A role id that is past the mask capacity (valid ids are 0..=8191).
   const OUT_OF_BOUNDS_ROLE = 8192;
@@ -39,7 +39,7 @@ describe("access-control", () => {
   let account: PublicKey;
 
   before(async () => {
-    ({ mint } = await deployMint({ deployer }));
+    ({ mint } = await deployMint());
   });
 
   beforeEach(async () => {
@@ -49,7 +49,6 @@ describe("access-control", () => {
     await setAssetClassVersionForMint(mint, {
       functionalities: [ACCESS_CONTROL_GRANT_ROLES, ACCESS_CONTROL_REVOKE_ROLES],
     });
-    await setRoles(mint, deployer, [ROLE_ADMIN]);
   });
 
   describe("initialize", () => {
@@ -77,7 +76,7 @@ describe("access-control", () => {
     it("creates the roles PDA and sets the requested role bits", async () => {
       const roles = [10, 200, 1000];
 
-      await grantRoles({ mint, account }, { roles });
+      await grantRoles({ authority, mint, account }, { roles });
 
       const [, expectedBump] = rolesPdaWithBump(mint, account);
       const rolesAccount = await getRoles(mint, account);
@@ -94,7 +93,7 @@ describe("access-control", () => {
       // Plant a pre-existing roles PDA so only grant_roles is exercised here.
       await setRoles(mint, account, [1, 3]);
 
-      await grantRoles({ mint, account }, { roles: [5, 7] });
+      await grantRoles({ authority, mint, account }, { roles: [5, 7] });
 
       const rolesAccount = await getRoles(mint, account);
       for (const r of [1, 3, 5, 7]) {
@@ -135,7 +134,7 @@ describe("access-control", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await grantRoles({ mint, account }, { roles: [1] });
+        await grantRoles({ authority, mint, account }, { roles: [1] });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -148,7 +147,7 @@ describe("access-control", () => {
       await setMintPaused(mint, true);
 
       try {
-        await grantRoles({ mint, account }, { roles: [1] });
+        await grantRoles({ authority, mint, account }, { roles: [1] });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -161,7 +160,7 @@ describe("access-control", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await grantRoles({ mint, account }, { roles: [1] });
+        await grantRoles({ authority, mint, account }, { roles: [1] });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -172,7 +171,7 @@ describe("access-control", () => {
     // ──────────────────────────────────────────────────────────────────────
     it("grant_roles: fails with RoleOutOfBounds when a role id exceeds the mask capacity", async () => {
       try {
-        await grantRoles({ mint, account }, { roles: [OUT_OF_BOUNDS_ROLE] });
+        await grantRoles({ authority, mint, account }, { roles: [OUT_OF_BOUNDS_ROLE] });
         assert.fail("Expected RoleOutOfBounds error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -187,7 +186,7 @@ describe("access-control", () => {
       // Plant a pre-existing roles PDA so only revoke_roles is exercised here.
       await setRoles(mint, account, [2, 4, 6]);
 
-      await revokeRoles({ mint, account }, { roles: [4] });
+      await revokeRoles({ authority, mint, account }, { roles: [4] });
 
       const rolesAccount = await getRoles(mint, account);
       assert.isFalse(isRoleGranted(rolesAccount.mask, 4), "revoked role 4 should be cleared");
@@ -201,7 +200,7 @@ describe("access-control", () => {
       // which is still owned by the System Program, so the AccountLoader
       // constraint rejects it before the handler runs.
       try {
-        await revokeRoles({ mint, account }, { roles: [1] });
+        await revokeRoles({ authority, mint, account }, { roles: [1] });
         assert.fail("Expected the instruction to fail but it succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -245,7 +244,7 @@ describe("access-control", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await revokeRoles({ mint, account }, { roles: [1] });
+        await revokeRoles({ authority, mint, account }, { roles: [1] });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -259,7 +258,7 @@ describe("access-control", () => {
       await setMintPaused(mint, true);
 
       try {
-        await revokeRoles({ mint, account }, { roles: [1] });
+        await revokeRoles({ authority, mint, account }, { roles: [1] });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -273,7 +272,7 @@ describe("access-control", () => {
       await setDeactivateMarker(mint);
 
       try {
-        await revokeRoles({ mint, account }, { roles: [1] });
+        await revokeRoles({ authority, mint, account }, { roles: [1] });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -286,7 +285,7 @@ describe("access-control", () => {
       await setRoles(mint, account, [1]);
 
       try {
-        await revokeRoles({ mint, account }, { roles: [OUT_OF_BOUNDS_ROLE] });
+        await revokeRoles({ authority, mint, account }, { roles: [OUT_OF_BOUNDS_ROLE] });
         assert.fail("Expected RoleOutOfBounds error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

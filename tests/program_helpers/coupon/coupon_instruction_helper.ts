@@ -79,7 +79,7 @@ export async function createCoupon(
       effectiveArgs.merkleRoot
     )
     .accountsStrict({
-      payer: callContext.payer ?? callContext.deployer,
+      payer: callContext.payer ?? callContext.authority.publicKey,
       authority: authority.publicKey,
       mint: callContext.mint,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),

@@ -97,7 +97,7 @@ pub struct RemoveMetadata<'info> {
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA created by deploy that records the configuration for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,

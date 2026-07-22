@@ -53,7 +53,6 @@ export async function updateBondTerms(
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
-  const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
     .updateBondTerms({
@@ -66,9 +65,9 @@ export async function updateBondTerms(
       dayCountConvention: effectiveArgs.dayCountConvention,
     })
     .accountsStrict({
-      payer: callContext.payer ?? authority.publicKey,
-      authority: authority.publicKey,
-      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
+      payer: callContext.payer ?? callContext.authority.publicKey,
+      authority: callContext.authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, callContext.authority.publicKey),
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
@@ -78,7 +77,7 @@ export async function updateBondTerms(
       eventAuthority: bondEventAuthorityPda(),
       program: BOND_PROGRAM_ID,
     })
-    .signers(callContext?.signers ?? [authority])
+    .signers(callContext?.signers ?? [callContext.authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

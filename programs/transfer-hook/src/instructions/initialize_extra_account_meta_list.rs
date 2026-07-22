@@ -22,17 +22,10 @@ const EXTRA_ACCOUNT_META_COUNT: usize = 11;
 /// compliance checks have been moved to `transfer::verify_transfer`,
 /// so the previous 10 compliance-related extra metas are no longer needed —
 /// keeping the list small is what lets Token-2022's 32 KiB heap fit metalist
-/// resolution. The `deployer` argument is retained for API stability with
-/// `deploy` but is no longer baked into the metalist.
+/// resolution.
 pub fn initialize_extra_account_meta_list(
-    ctx: Context<InitializeExtraAccountMetaList>,
-    deployer: Pubkey,
+    ctx: Context<InitializeExtraAccountMetaList>
 ) -> Result<()> {
-    // The deployer pubkey used to be baked into the metalist for the hook's
-    // clearing-mode signer check; that check now lives in
-    // `transfer::verify_transfer`, so the param is intentionally unused.
-    let _ = deployer;
-
     let metas = vec![
         // 5: snapshot program
         ExtraAccountMeta::new_with_pubkey(&SNAPSHOT_PROGRAM_ID, false, false)?,

@@ -4,7 +4,7 @@ import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID, SNAPSHOT_PROGRAM_ID } from "../../utils/address_utils";
-import { MintWriteContext } from "../base_helper";
+import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
 import { getEvent, getEvents } from "../event_helper";
@@ -22,7 +22,7 @@ export function getMintProgram(): Program<Mint> {
 
 // ── mint ───────────────────────────────────────────────────────────────────────
 
-export type MintTokensContext = MintWriteContext & {
+export type MintTokensContext = MintWriteWithPayerContext & {
   destination: PublicKey;
 };
 
@@ -48,13 +48,11 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
   // `mint_owner` account — the same values the on-chain program reads.
   const mintOwner = await getMintOwner(callContext.mint);
 
-  const authority = callContext.authority ?? mintProgram.provider.wallet.payer;
-
   return await mintProgram.methods
     .mint(effectiveArgs.amount)
     .accountsStrict({
-      deployer: callContext.deployer,
-      authority: authority.publicKey,
+      payer: callContext.payer ?? callContext.authority.publicKey,
+      authority: callContext.authority.publicKey,
       mint: callContext.mint,
       destination: callContext.destination,
       mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
@@ -73,9 +71,9 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       eventAuthority: mintEventAuthorityPda(),
       program: mintProgram.programId,
       assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
-      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
+      authorityRolesPda: rolesPda(callContext.mint, callContext.authority.publicKey),
     })
-    .signers(callContext?.signers ?? [authority])
+    .signers(callContext?.signers ?? [callContext.authority])
     .rpc({ commitment: "confirmed" });
 }
 

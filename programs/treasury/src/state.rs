@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 /// payments (the *payment mint*, e.g. a stablecoin), distinct from the bond
 /// mint the rest of the workspace targets. Cached `payment_mint_decimals`
 /// avoids re-parsing the mint on every `pay_coupon`. Token-2022 mint decimals
-/// are immutable, but if the deployer points the treasury at a different
+/// are immutable, but if the treasury is pointed at a different
 /// payment mint, the cached value is overwritten by `set_payment_token`.
 ///
 /// `locked_for_coupon_id` is 0 while no claims have been made. The first

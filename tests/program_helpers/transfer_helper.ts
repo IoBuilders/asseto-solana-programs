@@ -11,7 +11,7 @@ import {
   DEPLOY_PROGRAM_ID,
   FACTORY_PROGRAM_ID,
 } from "../utils/address_utils";
-import { MintWriteContext } from "./base_helper";
+import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
@@ -24,11 +24,12 @@ export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
 }
 
-export type VerifyTransferInstructionContext = MintWriteContext & {
-  sourceOwner: PublicKey;
-  source: PublicKey;
-  destination: PublicKey;
-};
+export type VerifyTransferInstructionContext = BaseWriteContext &
+  MintContext & {
+    sourceOwner: PublicKey;
+    source: PublicKey;
+    destination: PublicKey;
+  };
 
 export type VerifyTransferInstructionArgs = {
   amount?: anchor.BN;
@@ -93,12 +94,13 @@ export async function verifyTransfer(
     .rpc({ commitment: "confirmed" });
 }
 
-export type TransferContext = MintWriteContext & {
-  sourceOwner: PublicKey;
-  source: PublicKey;
-  destination: PublicKey;
-  preInstructions?: TransactionInstruction[];
-};
+export type TransferContext = BaseWriteContext &
+  MintContext & {
+    sourceOwner: PublicKey;
+    source: PublicKey;
+    destination: PublicKey;
+    preInstructions?: TransactionInstruction[];
+  };
 
 export type TransferArgs = {
   amount?: anchor.BN;

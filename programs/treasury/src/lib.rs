@@ -19,9 +19,6 @@ pub mod treasury {
     /// caches `payment_mint`'s decimals; on subsequent calls overwrites both
     /// fields. The payment mint is **not** the bond mint — it's the mint used
     /// to pay interest (e.g. a stablecoin).
-    ///
-    /// Management instruction — gated by `verify_deployer`, `require_not_paused`,
-    /// and `require_active`.
     pub fn set_payment_token(ctx: Context<SetPaymentToken>) -> Result<()> {
         set_payment_token::set_payment_token(ctx)
     }
@@ -42,9 +39,6 @@ pub mod treasury {
     ///
     /// Creates a `coupon_paid` marker PDA via `init` to prevent the same
     /// `(coupon_id, holder_token_account)` pair from being paid twice.
-    ///
-    /// Management instruction — gated by `verify_deployer`, `require_not_paused`,
-    /// and `require_active`.
     pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
         pay_coupon::pay_coupon(ctx, coupon_id)
     }

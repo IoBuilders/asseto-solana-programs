@@ -30,7 +30,6 @@ import { ROLE_ADMIN, ROLE_CONTROLLER } from "./utils/roles";
 describe("operations", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const deployer = provider.wallet.publicKey;
   const authority = provider.wallet.payer;
 
   describe("burn ", async () => {
@@ -44,7 +43,7 @@ describe("operations", () => {
     // active snapshots, paused/deactivated state — is then planted in isolation
     // via surfpool cheatcodes, so `burn` is the only instruction each test runs.
     beforeEach(async () => {
-      ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
+      ({ mint } = await deployMint({}, { decimals: MINT_DECIMALS }));
       mintOwnerPda = pdaUtils.mintOwnerPda(mint);
       await setAssetClassVersionForMint(mint, { functionalities: [OPERATIONS_BURN] });
       await setRoles(mint, authority!.publicKey, [ROLE_CONTROLLER]);
@@ -59,10 +58,7 @@ describe("operations", () => {
       await mintTokensViaSurfpool(mint, source, mintAmount);
 
       // ── Call burn ──────────────────────────────────────────────────────
-      const { signature } = await burnTokens(
-        { deployer, mint, tokenAccount: source, authority },
-        { amount: burnAmount }
-      );
+      const { signature } = await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       const sourceAfter = (await getTokenAccount(source)).amount;
       assert.equal(
@@ -97,8 +93,8 @@ describe("operations", () => {
       await setSnapshotCounter(mint, new anchor.BN(1));
       const snapshotId = new anchor.BN(0);
 
-      // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 0 ──
-      await burnTokens({ deployer, mint, tokenAccount: source, authority }, { amount: burnAmount });
+      // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 1 ──
+      await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
       const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
@@ -132,10 +128,10 @@ describe("operations", () => {
       const snapshotId = new anchor.BN(0);
 
       // First burn — snapshot CPIs fire and record pre-burn balance (= balanceBeforeSnapshot)
-      await burnTokens({ deployer, mint, tokenAccount: source, authority }, { amount: burnAmount });
+      await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       // Second burn in the same snapshot period — snapshot CPIs must be no-ops
-      await burnTokens({ deployer, mint, tokenAccount: source, authority }, { amount: burnAmount });
+      await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
       const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
@@ -161,7 +157,6 @@ describe("operations", () => {
 
       try {
         await burnTokens({
-          deployer,
           mint,
           tokenAccount: source,
           authority: rogueKeypair,
@@ -184,7 +179,7 @@ describe("operations", () => {
       // This surfaces as a SendTransactionError (Token-2022 custom error 0x43),
       // not an AnchorError, because the rejection originates inside Token-2022.
       try {
-        await burnTokens({ deployer, mint, tokenAccount: source, authority });
+        await burnTokens({ mint, tokenAccount: source, authority });
         assert.fail("Expected mint-is-paused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
@@ -205,7 +200,7 @@ describe("operations", () => {
 
       // ── Burn must now be rejected with Deactivated ─────────────────────────
       try {
-        await burnTokens({ deployer, mint, tokenAccount: source, authority });
+        await burnTokens({ mint, tokenAccount: source, authority });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -221,7 +216,7 @@ describe("operations", () => {
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await burnTokens({ deployer, mint, tokenAccount: source, authority });
+        await burnTokens({ mint, tokenAccount: source, authority });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -243,7 +238,7 @@ describe("operations", () => {
       });
 
       try {
-        await burnTokens({ deployer, mint, tokenAccount: source, authority });
+        await burnTokens({ mint, tokenAccount: source, authority });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

@@ -19,9 +19,6 @@ use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
 /// Passing `None` for `interest_rate` clears any existing override, reverting
 /// the coupon to the asset-level rate. Passing `Some(rate)` replaces the
 /// previous override (calling a second time is idempotent in structure).
-///
-/// Management instruction — gated by `verify_deployer`, `require_not_paused`,
-/// and `require_active`.
 pub fn set_coupon_rate(
     ctx: Context<SetCouponRate>,
     _coupon_id: u64,

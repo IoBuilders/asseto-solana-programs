@@ -62,12 +62,12 @@ describe("transfer", () => {
   const sourceOwner = sourceOwnerKeypair.publicKey;
   const destinationOwnerKeypair = Keypair.generate();
   const destinationOwner = destinationOwnerKeypair.publicKey;
-  const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
   const payerKeypair = provider.wallet.payer!;
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer }));
+    ({ mint } = await deployMint());
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
@@ -113,7 +113,7 @@ describe("transfer", () => {
 
       // ── Call transfer ──────────────────────────────────────────────────────
       await transfer(
-        { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_AMOUNT }
       );
 
@@ -152,7 +152,7 @@ describe("transfer", () => {
       // ── Fund and transfer ─────────────────────────────────────────────────────
       await fundTransferHookAuthority(mint);
       await transfer(
-        { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_AMOUNT }
       );
 
@@ -190,14 +190,14 @@ describe("transfer", () => {
       // ── First transfer in snapshot period 1 (300 tokens) ──────────────────────
       // Hook writes: sender (key=1, value=MINT_AMOUNT), receiver (key=1, value=0).
       await transfer(
-        { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: FIRST_TRANSFER }
       );
 
       // ── Second transfer in snapshot period 1 (200 tokens) ─────────────────────
       // Counter still at 1: the hook must not overwrite the existing key=1 entries.
       await transfer(
-        { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: SECOND_TRANSFER }
       );
 
@@ -244,7 +244,7 @@ describe("transfer", () => {
       // ── Third transfer in snapshot period 2 (100 tokens) ──────────────────────
       // Hook appends: sender (key=2, value=MINT_AMOUNT-300-200), receiver (key=2, value=300+200).
       await transfer(
-        { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: THIRD_TRANSFER }
       );
 
@@ -333,7 +333,6 @@ describe("transfer", () => {
 
       try {
         await transfer({
-          deployer,
           mint,
           source,
           sourceOwner,
@@ -367,13 +366,13 @@ describe("transfer", () => {
 
       // ── Call transfer ──────────────────────────────────────────────────────
       const verifyIx = await buildVerifyTransferInstruction(
-        { deployer, mint, source, sourceOwner, destination },
+        { mint, source, sourceOwner, destination },
         { amount: TRANSFER_AMOUNT }
       );
       try {
         const preInstructions = [verifyIx, anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })];
         await transfer(
-          { deployer, mint, source, sourceOwner, destination, preInstructions, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, preInstructions, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
         assert.fail("Expected PrevInstructionWrongProgram error but instruction succeeded");
@@ -402,13 +401,13 @@ describe("transfer", () => {
 
       const verifyTransferAmount = TRANSFER_AMOUNT.sub(new anchor.BN(1));
       const verifyIx = await buildVerifyTransferInstruction(
-        { deployer, mint, source, sourceOwner, destination },
+        { mint, source, sourceOwner, destination },
         { amount: verifyTransferAmount }
       );
       try {
         const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx];
         await transfer(
-          { deployer, mint, source, sourceOwner, destination, preInstructions, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, preInstructions, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
         assert.fail("Expected PrevInstructionArgumentMismatch error but instruction succeeded");
@@ -440,7 +439,7 @@ describe("transfer", () => {
       await fundTransferHookAuthority(mint);
       try {
         await transfer(
-          { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
@@ -469,7 +468,7 @@ describe("transfer", () => {
       await fundTransferHookAuthority(mint);
       try {
         await transfer(
-          { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
@@ -498,7 +497,7 @@ describe("transfer", () => {
       await fundTransferHookAuthority(mint);
       try {
         await transfer(
-          { deployer, mint, source, sourceOwner: rogueKeypair.publicKey, destination, signers: [rogueKeypair] },
+          { mint, source, sourceOwner: rogueKeypair.publicKey, destination, signers: [rogueKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
         assert.fail("Expected owner-mismatch error but instruction succeeded");
@@ -528,7 +527,7 @@ describe("transfer", () => {
 
       await fundTransferHookAuthority(mint);
       try {
-        await transfer({ deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await transfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected mint-is-paused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
@@ -557,13 +556,13 @@ describe("transfer", () => {
       const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, source);
 
       // ── Partially freeze 80 tokens (only 20 available) ───────────────────────
-      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
+      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
 
       await fundTransferHookAuthority(mint);
       try {
         await verifyTransfer(
-          { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
         assert.fail("Expected InsufficientUnfrozenBalance error but instruction succeeded");
@@ -578,8 +577,8 @@ describe("transfer", () => {
       }
 
       // ── Update partial freeze to 40 tokens (60 now available) ────────────────
-      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: UPDATED_FROZEN_AMOUNT });
+      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
+      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: UPDATED_FROZEN_AMOUNT });
 
       const frozenBalanceAfterUpdate = await getFrozenBalanceByPda(frozenBalancePda);
       assert.equal(
@@ -590,7 +589,7 @@ describe("transfer", () => {
 
       // ── Retry same transfer — succeeds (available = 60 >= 50) ────────────────
       await transfer(
-        { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_AMOUNT }
       );
 
@@ -620,13 +619,13 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // ── Partially freeze 50 tokens ────────────────────────────────────────────
-      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
+      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
 
       // ── Transfer 40 tokens — succeeds (available = 100 - 50 = 50 >= 40) ──────
       await fundTransferHookAuthority(mint);
       await transfer(
-        { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: FIRST_TRANSFER }
       );
 
@@ -641,7 +640,7 @@ describe("transfer", () => {
       // ── Transfer 20 tokens — fails (available = 60 - 50 = 10 < 20) ───────────
       try {
         await transfer(
-          { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: SECOND_TRANSFER }
         );
         assert.fail("Expected InsufficientUnfrozenBalance error but instruction succeeded");
@@ -674,8 +673,8 @@ describe("transfer", () => {
       const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, source);
 
       // ── Partially freeze 40 tokens (available = 60 of 100) ────────────────────
-      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ deployer, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
+      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
 
       // ── Burn 80 via permanent-delegate (issuer redemption) ────────────────────
       //
@@ -701,7 +700,7 @@ describe("transfer", () => {
       await fundTransferHookAuthority(mint);
       try {
         await transfer(
-          { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_ATTEMPT }
         );
         assert.fail("Expected InsufficientUnfrozenBalance error but transfer succeeded");
@@ -716,10 +715,10 @@ describe("transfer", () => {
       }
 
       // (4) Recovery path — after remove_partial_freeze, the 20 remaining tokens transact normally.
-      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
-      await removePartialFreeze({ deployer, mint, account: source });
+      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
+      await removePartialFreeze({ mint, authority, account: source });
       await transfer(
-        { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_ATTEMPT }
       );
 
@@ -754,7 +753,7 @@ describe("transfer", () => {
       await fundTransferHookAuthority(mint);
       try {
         await verifyTransfer(
-          { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
         assert.fail("Expected NotWhitelisted error but instruction succeeded");
@@ -800,7 +799,7 @@ describe("transfer", () => {
       await fundTransferHookAuthority(mint);
       try {
         await transfer(
-          { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
         assert.fail("Expected NotWhitelisted error but instruction succeeded");
@@ -830,13 +829,13 @@ describe("transfer", () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
-      await setRoles(mint, deployer, [ROLE_FREEZE_MANAGER]);
-      await freezeAccount({ deployer, mint, account: source });
+      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
+      await freezeAccount({ authority, mint, account: source });
 
       // ── Transfer must now be rejected with AccountFrozen ──────────────────
       await fundTransferHookAuthority(mint);
       try {
-        await verifyTransfer({ deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await verifyTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected AccountFrozen error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -859,7 +858,7 @@ describe("transfer", () => {
       // ── Mint must now be rejected with Deactivated ─────────────────────────
       await fundTransferHookAuthority(mint);
       try {
-        await verifyTransfer({ deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await verifyTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

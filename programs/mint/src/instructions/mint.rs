@@ -54,7 +54,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         constants::SNAPSHOT_PROGRAM_ID,
         UpdateTotalSupplySnapshot {
             calling_authority: ctx.accounts.mint_authority.to_account_info(),
-            payer: ctx.accounts.deployer.to_account_info(),
+            payer: ctx.accounts.payer.to_account_info(),
             mint: ctx.accounts.mint.to_account_info(),
             snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
             total_supply_snapshot: ctx.accounts.total_supply_snapshot.to_account_info(),
@@ -69,7 +69,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
             constants::SNAPSHOT_PROGRAM_ID,
             UpdateHolderBalanceSnapshot {
                 calling_authority: ctx.accounts.mint_authority.to_account_info(),
-                payer: ctx.accounts.deployer.to_account_info(),
+                payer: ctx.accounts.payer.to_account_info(),
                 mint: ctx.accounts.mint.to_account_info(),
                 snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
                 holder_balance_snapshot: ctx.accounts.holder_balance_snapshot.to_account_info(),
@@ -140,15 +140,14 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct MintTokens<'info> {
-    /// The deployer recorded as mint owner in mint_owner_pda.
-    /// Must sign to authorise minting; marked mutable to pay for snapshot PDA creation.
+    /// Payer for potential account creation
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub payer: Signer<'info>,
 
     /// The caller — must sign and hold `ROLE_ISSUER` on this mint.
     pub authority: Signer<'info>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA created by deploy that records the configuration for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,

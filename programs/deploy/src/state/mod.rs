@@ -14,7 +14,6 @@ use common::state::{discriminators_eq, MintOwner as MintOwnerCommon};
 #[account(discriminator = MintOwnerCommon::DISCRIMINATOR)]
 #[derive(InitSpace)]
 pub struct MintOwner {
-    pub deployer: Pubkey,
     pub asset_class_config_id: u64,
     pub asset_class_version_id: u64,
     pub bump: u8,

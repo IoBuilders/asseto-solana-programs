@@ -40,13 +40,12 @@ import {
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const deployer = provider.wallet.publicKey;
   const authority = provider.wallet.payer;
   const MINT_DECIMALS = 6;
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer }));
+    ({ mint } = await deployMint());
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
@@ -60,14 +59,14 @@ describe("mint", () => {
   });
 
   it("mint: mints tokens to a destination account and updates balance correctly", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: authority.publicKey });
     const accountBefore = await getTokenAccount(destination);
     const balanceBefore = accountBefore.amount;
     const mintInfoBefore = await getMint(mint);
     const supplyBefore = mintInfoBefore.supply;
     const mintAmount = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
 
-    const signature = await mintTokens({ deployer, mint, destination, authority }, { amount: mintAmount });
+    const signature = await mintTokens({ mint, destination, authority }, { amount: mintAmount });
 
     const accountAfter = await getTokenAccount(destination);
     const balanceAfter = accountAfter.amount;
@@ -90,19 +89,19 @@ describe("mint", () => {
 
   it("mint: snapshot taken before mint records the destination balance previous to the mint and is never overwritten", async () => {
     // ── Create destination token account + mint an initial balance ────────────────────────
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
-    await mintTokens({ deployer, mint, destination, authority }, { amount: balanceBeforeSnapshot });
+    await mintTokens({ mint, destination, authority }, { amount: balanceBeforeSnapshot });
 
     // ── Take snapshot via a planted coupon (snapshot counter 0 → 1) ──────────
     const couponId = new anchor.BN(1);
     await setCoupon(mint, couponId);
 
     // ── First mint under the snapshot period — snapshot CPIs fire and record pre-mint balance ──────────
-    await mintTokens({ deployer, mint, destination, authority });
+    await mintTokens({ mint, destination, authority });
 
     // ── Second mint under the snapshot period — snapshot CPIs must be no-ops
-    await mintTokens({ deployer, mint, destination, authority });
+    await mintTokens({ mint, destination, authority });
 
     // ── Assert snapshot values ──────────────────────────
     // snapshot id is 0-based: coupon N triggers snapshot N-1.
@@ -122,11 +121,11 @@ describe("mint", () => {
   });
 
   it("mint: fails with MintPaused when mint is paused", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     await setMintPaused(mint, true);
 
     try {
-      await mintTokens({ deployer, mint, destination, authority });
+      await mintTokens({ mint, destination, authority });
       assert.fail("Expected mint-is-paused error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
@@ -139,11 +138,11 @@ describe("mint", () => {
   });
 
   it("mint: fails with Deactivated when mint has been deactivated", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     await setDeactivateMarker(mint);
 
     try {
-      await mintTokens({ deployer, mint, destination, authority });
+      await mintTokens({ mint, destination, authority });
       assert.fail("Expected Deactivated error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -153,12 +152,12 @@ describe("mint", () => {
   });
 
   it("mint: fails with MissingRole when authority does not have the issuer role", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const rogueKeypair = Keypair.generate();
     await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not issuer role
 
     try {
-      await mintTokens({ deployer, mint, destination, authority: rogueKeypair, signers: [rogueKeypair] });
+      await mintTokens({ mint, destination, authority: rogueKeypair, signers: [rogueKeypair] });
       assert.fail("Expected MissingRole error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -168,11 +167,11 @@ describe("mint", () => {
   });
 
   it("mint: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
     try {
-      await mintTokens({ deployer, mint, destination, authority });
+      await mintTokens({ mint, destination, authority });
       assert.fail("Expected NotWhitelisted error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -183,13 +182,13 @@ describe("mint", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("mint: fails with FunctionalityNotSupportedError when the mint functionality is not enabled", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
     // Re-seed the asset-class version WITHOUT the mint functionality.
     await setAssetClassVersionForMint(mint, { functionalities: [] });
 
     try {
-      await mintTokens({ deployer, mint, destination, authority });
+      await mintTokens({ mint, destination, authority });
       assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -204,7 +203,7 @@ describe("mint", () => {
 
   // ────────────────────────────────────────────────────────────────────────────
   it("mint: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
     // Re-seed the asset-class version WITHOUT finalizing it.
     await setAssetClassVersionForMint(mint, {
@@ -213,7 +212,7 @@ describe("mint", () => {
     });
 
     try {
-      await mintTokens({ deployer, mint, destination, authority });
+      await mintTokens({ mint, destination, authority });
       assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");

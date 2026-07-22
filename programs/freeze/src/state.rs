@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 /// On-chain marker created when a specific token account is frozen at the token level.
 /// Seeds: `["frozen_account", mint, account]` — present if and only if the account
-/// has been frozen by the deployer via the `freeze_account` management instruction.
+/// has been frozen via the `freeze_account` management instruction.
 #[account]
 #[derive(InitSpace)]
 pub struct FrozenAccountStatus {

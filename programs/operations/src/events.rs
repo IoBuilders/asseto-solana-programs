@@ -5,7 +5,7 @@ use anchor_lang::prelude::*;
 #[event]
 pub struct ControllerRedemption {
     pub mint: Pubkey,
-    /// The deployer that authorized the forced redemption.
+    /// The controller that authorized the forced redemption.
     pub controller: Pubkey,
     /// The token account the tokens were burned from.
     pub from: Pubkey,

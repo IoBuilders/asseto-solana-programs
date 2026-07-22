@@ -76,7 +76,6 @@ describe("treasury", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const deployer = provider.wallet.publicKey;
   const payer = provider.wallet.publicKey;
   const authority = provider.wallet.payer;
 
@@ -111,12 +110,13 @@ describe("treasury", () => {
     const treasuryFunding = opts?.treasuryFunding ?? BigInt(1_000_000_000);
 
     // 1. Mint bond tokens to a brand-new holder bond-mint token account.
-    const holderTokenAccount = await createTokenAccount({ mint, owner: deployer });
+    const holder = Keypair.generate().publicKey;
+    const holderTokenAccount = await createTokenAccount({ mint, owner: holder });
     await mintTokensViaSurfpool(mint, holderTokenAccount, BOND_HOLDER_AMOUNT);
 
     // 2. update_bond_terms
     const bondArgs = opts?.bondArgs ?? DEFAULT_UPDATE_BOND_ARGS;
-    await updateBondTerms({ deployer, mint }, bondArgs);
+    await updateBondTerms({ authority, mint }, bondArgs);
 
     // 3. create_coupon (also CPIs take_snapshot → snapshot_id = 0, 0-based).
     const couponId = new anchor.BN(1);
@@ -127,7 +127,7 @@ describe("treasury", () => {
 
     // 4. Create the payment mint + the holder's payment-mint TA.
     const paymentMint = await createMint({ decimals: paymentMintDecimals });
-    const holderPaymentAccount = await createTokenAccount({ mint: paymentMint, owner: deployer });
+    const holderPaymentAccount = await createTokenAccount({ mint: paymentMint, owner: holder });
 
     // 5. Create + fund the treasury TA (owner = treasury_authority PDA).
     const treasuryTokenAccount = await createAndFundTreasuryTokenAccount(mint, paymentMint, treasuryFunding);
@@ -210,7 +210,7 @@ describe("treasury", () => {
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
+    ({ mint } = await deployMint({}, { decimals: MINT_DECIMALS }));
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
@@ -493,7 +493,7 @@ describe("treasury", () => {
       );
       assert.equal(event!.paymentMint.toBase58(), ctx.paymentMint.toBase58(), "event payment_mint should match");
       assert.equal(event!.amount.toString(), expectedAmount.toString(), "event amount should match the payout");
-      assert.equal(event!.payer.toBase58(), deployer.toBase58(), "event payer should be the deployer");
+      assert.equal(event!.payer.toBase58(), payer.toBase58(), "event payer should be the deployer");
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -569,7 +569,10 @@ describe("treasury", () => {
       // Create paymentMint with a fresh funded treasury TA and a holder payment TA.
       const paymentMint = await createMint();
       const treasuryTAB = await createAndFundTreasuryTokenAccount(ctx.mint, paymentMint, BigInt(1_000_000_000));
-      const holderPaymentAccountB = await createTokenAccount({ mint: paymentMint, owner: deployer });
+      const holderPaymentAccountB = await createTokenAccount({
+        mint: paymentMint,
+        owner: Keypair.generate().publicKey,
+      });
 
       // Update the config to point at paymentMint.
       await setPaymentToken({ authority, mint: ctx.mint, paymentMint: paymentMint });
@@ -637,7 +640,7 @@ describe("treasury", () => {
       const ctx = await deployBondAndCoupon();
 
       // Same payment mint, but owned by an arbitrary key (not the PDA).
-      const wrongTA = await createTokenAccount({ mint: ctx.paymentMint, owner: deployer });
+      const wrongTA = await createTokenAccount({ mint: ctx.paymentMint, owner: Keypair.generate().publicKey });
 
       try {
         await payCouponInternal(ctx, { treasuryTokenAccount: wrongTA });
@@ -655,7 +658,7 @@ describe("treasury", () => {
 
       // Different payment mint → TA mint won't match treasury_config.payment_mint.
       const otherMint = await createMint();
-      const wrongHolderTA = await createTokenAccount({ mint: otherMint, owner: deployer });
+      const wrongHolderTA = await createTokenAccount({ mint: otherMint, owner: Keypair.generate().publicKey });
 
       try {
         await payCouponInternal(ctx, { holderPaymentAccount: wrongHolderTA });

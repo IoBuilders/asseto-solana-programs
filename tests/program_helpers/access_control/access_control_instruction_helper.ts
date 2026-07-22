@@ -4,7 +4,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { AccessControl } from "../../../target/types/access_control";
 import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import * as pdaUtils from "../../utils/pda_utils";
-import { BaseWriteContext, MintContext } from "../base_helper";
+import { BaseWriteContext, MintContext, MintWriteWithPayerContext } from "../base_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { assetClassVersionPdaForMint } from "../factory/factory_pda_helper";
 import { rolesPda } from "./access_control_pda_helper";
@@ -48,13 +48,9 @@ export async function initialize(callContext: InitializeContext): Promise<{ sign
 
 // ── grantRoles ───────────────────────────────────────────────────────────────
 
-export type GrantRolesContext = BaseWriteContext &
-  MintContext & {
-    account: PublicKey;
-    // The caller — must hold ROLE_ADMIN. Defaults to the provider wallet.
-    authority?: Keypair;
-    payer?: PublicKey;
-  };
+export type GrantRolesContext = MintWriteWithPayerContext & {
+  account: PublicKey;
+};
 
 type GrantRolesArgs = {
   roles: number[];
@@ -88,12 +84,9 @@ export async function grantRoles(callContext: GrantRolesContext, args: GrantRole
 
 // ── revokeRoles ──────────────────────────────────────────────────────────────
 
-export type RevokeRolesContext = BaseWriteContext &
-  MintContext & {
-    account: PublicKey;
-    // The caller — must hold ROLE_ADMIN. Defaults to the provider wallet.
-    authority?: Keypair;
-  };
+export type RevokeRolesContext = MintWriteWithPayerContext & {
+  account: PublicKey;
+};
 
 type RevokeRolesArgs = {
   roles: number[];

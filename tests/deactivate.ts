@@ -21,7 +21,7 @@ describe("deactivate", () => {
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer: authority.publicKey }));
+    ({ mint } = await deployMint());
     await setAssetClassVersionForMint(mint, { functionalities: [DEACTIVATE_DEACTIVATE] });
     await setRoles(mint, authority.publicKey, [ROLE_DEACTIVATE]);
   });

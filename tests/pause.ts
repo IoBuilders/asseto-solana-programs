@@ -28,7 +28,7 @@ describe("pause", () => {
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer: authority.publicKey }));
+    ({ mint } = await deployMint());
     await setAssetClassVersionForMint(mint, { functionalities: [PAUSE_PAUSE, PAUSE_UNPAUSE, DEACTIVATE_DEACTIVATE] });
     await setRoles(mint, authority.publicKey, [ROLE_PAUSER]);
   });

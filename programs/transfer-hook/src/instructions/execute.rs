@@ -285,7 +285,7 @@ pub struct Execute<'info> {
     #[account(address = DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// PDA created by deploy that records the deployer for this mint (index 11).
+    /// PDA created by deploy that records the configuration for this mint (index 11).
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = DEPLOY_PROGRAM_ID,

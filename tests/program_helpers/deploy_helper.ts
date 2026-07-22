@@ -9,7 +9,7 @@ import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { Deploy } from "../../target/types/deploy";
-import { AuthorityWithPayerContext } from "./base_helper";
+import { BaseWriteContext, PayerContext } from "./base_helper";
 import { getEvent } from "./event_helper";
 import * as pdaUtils from "../utils/pda_utils";
 import { permanentDelegatePda } from "./burn/burn_pda_helper";
@@ -22,6 +22,12 @@ import { rolesPda } from "./access_control/access_control_pda_helper";
 function getDeployProgram(): Program<Deploy> {
   return anchor.workspace.Deploy as Program<Deploy>;
 }
+
+type DeployMintContext = BaseWriteContext &
+  PayerContext & {
+    deployer?: Keypair;
+    mint?: Keypair;
+  };
 
 type DeployMintArgs = {
   decimals?: number;
@@ -46,17 +52,18 @@ function getDefaultArgs(): Required<DeployMintArgs> {
 }
 
 export async function deployMint(
-  callContext: AuthorityWithPayerContext,
+  callContext?: DeployMintContext,
   args?: DeployMintArgs
 ): Promise<{ mint: PublicKey; signature: string }> {
+  const program = getDeployProgram();
   const effectiveArgs: Required<DeployMintArgs> = {
     ...getDefaultArgs(),
     ...args,
   };
 
-  const signers = callContext?.signers ? callContext.signers : [Keypair.generate()];
-  const mintKeypair = signers[0];
-  const mint = mintKeypair.publicKey;
+  const mint = callContext?.mint ?? Keypair.generate();
+  const deployer = callContext?.deployer ?? program.provider.wallet.payer;
+  const signers = callContext?.signers ? callContext.signers : [mint, deployer];
 
   const signature = await getDeployProgram()
     .methods.deployMint({
@@ -69,31 +76,31 @@ export async function deployMint(
       assetClassVersionId: new anchor.BN(effectiveArgs.assetClassVersionId),
     })
     .accountsStrict({
-      payer: callContext.payer ?? callContext.deployer,
-      deployer: callContext.deployer,
-      mint: mint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(mint),
-      tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint),
-      mintAuthority: mintAuthorityPda(mint),
-      permanentDelegateAuthority: permanentDelegatePda(mint),
-      metadataUpdateAuthority: metadataUpdateAuthorityPda(mint),
-      pausableAuthority: pausableAuthorityPda(mint),
-      freezeAuthority: freezeAuthorityPda(mint),
-      transferHookAuthority: pdaUtils.transferHookAuthorityPda(mint),
-      extraAccountMetaList: pdaUtils.extraAccountMetaListPda(mint),
+      payer: callContext?.payer ?? deployer.publicKey,
+      deployer: deployer.publicKey,
+      mint: mint.publicKey,
+      mintOwnerPda: pdaUtils.mintOwnerPda(mint.publicKey),
+      tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint.publicKey),
+      mintAuthority: mintAuthorityPda(mint.publicKey),
+      permanentDelegateAuthority: permanentDelegatePda(mint.publicKey),
+      metadataUpdateAuthority: metadataUpdateAuthorityPda(mint.publicKey),
+      pausableAuthority: pausableAuthorityPda(mint.publicKey),
+      freezeAuthority: freezeAuthorityPda(mint.publicKey),
+      transferHookAuthority: pdaUtils.transferHookAuthorityPda(mint.publicKey),
+      extraAccountMetaList: pdaUtils.extraAccountMetaListPda(mint.publicKey),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       rent: SYSVAR_RENT_PUBKEY,
       eventAuthority: pdaUtils.deployEventAuthorityPda(),
       program: DEPLOY_PROGRAM_ID,
-      rolesPda: rolesPda(mint, callContext.deployer),
+      rolesPda: rolesPda(mint.publicKey, deployer.publicKey),
       accessControlProgram: ACCESS_CONTROL_PROGRAM_ID,
     })
-    .signers([mintKeypair])
+    .signers(signers)
     .rpc({ commitment: "confirmed" });
 
-  return { mint, signature };
+  return { mint: mint.publicKey, signature };
 }
 
 type MintDeployedEvent = {

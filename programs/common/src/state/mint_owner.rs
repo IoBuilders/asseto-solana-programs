@@ -3,39 +3,29 @@ use anchor_lang::prelude::*;
 
 /// Byte offset of `MintOwner::asset_class_config_id` within the account data.
 /// Derived from the fields that precede it in declaration order
-pub const ASSET_CLASS_CONFIG_ID_OFFSET: u8 =
-    (MintOwner::DISCRIMINATOR.len() + size_of::<Pubkey>()) as u8;
+pub const ASSET_CLASS_CONFIG_ID_OFFSET: u8 = MintOwner::DISCRIMINATOR.len() as u8;
 
 /// Byte offset of `MintOwner::asset_class_version_id` within the account data —
 /// immediately after `asset_class_config_id: u64`.
 pub const ASSET_CLASS_VERSION_ID_OFFSET: u8 = ASSET_CLASS_CONFIG_ID_OFFSET + size_of::<u64>() as u8;
 
-/// Persists the deployer (mint owner) for a given mint.
+/// Persists the configuration for a given mint.
 /// Created by `deploy` with seeds `["mint_owner", mint]`, owned by that program.
 ///
 /// Defined in `common` so all downstream programs can deserialize it without
 /// importing `deploy` (which would create circular dependencies).
-///
-/// Cannot use `#[account]` here because that macro requires `declare_id!` (i.e. a program
-/// entry point), which a shared library crate does not have. `AnchorDeserialize` (Borsh)
-/// is used instead; the discriminator bytes are skipped manually in `verify_deployer`.
-/// The `seeds::program` constraint in every caller already guarantees we are reading the
-/// correct account type, making the discriminator check redundant.
 ///
 /// MIRROR: `deploy::state::MintOwner` wraps the same fields with `#[account]` so
 /// that `deploy` can use `Account<MintOwner>`. Both definitions must stay in sync.
 /// A compile-time size assertion in `deploy/state/mod.rs` guards against divergence.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct MintOwner {
-    /// The wallet that deployed this mint and is recorded as its owner.
-    pub deployer: Pubkey,
     /// Asset-class config id. First half of the seed that derives the factory
     /// asset-class PDA (`["asset_class", config_id, version_id]`, owned by
     /// `factory`) this mint is hooked to.
     pub asset_class_config_id: u64,
     /// Asset-class version id. Second half of the asset-class PDA seed.
-    /// May be updated by the deployer when the mint is re-pointed to a newer
-    /// asset-class version.
+    /// May be updated when the mint is re-pointed to a newer asset-class version.
     pub asset_class_version_id: u64,
     /// Canonical bump for this PDA — saved to spare a find_program_address call.
     pub bump: u8,
@@ -87,7 +77,6 @@ mod tests {
     #[test]
     fn mint_owner_offsets_match_actual_layout() {
         let mint_owner = MintOwner {
-            deployer: Pubkey::new_unique(),
             asset_class_config_id: 0x1122_3344_5566_7788,
             asset_class_version_id: 0x99AA_BBCC_DDEE_FF00,
             bump: 7,

@@ -20,7 +20,7 @@ use crate::state::{SnapshotCounter, SnapshotHistory, SnapshotMerkleRoot};
 ///
 /// Auxiliary instruction — only callable via CPI by the `coupon_authority` PDA
 /// owned by `coupon` (seeds: `["coupon_authority", mint]`). All
-/// pause / deactivate / deployer checks live in `coupon::create_coupon`,
+/// pause / deactivate checks live in `coupon::create_coupon`,
 /// the sole entry point that triggers a snapshot.
 pub fn take_snapshot(ctx: Context<TakeSnapshot>, merkle_root: [u8; 32]) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();

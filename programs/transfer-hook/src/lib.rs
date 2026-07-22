@@ -14,13 +14,10 @@ pub mod transfer_hook {
 
     /// Creates and initialises an empty ExtraAccountMetaList PDA for the given mint.
     /// Only callable via CPI from deploy (enforced by `mint_owner_pda` as Signer).
-    /// `deployer` is baked into the metalist so Token-2022 forwards it to `execute`
-    /// on every transfer (used for clearing-mode signer enforcement).
     pub fn initialize_extra_account_meta_list(
         ctx: Context<InitializeExtraAccountMetaList>,
-        deployer: Pubkey,
     ) -> Result<()> {
-        initialize_extra_account_meta_list::initialize_extra_account_meta_list(ctx, deployer)
+        initialize_extra_account_meta_list::initialize_extra_account_meta_list(ctx)
     }
 
     /// Called by Token-2022 on every transfer via the SPL Transfer Hook Interface.
