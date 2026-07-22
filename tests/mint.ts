@@ -96,11 +96,10 @@ describe("mint", () => {
     await mintTokens({ deployer, mint, destination, authority });
 
     // ── Assert snapshot values ──────────────────────────
-    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
-    const holderValue = await getHolderBalanceSnapshotAt(
-      { mint, holderTokenAccount: destination },
-      { snapshotId: couponId }
-    );
+    // snapshot id is 0-based: coupon N triggers snapshot N-1.
+    const snapshotId = couponId.sub(new anchor.BN(1));
+    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
+    const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: destination }, { snapshotId });
     assert.equal(
       totalSupplyValue.toString(),
       balanceBeforeSnapshot.toString(),

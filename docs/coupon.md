@@ -49,7 +49,7 @@ One per `(mint, coupon_id)`. Stores:
 - `payment_date` — Unix timestamp (seconds) when the treasury is allowed to pay this coupon (typically `period_end_date` plus a settlement lag). Strictly greater than `period_end_date`; that's the only invariant enforced here. `treasury`'s maturity check then gates `pay_coupon` on `now ≥ payment_date`.
 - `interest_rate_override` / `interest_rate_override_decimals` — optional per-coupon interest rate. Both are `None` on creation. When set via `set_coupon_rate`, `treasury::pay_coupon` uses them instead of the asset-level rate from `bond_terms`. Same scaling convention: actual rate = `interest_rate_override / 10^interest_rate_override_decimals`. If only one of the two is `Some`, the override is ignored and the fallback applies.
 
-In steady state `snapshot_id == coupon_id` because coupon and snapshot counters increment in lockstep (coupons are the only producer of snapshots). They're stored as two separate counters anyway to keep the semantics decoupled — should the workspace ever expose a non-coupon snapshot path, existing coupon records remain interpretable.
+In steady state `snapshot_id == coupon_id - 1`: coupon ids are 1-based while snapshot ids are 0-based (the `snapshot_counter` stores the *next* id), and coupons are the only producer of snapshots, so they advance in lockstep with a constant −1 offset. They're stored as two separate counters to keep the semantics decoupled — should the workspace ever expose a non-coupon snapshot path, existing coupon records remain interpretable.
 
 ---
 
@@ -106,8 +106,8 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 1. Run the four precondition checks (role, pause, deactivation, functionality) in that order.
 2. Validate `period_end_date > period_start_date` (else `InvalidCouponPeriod`) and `payment_date > period_end_date` (else `InvalidPaymentDate`).
 3. Increment `coupon_counter` (initialise to 1 on the first call, `+1` thereafter, else `CouponCounterOverflow`). Verify `coupon_id` matches (else `InvalidCouponId`).
-4. CPI `snapshot::take_snapshot`, forwarding `merkle_root`, signed by the `coupon_authority` PDA via `invoke_signed`. Passes through `payer`, `mint`, `snapshot_counter`, and `snapshot_merkle_root`.
-5. Re-borrow `snapshot_counter` data and Borsh-deserialise `SnapshotCounter` to read the freshly-written snapshot id.
+4. Read the snapshot id **before** the CPI from `snapshot_counter` (its current `count`, or `0` if the PDA doesn't exist yet) — `take_snapshot` uses that value as-is and then increments the counter, so reading afterwards would return the *next* id.
+5. CPI `snapshot::take_snapshot`, forwarding `merkle_root`, signed by the `coupon_authority` PDA via `invoke_signed`. Passes through `payer`, `mint`, `snapshot_counter`, and `snapshot_merkle_root`.
 6. Write the new `Coupon` PDA with `bump`, `snapshot_id`, `period_start_date`, `period_end_date`, `payment_date`, and the interest-rate override via `set_interest_rate`, which validates that `interest_rate_override` and `interest_rate_override_decimals` are both `Some` or both `None` (else `InconsistentRateOverride`).
 7. Emit `CouponCreated` via `emit_cpi!`.
 

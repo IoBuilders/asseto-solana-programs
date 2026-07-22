@@ -81,6 +81,21 @@ pub fn create_coupon(
     require!(coupon_id == expected_id, ErrorCode::InvalidCouponId);
     counter.count = expected_id;
 
+    // ── Read the snapshot id take_snapshot is about to assign ────────────────
+    // `snapshot_counter.count` holds the id of the *next* snapshot (the value
+    // take_snapshot uses as-is), so we must read it BEFORE the CPI — afterwards
+    // the counter has already been bumped to the following id. When the counter
+    // PDA doesn't exist yet this is the first snapshot, id = 0.
+    let snapshot_id = {
+        let acct = &ctx.accounts.snapshot_counter;
+        if acct.data_is_empty() {
+            0
+        } else {
+            let data = acct.try_borrow_data()?;
+            SnapshotCounter::try_deserialize(&mut &data[..])?.count
+        }
+    };
+
     // ── CPI: take_snapshot, signed by coupon_authority PDA ───────────────────
     let mint_key = ctx.accounts.mint.key();
     let coupon_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
@@ -105,13 +120,6 @@ pub fn create_coupon(
         ),
         merkle_root,
     )?;
-
-    // ── Read the snapshot id that take_snapshot just wrote ───────────────────
-    let snapshot_id = {
-        let data = ctx.accounts.snapshot_counter.try_borrow_data()?;
-        let mut slice: &[u8] = &data;
-        SnapshotCounter::try_deserialize(&mut slice)?.count
-    };
 
     // ── Write the coupon ─────────────────────────────────────────────────────
     let coupon = &mut ctx.accounts.coupon;

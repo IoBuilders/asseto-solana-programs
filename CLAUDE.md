@@ -144,7 +144,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority; also the payer + calling-authority for snapshot CPIs during a transfer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
-| `["snapshot_counter", mint]` | `snapshot` | Current snapshot index for the mint (created by `take_snapshot`) |
+| `["snapshot_counter", mint]` | `snapshot` | Id of the **next** snapshot for the mint (0-based; after N snapshots `count == N`). Created by `take_snapshot` |
 | `["snapshot_totalsupply", mint]` | `snapshot` | `SnapshotHistory` of total supply (one entry per snapshot id) |
 | `["snapshot_holderbalance", mint, token_account]` | `snapshot` | `SnapshotHistory` of that holder's balance |
 | `["snapshot_merkle_root", mint, snapshot_id]` | `snapshot` | Immutable `SnapshotMerkleRoot` (32-byte Merkle root of `(account, balance)` leaves) — one per snapshot, created by `take_snapshot` |

@@ -41,11 +41,14 @@ pub fn update_holderbalance_snapshot(
         return Ok(());
     }
 
-    // ── Read the current snapshot count (guaranteed >= 1 when the PDA exists) ─
+    // ── Read the last-taken snapshot id ──────────────────────────────────────
+    // `snapshot_counter.count` holds the id of the *next* snapshot, so the
+    // currently-active (last-taken) snapshot is `count - 1`. When the PDA exists
+    // `count` is always >= 1, so the subtraction never underflows.
     let counter_data = ctx.accounts.snapshot_counter.try_borrow_data()?;
     let mut slice: &[u8] = &counter_data;
     let counter = SnapshotCounter::try_deserialize(&mut slice)?;
-    let current_snapshot = counter.count;
+    let current_snapshot = counter.count.saturating_sub(1);
     drop(counter_data);
 
     // ── Read current holder balance from the Token-2022 token account ─────────

@@ -95,22 +95,16 @@ export async function getSnapshotMerkleRoot(mint: PublicKey, snapshotId: anchor.
 
 /**
  * Computes the snapshot id that the next `take_snapshot` call will allocate for
- * `mint` (current counter + 1, or 1 when no counter exists yet). Needed
- * client-side to derive the `snapshot_merkle_root` PDA, since its address
- * depends on the yet-to-be-incremented id.
+ * `mint`. The `snapshot_counter` stores the id of the *next* snapshot, so its
+ * current value IS the next id (0 when the counter doesn't exist yet). Needed
+ * client-side to derive the `snapshot_merkle_root` PDA.
  */
 export async function nextSnapshotId(mint: PublicKey): Promise<anchor.BN> {
-  let count = new anchor.BN(0);
   try {
-    count = (await getSnapshotCounterByPda(snapshotCounterPda(mint))).count;
+    return (await getSnapshotCounterByPda(snapshotCounterPda(mint))).count;
   } catch {
-    count = new anchor.BN(0);
+    return new anchor.BN(0);
   }
-  const next = count.add(new anchor.BN(1));
-  // The on-chain counter is u64; when saturated the program rejects with
-  // SnapshotCounterOverflow before deriving the PDA, so cap here to keep the
-  // 8-byte LE seed encoding valid for the (then unused) address.
-  return next.bitLength() > 64 ? count : next;
 }
 
 // ── __event_authority PDA ──────────────────────────────────────────────────────

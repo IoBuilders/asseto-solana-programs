@@ -162,14 +162,10 @@ describe("transfer", () => {
       );
 
       // ── Assert snapshot values via get_holderbalance_snapshot_at ─────────────
-      const senderValue = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId }
-      );
-      const receiverValue = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId }
-      );
+      // snapshot id is 0-based: coupon N triggers snapshot N-1.
+      const snapshotId = couponId.sub(new anchor.BN(1));
+      const senderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
+      const receiverValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: destination }, { snapshotId });
 
       assert.equal(
         senderValue.toString(),
@@ -228,11 +224,11 @@ describe("transfer", () => {
       // ── Snapshot 1 must reflect the pre-first-transfer state ──────────────────
       const senderAt1_afterTwo = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: source },
-        { snapshotId: couponId1 }
+        { snapshotId: couponId1.sub(new anchor.BN(1)) }
       );
       const receiverAt1_afterTwo = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: destination },
-        { snapshotId: couponId1 }
+        { snapshotId: couponId1.sub(new anchor.BN(1)) }
       );
 
       assert.equal(
@@ -280,11 +276,11 @@ describe("transfer", () => {
       // ── Snapshot 1 must still be intact after the period-2 transfer ───────────
       const senderAt1_final = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: source },
-        { snapshotId: couponId1 }
+        { snapshotId: couponId1.sub(new anchor.BN(1)) }
       );
       const receiverAt1_final = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: destination },
-        { snapshotId: couponId1 }
+        { snapshotId: couponId1.sub(new anchor.BN(1)) }
       );
 
       assert.equal(
@@ -309,11 +305,11 @@ describe("transfer", () => {
 
       const senderAt2 = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: source },
-        { snapshotId: couponId2 }
+        { snapshotId: couponId2.sub(new anchor.BN(1)) }
       );
       const receiverAt2 = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: destination },
-        { snapshotId: couponId2 }
+        { snapshotId: couponId2.sub(new anchor.BN(1)) }
       );
 
       assert.equal(

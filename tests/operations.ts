@@ -92,11 +92,12 @@ describe("operations", () => {
       // ── Plant a partial-freeze marker for 5^6 tokens on source ───────────────
       await setFrozenBalance(mint, source, partialFrozenAmount);
 
-      // ── Activate snapshot id 1 directly (counter 0 → 1) ──────────────────────
-      const snapshotId = new anchor.BN(1);
-      await setSnapshotCounter(mint, snapshotId);
+      // ── Simulate one snapshot already taken: counter (the next id) = 1, so the
+      //    active (last-taken) snapshot id is 0 ──────────────────────────────────
+      await setSnapshotCounter(mint, new anchor.BN(1));
+      const snapshotId = new anchor.BN(0);
 
-      // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 1 ──
+      // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 0 ──
       await burnTokens({ deployer, mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
@@ -125,9 +126,10 @@ describe("operations", () => {
       const source = await createTokenAccount({ mint, owner: mintOwnerPda });
       await mintTokensViaSurfpool(mint, source, balanceBeforeSnapshot);
 
-      // Activate snapshot id 1 (counter 0 → 1); subsequent operations record pre-op balances
-      const snapshotId = new anchor.BN(1);
-      await setSnapshotCounter(mint, snapshotId);
+      // Simulate one snapshot already taken: counter (the next id) = 1, so the
+      // active (last-taken) snapshot id is 0; subsequent ops record pre-op balances.
+      await setSnapshotCounter(mint, new anchor.BN(1));
+      const snapshotId = new anchor.BN(0);
 
       // First burn — snapshot CPIs fire and record pre-burn balance (= balanceBeforeSnapshot)
       await burnTokens({ deployer, mint, tokenAccount: source, authority }, { amount: burnAmount });

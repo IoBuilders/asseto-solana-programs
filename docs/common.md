@@ -104,27 +104,6 @@ The caller passes a `Ref<Roles>` obtained from its own `AccountLoader<Roles>` vi
 
 ---
 
-## Function: `create_or_adopt_pda`
-
-```rust
-pub fn create_or_adopt_pda<'info>(
-    payer: &AccountInfo<'info>,
-    target: &AccountInfo<'info>,
-    system_program: &AccountInfo<'info>,
-    owner: &Pubkey,
-    space: usize,
-    signer_seeds: &[&[u8]],
-) -> Result<()>
-```
-
-Creates a program-owned PDA at `target` when the account address must be created manually (i.e. cannot use Anchor's `#[account(init)]`, e.g. because a seed depends on a value only known inside the handler).
-
-A bare `system_instruction::create_account` fails with `AccountAlreadyInUse` if the destination already holds any lamports. Since a PDA address is deterministic, anyone can compute it and send it 1 lamport before the program creates it, permanently DoS'ing that PDA's creation (a documented `create_account` "Security issue"). This helper mirrors Anchor's `#[account(init)]`: on the empty-and-unfunded path it calls `create_account`; on the pre-funded path it tops up the rent difference (`transfer`) then `allocate` + `assign`s the account to `owner`. An external attacker can only *fund* an address (no signature needed), not `allocate`/`assign` a PDA, so the only hostile pre-state is `lamports > 0, data empty, system-owned` — which this handles.
-
-The caller **must** ensure `target` is uninitialized (empty data) before calling; the helper neither inspects nor preserves existing data. `signer_seeds` must include the bump. Used by `snapshot::take_snapshot` for the `snapshot_merkle_root` PDA.
-
----
-
 ## Module: `roles`
 
 ```rust

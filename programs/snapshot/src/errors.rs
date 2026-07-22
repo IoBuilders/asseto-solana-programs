@@ -10,6 +10,4 @@ pub enum ErrorCode {
     DeltaOverflow,
     #[msg("snapshot counter overflow when creating new snapshot")]
     SnapshotCounterOverflow,
-    #[msg("The provided snapshot_merkle_root account does not match the expected PDA")]
-    InvalidMerkleRootAccount,
 }

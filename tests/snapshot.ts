@@ -93,10 +93,11 @@ describe.skip("snapshot", () => {
       });
 
       const merkleRoot = Array.from({ length: 32 }, (_, i) => (i + 1) & 0xff);
-      // take_snapshot is CPI-only; drive it through create_coupon (snapshot id 1).
+      // take_snapshot is CPI-only; drive it through create_coupon. The counter
+      // stores the next id, so the first snapshot has id 0.
       await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot });
 
-      const record = await getSnapshotMerkleRoot(mint, new anchor.BN(1));
+      const record = await getSnapshotMerkleRoot(mint, new anchor.BN(0));
       assert.deepEqual(Array.from(record.merkleRoot), merkleRoot, "stored root should match the provided root");
     });
 
@@ -112,13 +113,15 @@ describe.skip("snapshot", () => {
       await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot: rootA });
       await createCoupon({ deployer, mint }, { couponId: new anchor.BN(2), merkleRoot: rootB });
 
-      const recordA = await getSnapshotMerkleRoot(mint, new anchor.BN(1));
-      const recordB = await getSnapshotMerkleRoot(mint, new anchor.BN(2));
+      // Snapshot ids are 0-based (counter stores the next id): coupon 1 → id 0,
+      // coupon 2 → id 1.
+      const recordA = await getSnapshotMerkleRoot(mint, new anchor.BN(0));
+      const recordB = await getSnapshotMerkleRoot(mint, new anchor.BN(1));
 
-      // Snapshot 2 gets a distinct PDA with rootB, and snapshot 1's root is
+      // Snapshot 1 gets a distinct PDA with rootB, and snapshot 0's root is
       // still rootA — the address per id is unique and never overwritten.
-      assert.deepEqual(Array.from(recordA.merkleRoot), rootA, "snapshot 1 root should remain rootA");
-      assert.deepEqual(Array.from(recordB.merkleRoot), rootB, "snapshot 2 root should be rootB");
+      assert.deepEqual(Array.from(recordA.merkleRoot), rootA, "snapshot 0 root should remain rootA");
+      assert.deepEqual(Array.from(recordB.merkleRoot), rootB, "snapshot 1 root should be rootB");
     });
 
     it("take_snapshot: succeeds even if the merkle-root PDA was pre-funded by a griefer (create-or-adopt)", async () => {
@@ -127,10 +130,10 @@ describe.skip("snapshot", () => {
         functionalities: [COUPON_CREATE_COUPON],
       });
 
-      // Attacker pre-funds the predictable PDA of the next snapshot (id 1) with
+      // Attacker pre-funds the predictable PDA of the next snapshot (id 0) with
       // lamports but no data. A bare `create_account` would then fail forever
-      // (AccountAlreadyInUse), permanently DoS'ing coupon/snapshot creation.
-      const snapshotId = await nextSnapshotId(mint); // 1 (no counter yet)
+      // (AccountAlreadyInUse); Anchor's `init` adopts the pre-funded account.
+      const snapshotId = await nextSnapshotId(mint); // 0 (no counter yet)
       const pda = snapshotMerkleRootPda(mint, snapshotId);
       await surfnetSetAccount(pda, {
         lamports: 1,
@@ -206,12 +209,12 @@ describe.skip("snapshot", () => {
       const initialAmount = new anchor.BN(1_000);
       await mintTokensViaSurfpool(mint, destination, initialAmount);
 
-      // Take snapshot 1 → next mint records pre-mint supply (= initialAmount) at key=1
+      // Take snapshot 0 → next mint records pre-mint supply (= initialAmount) at key=0
       const couponId = new anchor.BN(1);
       await setCoupon(mint, couponId);
       const additionalAmount = new anchor.BN(500);
       await mintTokensViaSurfpool(mint, destination, additionalAmount);
-      // History: [{key=1, value=initialAmount}]. Live supply = initialAmount + additionalAmount.
+      // History: [{key=0, value=initialAmount}]. Live supply = initialAmount + additionalAmount.
 
       // Query a snapshot_id beyond every recorded entry → lookup_at_or_above returns None → live fallback
       const result = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId.add(new anchor.BN(1)) });
@@ -282,12 +285,12 @@ describe.skip("snapshot", () => {
       const initialAmount = new anchor.BN(1_000);
       await mintTokensViaSurfpool(mint, destination, initialAmount);
 
-      // Take snapshot 1 → next mint records pre-mint balance (= initialAmount) at key=1
+      // Take snapshot 0 → next mint records pre-mint balance (= initialAmount) at key=0
       await setCoupon(mint, new anchor.BN(1));
       const additionalAmount = new anchor.BN(500);
       await mintTokensViaSurfpool(mint, destination, additionalAmount);
 
-      // History: [{key=1, value=initialAmount}]. Live balance = initialAmount + additionalAmount.
+      // History: [{key=0, value=initialAmount}]. Live balance = initialAmount + additionalAmount.
 
       // Query a snapshot_id beyond every recorded entry → lookup_at_or_above returns None → live fallback
       const result = await getHolderBalanceSnapshotAt(
