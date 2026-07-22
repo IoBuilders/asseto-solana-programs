@@ -10,14 +10,6 @@ use crate::events::ControllerRedemption;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
-/// Burns `amount` tokens from any `token_account` for the given mint.
-///
-/// The operations authority PDA (permanent delegate) executes the burn, allowing
-/// to reduce the balance of any holder without their consent.
-///
-/// Before burning, records the pre-burn total supply and holder balance into any active
-/// snapshot (CPIs to snapshot, both signed by `permanent_delegate`).
-/// Both CPIs are no-ops when no snapshot has been taken yet.
 pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -133,14 +125,11 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct BurnTokens<'info> {
-    /// Payer for potential account creation
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The caller — must sign and hold `ROLE_CONTROLLER` on this mint.
     pub authority: Signer<'info>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -148,9 +137,6 @@ pub struct BurnTokens<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -159,21 +145,14 @@ pub struct BurnTokens<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// The Token-2022 mint to burn tokens from.
-    ///
     /// CHECK: Writable; validated by Token-2022 during the burn CPI.
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
 
-    /// The token account to burn from (any holder's account).
-    ///
     /// CHECK: Writable; validated by Token-2022 during the burn CPI.
     #[account(mut)]
     pub token_account: UncheckedAccount<'info>,
 
-    /// Operations authority PDA — acts as the permanent delegate for this mint.
-    /// Seeds: `["permanent_delegate", mint]`.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::PERMANENT_DELEGATE, mint.key().as_ref()],
@@ -181,9 +160,6 @@ pub struct BurnTokens<'info> {
     )]
     pub operations_authority: UncheckedAccount<'info>,
 
-    /// freeze's freeze authority PDA for this mint.
-    /// Passed through to freeze for the freeze/thaw CPIs.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
@@ -192,10 +168,6 @@ pub struct BurnTokens<'info> {
     )]
     pub freeze_authority: UncheckedAccount<'info>,
 
-    /// Snapshot counter PDA for this mint — read by snapshot to determine
-    /// the active snapshot index. May not exist yet (no snapshot taken).
-    /// Seeds: `["snapshot_counter", mint]`, owned by `snapshot`.
-    ///
     /// CHECK: Address verified by seeds/bump; existence and contents checked by snapshot.
     #[account(
         seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
@@ -204,18 +176,10 @@ pub struct BurnTokens<'info> {
     )]
     pub snapshot_counter_pda: UncheckedAccount<'info>,
 
-    /// Total supply snapshot PDA for the current snapshot index.
-    /// Dynamic address (depends on snapshot count) — verified inside snapshot.
-    /// Created by snapshot if a snapshot is active and not yet recorded.
-    ///
     /// CHECK: Writable; address and existence verified inside update_totalsupply_snapshot.
     #[account(mut)]
     pub total_supply_snapshot: UncheckedAccount<'info>,
 
-    /// Holder balance snapshot PDA for the current snapshot index.
-    /// Dynamic address (depends on snapshot count) — verified inside snapshot.
-    /// Created by snapshot if a snapshot is active and not yet recorded.
-    ///
     /// CHECK: Writable; address and existence verified inside update_holderbalance_snapshot.
     #[account(mut)]
     pub holder_balance_snapshot: UncheckedAccount<'info>,
@@ -228,7 +192,6 @@ pub struct BurnTokens<'info> {
     #[account(address = constants::SNAPSHOT_PROGRAM_ID)]
     pub snapshot_program: UncheckedAccount<'info>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,
@@ -243,8 +206,6 @@ pub struct BurnTokens<'info> {
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 
-    /// The caller's own `Roles` PDA — read to verify `ROLE_CONTROLLER`. Seeds: `["roles", mint, authority]`.
-    ///
     /// CHECK: Address verified by seeds/bump; controller bit checked by require_role.
     /// An absent PDA fails at account resolution (AccountOwnedByWrongProgram).
     #[account(

@@ -8,8 +8,6 @@ use crate::events::BondTermsUpdated;
 use crate::state::{BondTerms, BondTermsArgs};
 use common::program_ids as constants;
 
-/// Creates the `bond_terms_pda` on the first call (init_if_needed) and
-/// overwrites every field with `args` on every call.
 pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -53,16 +51,12 @@ pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> 
 #[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateBondTerms<'info> {
-    /// Pays for the `bond_terms` PDA on the first call. Distinct from `authority`
-    /// so a wallet can fund the call without holding the mint-owner signature.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The authority — must sign and fund the PDA creation.
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// The authority's own `Roles` PDA.
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
@@ -70,7 +64,6 @@ pub struct UpdateBondTerms<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -78,9 +71,6 @@ pub struct UpdateBondTerms<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -89,13 +79,9 @@ pub struct UpdateBondTerms<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// The Token-2022 mint — must not be paused.
-    ///
     /// CHECK: Read-only; pause state validated by require_not_paused.
     pub mint: UncheckedAccount<'info>,
 
-    /// Bond terms PDA — created on the first call, overwritten on subsequent calls.
-    /// Seeds: `["bond_terms", mint]`.
     #[account(
         init_if_needed,
         payer = payer,
@@ -105,10 +91,6 @@ pub struct UpdateBondTerms<'info> {
     )]
     pub bond_terms: Account<'info, BondTerms>,
 
-    /// Asset-class version PDA this mint is hooked to (owned by `factory`).
-    /// Read-only: `require_functionality` checks the functionality bit is set.
-    /// Seeds: `["asset_class_version", config_id, version]`, derived with the
-    /// ids stored in `asset_configuration_pda`.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

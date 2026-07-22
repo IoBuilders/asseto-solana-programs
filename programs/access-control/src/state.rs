@@ -4,11 +4,10 @@ use common::state::{discriminators_eq, Roles as RolesCommon, ROLES_BYTES_MASK};
 #[account(zero_copy, discriminator = RolesCommon::DISCRIMINATOR)]
 #[repr(C)]
 pub struct Roles {
-    /// Bump for the `[mint, account]` PDA.
     pub bump: u8,
-    /// Padding so the header is 8 bytes (no implicit padding before `mask`).
+    // `mask`'s alignment is 1 (a u8 array), so repr(C) wouldn't insert any
+    // padding here on its own — this rounds the header to a deliberate 8 bytes.
     pub _padding: [u8; 7],
-    /// Fixed-capacity role bit-mask. `1` = role granted.
     pub mask: [u8; ROLES_BYTES_MASK],
 }
 

@@ -8,12 +8,6 @@ use crate::state::FrozenBalance;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
-/// Removes the frozen balance for a specific token account by closing the marker PDA.
-///
-/// The `frozen_balance_pda` (seeds: `["frozen_balance", mint, account]`) is closed
-/// here and its rent lamports are returned to the caller.
-///
-/// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
 pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
     // ── Verify caller holds the freeze-manager role ───────────────────────────
     require_role(
@@ -44,11 +38,9 @@ pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct RemovePartialFreeze<'info> {
-    /// The caller — must sign and hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports.
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// The authority's own `Roles` PDA — read to verify `ROLE_FREEZE_MANAGER`.
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
@@ -56,7 +48,6 @@ pub struct RemovePartialFreeze<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -64,19 +55,12 @@ pub struct RemovePartialFreeze<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// The Token-2022 mint.
-    ///
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// The token account whose partial freeze is being removed.
-    ///
     /// CHECK: Address used as a seed for frozen_balance_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -85,8 +69,6 @@ pub struct RemovePartialFreeze<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// Frozen balance PDA — closed here; rent returned to the caller.
-    /// Seeds: `["frozen_balance", mint, account]`.
     #[account(
         mut,
         close = authority,
@@ -95,7 +77,6 @@ pub struct RemovePartialFreeze<'info> {
     )]
     pub frozen_balance_pda: Account<'info, FrozenBalance>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

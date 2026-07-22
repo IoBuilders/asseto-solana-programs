@@ -13,8 +13,6 @@ declare_id!("iShebeGRBZYSBMQYGAg8DbLnbaW2eDvX1Zt8EG9G1ZV");
 pub mod metadata_update {
     use super::*;
 
-    /// Updates an existing metadata field or adds a new custom key-value pair.
-    /// Required lamports for account growth are computed on-chain automatically.
     pub fn update_metadata_field(
         ctx: Context<UpdateMetadata>,
         key: String,
@@ -23,8 +21,6 @@ pub mod metadata_update {
         update_metadata::update_metadata_field(ctx, key, value)
     }
 
-    /// Removes a custom key-value pair from the token metadata.
-    /// Core fields (name / symbol / uri) cannot be removed — update them instead.
     pub fn remove_metadata_field(
         ctx: Context<RemoveMetadata>,
         key: String,

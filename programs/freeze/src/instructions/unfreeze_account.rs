@@ -8,13 +8,6 @@ use crate::state::FrozenAccountStatus;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
-/// Unfreezes a specific token account at the management level by closing
-/// the frozen account marker PDA previously created by `freeze_account`.
-///
-/// The `frozen_account_pda` (seeds: `["frozen_account", mint, account]`) is closed
-/// here and its rent lamports are returned to the caller.
-///
-/// Management instruction — only an account holding `ROLE_FREEZE_MANAGER` may call this.
 pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
     // ── Verify caller holds the freeze-manager role ───────────────────────────
     require_role(
@@ -45,11 +38,9 @@ pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct UnfreezeAccount<'info> {
-    /// The caller — must sign and hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports.
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// The authority's own `Roles` PDA — read to verify `ROLE_FREEZE_MANAGER`.
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
@@ -57,7 +48,6 @@ pub struct UnfreezeAccount<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -65,19 +55,12 @@ pub struct UnfreezeAccount<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// The Token-2022 mint.
-    ///
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// The token account to unfreeze at the token level.
-    ///
     /// CHECK: Address used as a seed for frozen_account_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -86,8 +69,6 @@ pub struct UnfreezeAccount<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// Frozen account marker PDA — closed here; rent returned to the caller.
-    /// Seeds: `["frozen_account", mint, account]`.
     #[account(
         mut,
         close = authority,
@@ -96,7 +77,6 @@ pub struct UnfreezeAccount<'info> {
     )]
     pub frozen_account_pda: Account<'info, FrozenAccountStatus>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

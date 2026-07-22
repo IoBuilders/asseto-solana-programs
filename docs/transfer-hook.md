@@ -40,12 +40,7 @@ and `["extra-account-metas", mint]` (the SPL `ExtraAccountMetaList`).
 
 ## Instruction: `initialize_extra_account_meta_list` (Auxiliary)
 
-### Parameters
-
-```rust
-deployer: Pubkey  // retained for ABI stability with deploy; no longer used
-                  // (clearing-mode signer enforcement moved to verify_transfer)
-```
+No parameters.
 
 Creates and populates the `ExtraAccountMetaList` PDA. Called exclusively via
 CPI from `deploy::deploy_mint`, authorised by requiring `asset_configuration_pda`
@@ -57,7 +52,7 @@ as `Signer` — only `deploy` can produce that signature.
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds rent |
 | `asset_configuration_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 7) |
+| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 11) |
 | `mint` | no | no | UncheckedAccount | Seed component and PDA-precompute input |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
@@ -65,8 +60,11 @@ as `Signer` — only `deploy` can produce that signature.
 ### Metalist contents
 
 The metalist now lists only the accounts the hook still needs after the move
-of compliance checks into `transfer::verify_transfer`. Keeping it small
-is what lets Token-2022 fit metalist resolution into its 32 KiB heap.
+of compliance checks into `transfer::verify_transfer`, plus the accounts the
+hook needs to resolve `asset_class_version_pda` (added when `mint_owner_pda`
+was renamed to `asset_configuration_pda` and this program stopped hardcoding
+the asset-class PDA). Keeping it small is what lets Token-2022 fit metalist
+resolution into its 32 KiB heap.
 
 | Hook idx | Entry | Kind |
 |---|---|---|
@@ -75,11 +73,15 @@ is what lets Token-2022 fit metalist resolution into its 32 KiB heap.
 | 7 | `sender_snapshot` (writable) | external PDA via @5 — seeds `["snapshot_holderbalance", mint@1, source@0]` |
 | 8 | `receiver_snapshot` (writable) | external PDA via @5 — seeds `["snapshot_holderbalance", mint@1, destination@2]` |
 | 9 | `transfer_hook_authority` (writable) | this-program PDA — seeds `["transfer_hook_authority", mint@1]` |
-| 10 | system program | literal pubkey |
-| 11 | Instructions sysvar | literal pubkey (`Sysvar1nstructions...`) — required by the introspection check |
+| 10 | `deploy` program | literal pubkey — needed to resolve `asset_configuration_pda` (@11) as an external PDA |
+| 11 | `asset_configuration_pda` | external PDA via @10 — seeds `["asset_configuration", mint@1]`; read to supply the asset-class config/version ids for seed 13 |
+| 12 | `factory` program | literal pubkey — needed to resolve `asset_class_version_pda` (@13) as an external PDA |
+| 13 | `asset_class_version_pda` | external PDA via @12 — seeds `["asset_class_version", asset_configuration_pda@11.asset_class_config_id, asset_configuration_pda@11.asset_class_version_id]` |
+| 14 | system program | literal pubkey |
+| 15 | Instructions sysvar | literal pubkey (`Sysvar1nstructions...`) — required by the introspection check |
 
 The 10 compliance entries that lived here before commit `7d417c2`'s heap-OOM
-incident (`asset_configuration_pda`, `deactivate_pda`, `deployer`,
+incident (`deactivate_pda`, `deployer`,
 `transfer_control_mode_pda`, `transfer-control` program, source/destination
 whitelist PDAs, `freeze` program, `source_frozen_pda`,
 `source_frozen_balance_pda`) are gone — `verify_transfer` consumes them
@@ -119,8 +121,12 @@ metalist declares, in the order above.
 | 7 | `sender_snapshot` |
 | 8 | `receiver_snapshot` |
 | 9 | `transfer_hook_authority` |
-| 10 | `system_program` |
-| 11 | `instructions_sysvar` |
+| 10 | `deploy_program` |
+| 11 | `asset_configuration_pda` |
+| 12 | `factory_program` |
+| 13 | `asset_class_version_pda` |
+| 14 | `system_program` |
+| 15 | `instructions_sysvar` |
 
 ### Execution
 

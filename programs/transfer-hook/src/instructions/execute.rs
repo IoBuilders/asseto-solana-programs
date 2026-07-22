@@ -11,34 +11,12 @@ use common::program_ids::{
 };
 use common::state::{AssetClassVersion, AssetConfiguration};
 
-/// Called by Token-2022 on every transfer via the SPL Transfer Hook Interface.
-///
-/// All pre-transfer compliance checks (deactivation, transfer-mode,
-/// whitelist, frozen account, frozen balance) live in
-/// `transfer::verify_transfer`. This hook gates every transfer on a
-/// matching `verify_transfer` having run as the immediately-prior top-level
-/// instruction, then updates the sender / receiver holder-balance snapshots.
 pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
     msg!("transfer-hook execute: amount={}", amount);
 
     // ── Double-introspection check ───────────────────────────────────────────
-    //
-    // The hook fires from inside Token-2022's transfer_checked CPI. The
-    // Instructions sysvar exposes only TOP-LEVEL instructions, so:
-    //  - `current_index`     points at whatever top-level instruction the user
-    //                        signed (transfer.transfer or
-    //                        Token-2022.transfer_checked).
-    //  - `current_index - 1` must be transfer.verify_transfer for the
-    //                        compliance suite to have run against the same
-    //                        source / destination / mint / amount.
-    //
-    // Restricting the legal entrypoints at index N (instead of just checking
-    // N-1) is what closes the wrapper-attack hole: a third-party program could
-    // otherwise sit at top level, call verify_transfer + state-mutating CPIs +
-    // transfer_checked all inside one instruction tree, and the
-    // sysvar-based view would only reveal "the wrapper" — not the inner
-    // mutations. Forcing N to be one of our two known-good entrypoints denies
-    // any wrapper from sitting between the user and the actual transfer.
+    // See docs/transfer-hook.md ("Why the double introspection") for the
+    // wrapper-attack this closes.
     let sysvar = ctx.accounts.instructions_sysvar.to_account_info();
     let current_idx = load_current_index_checked(&sysvar)
         .map_err(|_| error!(TransferHookError::InstructionsSysvarUnreadable))?;
@@ -137,8 +115,6 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
     Ok(())
 }
 
-/// What the hook expects every introspected transfer view (verify_transfer,
-/// transfer.transfer, or Token-2022.transfer_checked) to agree on.
 struct ExpectedTransfer {
     source: Pubkey,
     mint: Pubkey,
@@ -146,9 +122,7 @@ struct ExpectedTransfer {
     amount: u64,
 }
 
-/// Identifies which introspection slot is being checked, so the helpers can
-/// raise the failure-category-specific error variant. `Copy` so it can be
-/// passed into multiple `require!` calls and helpers without cloning.
+// `Copy` so it can be passed into multiple `require!` calls and helpers without cloning.
 #[derive(Clone, Copy)]
 enum IntrospectionTarget {
     PrevVerifyTransfer,
@@ -157,8 +131,6 @@ enum IntrospectionTarget {
 }
 
 impl IntrospectionTarget {
-    /// Error to raise when the discriminator / instruction tag at this slot is
-    /// not the expected method.
     fn err_wrong_method(self) -> TransferHookError {
         match self {
             Self::PrevVerifyTransfer => TransferHookError::PrevInstructionNotVerifyTransfer,
@@ -168,8 +140,6 @@ impl IntrospectionTarget {
         }
     }
 
-    /// Error to raise when the introspected instruction's accounts / amount /
-    /// data layout does not match the transfer being hooked.
     fn err_args_mismatch(self) -> TransferHookError {
         match self {
             Self::PrevVerifyTransfer => TransferHookError::PrevInstructionArgumentMismatch,
@@ -180,15 +150,6 @@ impl IntrospectionTarget {
     }
 }
 
-/// Validate an introspected `transfer::verify_transfer` or
-/// `transfer::transfer` instruction.
-///
-/// Both share the Anchor calling convention (8-byte discriminator + 8-byte
-/// little-endian `amount`) and the same account ordering at indices 0..=3:
-/// `[source_owner, source, destination, mint]`. We don't constrain
-/// `source_owner` — Token-2022's `transfer_checked` already enforces it
-/// matches `source.owner` natively, and verify_transfer's Signer constraint
-/// covers the same on its side.
 fn assert_matches_transfer_ix(
     ix: &Instruction,
     expected_discriminator: &[u8; 8],
@@ -209,10 +170,6 @@ fn assert_matches_transfer_ix(
     Ok(())
 }
 
-/// Validate an introspected `Token-2022::TransferChecked` instruction.
-///
-/// SPL layout: 1-byte tag (`12`), 8-byte little-endian `amount`, 1-byte
-/// `decimals`. Account ordering: `[source, mint, destination, owner]`.
 fn assert_matches_token2022_transfer_checked(
     ix: &Instruction,
     expected: &ExpectedTransfer,
@@ -232,8 +189,6 @@ fn assert_matches_token2022_transfer_checked(
     Ok(())
 }
 
-/// Common helper: assert `ix.accounts[idx].pubkey == *expected`. Raises the
-/// args-mismatch error appropriate to the target slot.
 fn require_account(
     ix: &Instruction,
     idx: usize,
@@ -247,11 +202,6 @@ fn require_account(
     Ok(())
 }
 
-/// Accounts for the SPL Transfer Hook `Execute` instruction.
-///
-/// Order matches the metalist built by `initialize_extra_account_meta_list`.
-/// Token-2022 passes the first 5 (SPL standard) accounts and then one account
-/// per metalist entry, in declaration order.
 #[derive(Accounts)]
 pub struct Execute<'info> {
     /// CHECK: Source token account (index 0).
@@ -312,10 +262,7 @@ pub struct Execute<'info> {
 
     pub system_program: Program<'info, System>,
 
-    /// Instructions sysvar (index 15). Required for the introspection check.
-    /// Address pinned by the metalist; contents read via the
-    /// `solana_program::sysvar::instructions` helpers.
-    /// CHECK: Address verified by the metalist's literal-pubkey entry.
+    /// CHECK: Instructions sysvar (index 15); address verified by the metalist's literal-pubkey entry.
     #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
 }

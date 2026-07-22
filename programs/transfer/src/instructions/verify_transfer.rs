@@ -5,19 +5,6 @@ use transfer_control::verify_transfer_control_mode;
 
 use common::program_ids as constants;
 
-/// Pre-transfer compliance check.
-///
-/// Runs the full set of pre-transfer rules (deactivation, transfer-control
-/// mode, whitelist, frozen account, frozen balance) without moving any tokens.
-/// Designed to be the immediately-prior top-level instruction before
-/// `transfer::transfer` in a transaction; the transfer hook then introspects
-/// the `Instructions` sysvar to confirm both this call and the transfer call are
-/// present, adjacent, and refer to the same source / destination / mint / amount.
-///
-/// Account ordering is load-bearing: the transfer hook compares accounts at fixed
-/// positions across the introspected `verify_transfer` and the actual `transfer`
-/// instructions. Indices 0–3 (source_owner, source, destination, mint) MUST match
-/// the corresponding positions in `TransferTokens`.
 pub fn verify_transfer(ctx: Context<VerifyTransfer>, amount: u64) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
 

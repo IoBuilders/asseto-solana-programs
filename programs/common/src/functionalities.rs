@@ -1,7 +1,5 @@
-/// Flat `u16` identifiers for every instruction in the workspace, excluding
-/// `factory` (which consumes these constants, but doesn't define any of its
-/// own). One continuous counter across the whole file — values are not
-/// scoped per program — so do not reorder or remove an existing constant;
+/// Flat `u16` identifiers for every public instruction in the workspace, excluding `factory`
+/// Values are not scoped per program — so do not reorder or remove an existing constant;
 /// only append new ones at the end.
 ///
 /// Named `<PROGRAM>_<INSTRUCTION>`.

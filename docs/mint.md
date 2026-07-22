@@ -2,13 +2,15 @@
 
 Program ID: `BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ`
 
-Controls token minting. Owns the `["mint_authority", mint]` PDA that was set as the Token-2022 mint authority during `deploy_mint`. Minting is role-gated: the `authority` signer must hold `ROLE_ISSUER` on this mint (checked against its `access-control` `Roles` PDA via `require_role`). The `deployer` still signs and pays for snapshot-PDA creation but is no longer verified as the recorded asset configuration.
+Controls token minting. Owns the `["mint_authority", mint]` PDA that was set as the Token-2022 mint authority during `deploy_mint`. Minting is role-gated: the `authority` signer must hold `ROLE_ISSUER` on this mint (checked against its `access-control` `Roles` PDA via `require_role`). `payer` funds snapshot-PDA creation but carries no authorization role itself.
 
 The `mint_authority` PDA also serves as one of the three accepted callers for `freeze`'s block/unblock instructions.
 
 ---
 
 ## Instruction: `mint`
+
+Mints `amount` tokens to `destination`. Before minting, records the pre-mint total supply and destination balance into any active snapshot (both no-ops when no snapshot has been taken yet). Because all token accounts are frozen by default, thaws `destination` before minting and re-freezes it immediately after.
 
 ### Parameters
 
@@ -20,7 +22,7 @@ amount: u64  // raw token units (accounting for decimals)
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `deployer` | yes | yes | Signer | Signs and pays for snapshot PDA creation |
+| `payer` | yes | yes | Signer | Signs and pays for snapshot PDA creation |
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ISSUER` on this mint |
 | `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
@@ -66,6 +68,87 @@ Steps 4–7 and 9 all sign with the same `mint_authority` PDA seeds. The thaw/re
 `Issued` is emitted with `emit_cpi!` rather than `emit!`. This instruction already performs 5 CPIs before minting (2× snapshot, 2× freeze thaw/re-freeze, 1× Token-2022 `mint_to`), each contributing its own program logs — `emit!` writes to the same log buffer (`Program data:`), which validators/RPC providers truncate around 10KB, risking silent event loss for off-chain indexers. `emit_cpi!` instead records the event as a self-CPI captured in the transaction's `innerInstructions`, which isn't subject to log truncation. This requires `#[event_cpi]` on `MintTokens`, which injects the `event_authority` and `program` accounts above, and the `event-cpi` feature enabled on `anchor-lang` in `Cargo.toml`.
 
 Because `emit_cpi!` events live in inner instructions rather than program logs, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them directly from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`, which handles both `emit!` and `emit_cpi!` events).
+
+---
+
+## Instruction: `batch_mint`
+
+Mints `amounts[i]` tokens to the `i`-th destination, for every index `i`, in a single instruction. Runs the same checks as `mint` (issuer role, active, functionality, whitelist) but does **not** touch snapshots — batch minting is not currently snapshot-aware. Per-destination token accounts and whitelist PDAs are passed via `remaining_accounts` (two entries per destination) rather than named struct fields, since Anchor can't declare a variable-length list of seed-constrained accounts.
+
+### Parameters
+
+```rust
+amounts: Vec<u64>  // amounts[i] is minted to remaining_accounts[i*2]
+```
+
+### `remaining_accounts` layout
+
+For each destination `i` (`0..amounts.len()`), two consecutive entries:
+
+| Offset | Account | Notes |
+|---|---|---|
+| `i*2` | destination token account | Writable; thawed before and re-frozen after minting, like `mint`'s `destination` |
+| `i*2 + 1` | destination's whitelist PDA | Not seed-constrained by Anchor (dynamic list) — re-derived and matched at runtime via `common::verify_whitelist_pda`, then checked for existence via `transfer_control::verify_whitelist` when whitelist mode is active |
+
+### Preconditions
+
+- `require!(!amounts.is_empty(), MintError::EmptyBatch)`
+- `require!(ctx.remaining_accounts.len() == amounts.len() * 2, MintError::InvalidRemainingAccounts)`
+- `require_role(authority_roles_pda, ROLE_ISSUER)`
+- `require_active(&deactivate_pda)`
+- `require_functionality(asset_class_version_pda, MINT_MINT)` — same functionality bit as `mint`, not a separate one
+
+### Accounts
+
+| Account | Mut | Signer | Type | Notes |
+|---|---|---|---|---|
+| `authority` | no | yes | Signer | The caller; must hold `ROLE_ISSUER` on this mint |
+| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
+| `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
+| `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs unblock/mint_to/block CPIs per destination |
+| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed through to freeze |
+| `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; read once to determine whether whitelist mode is active for the whole batch |
+| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
+| `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
+| `token_2022_program` | no | no | Program<Token2022> | |
+| `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read to verify `authority` holds `ROLE_ISSUER` |
+| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`; signs the self-CPI that emits `Issued` (once per destination) |
+| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+| *(remaining_accounts)* | varies | no | — | Two per destination — see layout above |
+
+No `payer`/snapshot accounts: unlike `mint`, `batch_mint` doesn't create any snapshot PDAs (see below), so there's nothing to fund beyond what the destination token accounts already require.
+
+### Execution
+
+For each index `i` in `0..amounts.len()`:
+
+1. If whitelist mode is active (`transfer_control_mode_pda` non-empty): `verify_whitelist_pda` then `verify_whitelist` on `remaining_accounts[i*2 + 1]`.
+2. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`.
+3. `invoke_signed` → `mint_to(mint, destination, mint_authority, amounts[i])` signed with `["mint_authority", mint, bump]`.
+4. Emit `Issued { mint, operator: authority, to: destination, value: amounts[i] }` via `emit_cpi!`.
+5. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`.
+
+The role/active/functionality checks (see Preconditions) run once before the loop, not per destination.
+
+### No snapshot integration
+
+`batch_mint` does not CPI into `snapshot::update_totalsupply_snapshot` / `update_holderbalance_snapshot` the way `mint` does. A batch mint performed while a snapshot is active will not be reflected in that snapshot's recorded total supply or the destinations' recorded balances.
+
+### Errors
+
+```rust
+pub enum MintError {
+    EmptyBatch,               // amounts is empty
+    InvalidRemainingAccounts, // remaining_accounts.len() != amounts.len() * 2
+}
+```
+
+Plus `common::CommonError::WhitelistPdaMismatch` (from `verify_whitelist_pda`) and `transfer_control::TransferControlError::NotWhitelisted` (from `verify_whitelist`) when whitelist mode is active.
+
+### Events
+
+Same `Issued` event as `mint` (see above) — emitted once per destination, in order.
 
 ---
 

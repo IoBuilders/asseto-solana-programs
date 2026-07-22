@@ -7,17 +7,6 @@ use spl_token_2022::state::Mint;
 
 use crate::state::{SnapshotCounter, SnapshotEntry, SnapshotHistory};
 
-/// Records the mint's total supply at the current snapshot index.
-///
-/// The PDA `["snapshot_totalsupply", mint]` holds a `SnapshotHistory` containing
-/// all (snapshotId, totalSupply) pairs recorded so far.  On the first call the
-/// account is created; on subsequent calls it is grown by one entry. Silently
-/// succeeds when no snapshot has been taken yet or the entry for the
-/// current snapshot already exists (idempotent).
-///
-/// Auxiliary instruction — only callable via CPI by one of the authorised PDAs:
-/// - `mint_authority`     (mint,       seeds: `["mint_authority",     mint]`)
-/// - `permanent_delegate` (operations, seeds: `["permanent_delegate", mint]`)
 pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
 
@@ -121,22 +110,14 @@ pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> R
 
 #[derive(Accounts)]
 pub struct UpdateTotalSupplySnapshot<'info> {
-    /// The authority allowed to call this instruction via CPI.
-    /// Must be mint_authority (mint) or permanent_delegate (operations).
     pub calling_authority: Signer<'info>,
 
-    /// Payer for potential account creation or realloc.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The Token-2022 mint — read to extract the current total supply.
-    ///
     /// CHECK: Parsed via spl-token-2022 directly; not modified.
     pub mint: UncheckedAccount<'info>,
 
-    /// Snapshot counter PDA for this mint. May not exist yet.
-    /// Seeds: `["snapshot_counter", mint]`, owned by this program.
-    ///
     /// CHECK: Address verified by seeds/bump; existence and contents checked in the handler.
     #[account(
         seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
@@ -144,10 +125,6 @@ pub struct UpdateTotalSupplySnapshot<'info> {
     )]
     pub snapshot_counter: UncheckedAccount<'info>,
 
-    /// Total supply snapshot PDA for this mint.
-    /// Seeds: `["snapshot_totalsupply", mint]`.
-    /// Holds a `SnapshotHistory` with one entry per snapshot taken so far.
-    ///
     /// CHECK: Address verified by seeds/bump; created or grown as needed in the handler.
     #[account(
         mut,

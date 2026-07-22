@@ -20,9 +20,6 @@ use common::{
 
 use crate::events::MetadataFieldUpdated;
 
-/// Converts a plain string key into the typed `Field` enum.
-/// "name", "symbol", "uri" map to their dedicated variants;
-/// anything else becomes a custom `Field::Key`.
 fn to_field(key: String) -> Field {
     match key.to_lowercase().as_str() {
         "name" => Field::Name,
@@ -32,7 +29,6 @@ fn to_field(key: String) -> Field {
     }
 }
 
-/// Returns the byte size of a packed `TokenMetadata` TLV entry (data portion only).
 fn packed_meta_size(meta: &TokenMetadata) -> usize {
     32 // update_authority (OptionalNonZeroPubkey, always 32 bytes)
     + 32 // mint
@@ -45,7 +41,6 @@ fn packed_meta_size(meta: &TokenMetadata) -> usize {
         .sum::<usize>()
 }
 
-/// Returns the packed size after applying `field = new_value` to `meta`.
 fn new_packed_meta_size(meta: &TokenMetadata, field: &Field, new_value: &str) -> usize {
     let base = packed_meta_size(meta);
     match field {
@@ -63,13 +58,6 @@ fn new_packed_meta_size(meta: &TokenMetadata, field: &Field, new_value: &str) ->
     }
 }
 
-/// Updates the value of an existing metadata field (name / symbol / uri or any
-/// custom key) or adds a new custom key-value pair if the key does not yet exist.
-///
-/// The required lamport top-up is computed on-chain from the current metadata:
-/// the instruction reads the existing `TokenMetadata` extension, simulates the
-/// field update, computes the byte growth, and transfers the exact additional
-/// rent from `payer` to the mint account before calling `update_field`.
 pub fn update_metadata_field(
     ctx: Context<UpdateMetadata>,
     key: String,
@@ -163,14 +151,11 @@ pub fn update_metadata_field(
 #[event_cpi]
 #[derive(Accounts)]
 pub struct UpdateMetadata<'info> {
-    /// Pays for any additional rent when the account needs to grow.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The caller — must sign and hold `ROLE_CUSTOM_DATA_MANAGER`.
     pub authority: Signer<'info>,
 
-    /// The authority's own `Roles` PDA — read to verify `ROLE_CUSTOM_DATA_MANAGER`.
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
@@ -178,13 +163,10 @@ pub struct UpdateMetadata<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// The Token-2022 mint whose embedded metadata is being modified.
-    ///
     /// CHECK: Validated by Token-2022 during the metadata CPI.
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -192,9 +174,6 @@ pub struct UpdateMetadata<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// Metadata update authority PDA — the only key authorised to modify
-    /// on-chain token metadata. Owned by this program; signs update_field CPIs.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::METADATA_UPDATE_AUTHORITY, mint.key().as_ref()],
@@ -202,9 +181,6 @@ pub struct UpdateMetadata<'info> {
     )]
     pub metadata_update_authority: UncheckedAccount<'info>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -216,7 +192,6 @@ pub struct UpdateMetadata<'info> {
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

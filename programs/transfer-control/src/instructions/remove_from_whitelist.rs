@@ -8,12 +8,6 @@ use crate::state::WhitelistStatus;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
-/// Removes a token account from the whitelist for a mint by closing the marker PDA.
-///
-/// The `whitelist_pda` (seeds: `["whitelist", mint, account]`) is closed here and its
-/// rent lamports are returned to the authority.
-///
-/// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
 pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -43,11 +37,9 @@ pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct RemoveFromWhitelist<'info> {
-    /// The authority — must sign and fund the PDA creation.
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// The authority's own `Roles` PDA.
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
@@ -55,7 +47,6 @@ pub struct RemoveFromWhitelist<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -63,19 +54,12 @@ pub struct RemoveFromWhitelist<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// The Token-2022 mint.
-    ///
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// The token account to remove from the whitelist.
-    ///
     /// CHECK: Address used as a seed for whitelist_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -84,8 +68,6 @@ pub struct RemoveFromWhitelist<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// Whitelist marker PDA — closed here; rent returned to authority.
-    /// Seeds: `["whitelist", mint, account]`.
     #[account(
         mut,
         close = authority,
@@ -94,7 +76,6 @@ pub struct RemoveFromWhitelist<'info> {
     )]
     pub whitelist_pda: Account<'info, WhitelistStatus>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

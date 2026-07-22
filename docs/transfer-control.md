@@ -41,7 +41,15 @@ pub enum TransferControlError {
 
 ---
 
-## Exported Function
+## Exported Functions
+
+### `verify_whitelist`
+
+```rust
+pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()>
+```
+
+Returns `Ok(())` if `whitelist_pda` exists (non-empty data — the account has been whitelisted), else `Err(TransferControlError::NotWhitelisted)`. A standalone existence check for callers that can't use `verify_transfer_control_mode` because their whitelist PDAs aren't seed-constrained by Anchor — e.g. `mint::batch_mint`, which reads one whitelist PDA per destination from `remaining_accounts` and must first re-derive/match its address with `common::verify_whitelist_pda` before calling this.
 
 ### `verify_transfer_control_mode`
 

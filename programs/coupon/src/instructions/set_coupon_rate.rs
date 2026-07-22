@@ -8,17 +8,6 @@ use crate::state::Coupon;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
-/// Overrides the interest rate for a single, already-issued coupon.
-///
-/// By default, every coupon inherits the asset-level rate from `bond_terms`
-/// when `treasury::pay_coupon` runs. Calling this instruction stores a
-/// coupon-specific rate that `pay_coupon` will use instead — the override
-/// follows the same scaling convention as `BondTerms`:
-/// actual rate = `interest_rate / 10^interest_rate_decimals`.
-///
-/// Passing `None` for `interest_rate` clears any existing override, reverting
-/// the coupon to the asset-level rate. Passing `Some(rate)` replaces the
-/// previous override (calling a second time is idempotent in structure).
 pub fn set_coupon_rate(
     ctx: Context<SetCouponRate>,
     _coupon_id: u64,
@@ -62,8 +51,6 @@ pub struct SetCouponRate<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -72,13 +59,9 @@ pub struct SetCouponRate<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// The Token-2022 mint — must not be paused.
-    ///
     /// CHECK: Read-only; pause state validated by require_not_paused.
     pub mint: UncheckedAccount<'info>,
 
-    /// The coupon record to update. Must already exist (created by `create_coupon`).
-    /// Seeds: `["coupon", mint, coupon_id.to_le_bytes()]`.
     #[account(
         mut,
         seeds = [pda_seeds::COUPON, mint.key().as_ref(), &coupon_id.to_le_bytes()],
@@ -86,7 +69,6 @@ pub struct SetCouponRate<'info> {
     )]
     pub coupon: Account<'info, Coupon>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

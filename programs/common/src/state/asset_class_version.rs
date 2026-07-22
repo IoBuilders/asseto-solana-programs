@@ -23,6 +23,9 @@ pub struct AssetClassVersion {
     pub version: u64,
     pub state: u8,
     pub bump: u8,
+    // `mask`'s alignment is 1 (a u8 array); `config_id`/`version` (u64) give this
+    // struct 8-byte alignment, so `_padding` is required (not stylistic) to satisfy
+    // `#[derive(Pod)]`'s no-implicit-padding rule
     pub _padding: [u8; 6],
     pub mask: [u8; FUNCTIONALITIES_BYTES_MASK],
 }

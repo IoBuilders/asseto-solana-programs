@@ -2,8 +2,6 @@
 
 Program ID: `HCe5Um7ThFBzDSyn256EPQvyr6jy6E66ydzZ5hMta3Tq`
 
-Deploys new Token-2022 mints with all required extensions and records the deployer wallet in a PDA. This is the entry point for the entire system — all other programs trace authorization back to the `asset_configuration_pda` created here. It also bootstraps access control: a final CPI to `access_control::initialize` grants the deployer `ROLE_ADMIN` on the new mint.
-
 ---
 
 ## State: `AssetConfiguration`
@@ -34,6 +32,20 @@ Downstream programs read this account as a typed `Account<AssetConfiguration>` (
 
 ## Instruction: `deploy_mint`
 
+Deploys new Token-2022 mints with all required extensions. This is the entry point for the entire system — all other programs trace authorization back to the `asset_configuration_pda` created here. It also bootstraps access control: a final CPI to `access_control::initialize` grants the deployer `ROLE_ADMIN` on the new mint.
+
+Sets up the following Token-2022 extensions, each governed by a distinct program-derived authority:
+
+| Extension | Authority PDA seeds | Owner program |
+|---|---|---|
+| Mint authority | `["mint_authority", mint]` | `mint` (`MINT_PROGRAM_ID`) |
+| `PermanentDelegate` | `["permanent_delegate", mint]` | `operations` (`OPERATIONS_PROGRAM_ID`) |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` (`TRANSFER_HOOK_PROGRAM_ID`) |
+| `MetadataPointer` | n/a (points to mint itself) | none — immutable |
+| Metadata update | `["metadata_update_authority", mint]` | `metadata-update` (`METADATA_UPDATE_PROGRAM_ID`) |
+| `Pausable` | `["pausable_authority", mint]` | `pause` (`PAUSE_PROGRAM_ID`) |
+| `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` (`FREEZE_PROGRAM_ID`) |
+
 ### Parameters
 
 ```rust
@@ -58,22 +70,22 @@ pub struct MetadataField {
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Pays rent for mint account, `asset_configuration_pda`, and `extra_account_meta_list` |
-| `deployer` | no | yes | Signer | Stored as owner; can be same wallet as `payer` |
+| `deployer` | no | yes | Signer | Granted `ROLE_ADMIN` on this mint in step 15; can be same wallet as `payer` |
 | `asset_configuration_pda` | yes | no | `Account<AssetConfiguration>` | init; seeds `["asset_configuration", mint]` |
 | `mint` | yes | yes | UncheckedAccount | Fresh keypair; must sign so SystemProgram can allocate it |
 | `temp_mint_authority` | no | no | UncheckedAccount | PDA seeds `["temp_mint_authority", mint]`; no storage; used as transient signer for steps 9–12 and the `access_control::initialize` CPI in step 15 |
-| `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]`, `seeds::program = MINT_AUTHORITY_PROGRAM_ID` |
-| `permanent_delegate_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]`, `seeds::program = PERMANENT_DELEGATE_PROGRAM_ID` |
-| `metadata_update_authority` | no | no | UncheckedAccount | seeds `["metadata_update_authority", mint]`, `seeds::program = METADATA_UPDATE_AUTHORITY_PROGRAM_ID` |
-| `pausable_authority` | no | no | UncheckedAccount | seeds `["pausable_authority", mint]`, `seeds::program = PAUSABLE_AUTHORITY_PROGRAM_ID` |
-| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_AUTHORITY_PROGRAM_ID` (`freeze`) |
+| `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]`, `seeds::program = MINT_PROGRAM_ID` |
+| `permanent_delegate_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]`, `seeds::program = OPERATIONS_PROGRAM_ID` |
+| `metadata_update_authority` | no | no | UncheckedAccount | seeds `["metadata_update_authority", mint]`, `seeds::program = METADATA_UPDATE_PROGRAM_ID` |
+| `pausable_authority` | no | no | UncheckedAccount | seeds `["pausable_authority", mint]`, `seeds::program = PAUSE_PROGRAM_ID` |
+| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID` |
 | `transfer_hook_authority` | no | no | UncheckedAccount | seeds `["transfer_hook_authority", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
 | `extra_account_meta_list` | yes | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; created via CPI in step 14 |
 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
-| `roles_pda` | yes | no | UncheckedAccount | seeds `[mint, deployer]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; created via the CPI in step 15 |
+| `roles_pda` | yes | no | UncheckedAccount | seeds `["roles", mint, deployer]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; created via the CPI in step 15 |
 | `access_control_program` | no | no | UncheckedAccount | address constrained to `ACCESS_CONTROL_PROGRAM_ID`; the program invoked by the step 15 CPI |
 
 ### 15-Step Execution

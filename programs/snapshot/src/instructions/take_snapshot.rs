@@ -6,22 +6,6 @@ use common::pda_seeds;
 use crate::events::SnapshotTriggered;
 use crate::state::{SnapshotCounter, SnapshotHistory, SnapshotMerkleRoot};
 
-/// Records a snapshot checkpoint for the mint.
-///
-/// `snapshot_counter` holds the id of the **next** snapshot. The snapshot id is
-/// therefore the counter's *current* value (0 for the very first snapshot),
-/// used as-is; the counter is incremented afterwards. This "next id" convention
-/// is what lets the `snapshot_merkle_root` PDA be created with `#[account(init)]`:
-/// its seed reads `snapshot_counter.count` at account resolution — before the
-/// handler runs — so Anchor can derive and create it. Anchor's `init` also
-/// tolerates an attacker pre-funding the (predictable) PDA address, and its `init`
-/// semantics guarantee the account (and thus the root) can be created only once
-/// per id — no manual `create_account` needed.
-///
-/// Auxiliary instruction — only callable via CPI by the `coupon_authority` PDA
-/// owned by `coupon` (seeds: `["coupon_authority", mint]`). All
-/// pause / deactivate checks live in `coupon::create_coupon`,
-/// the sole entry point that triggers a snapshot.
 pub fn take_snapshot(ctx: Context<TakeSnapshot>, merkle_root: [u8; 32]) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
 
@@ -60,24 +44,14 @@ pub fn take_snapshot(ctx: Context<TakeSnapshot>, merkle_root: [u8; 32]) -> Resul
 #[event_cpi]
 #[derive(Accounts)]
 pub struct TakeSnapshot<'info> {
-    /// The PDA authorised to call this instruction via CPI — must be
-    /// `["coupon_authority", mint]` owned by `coupon`.
     pub calling_authority: Signer<'info>,
 
-    /// Funds the `snapshot_counter` / `snapshot_merkle_root` PDAs. Distinct from
-    /// `calling_authority` because the latter is a PDA (signs via
-    /// `invoke_signed`) and PDAs cannot pay rent directly.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The Token-2022 mint the snapshot is taken on.
-    ///
     /// CHECK: Used only as a seed for `calling_authority`'s PDA derivation.
     pub mint: UncheckedAccount<'info>,
 
-    /// Snapshot counter PDA. Holds the id of the **next** snapshot: created at
-    /// `count = 0` on the first call, incremented by one after each snapshot.
-    /// Seeds: `["snapshot_counter", mint]`.
     #[account(
         init_if_needed,
         payer = payer,
@@ -109,8 +83,7 @@ pub struct TakeSnapshot<'info> {
 
 // Just to make SnapshotHistory part of the IDL. `snapshot_history` is only ever
 // an `UncheckedAccount` in real instructions, so without this Anchor would omit
-// it from the IDL's `accounts` section. `SnapshotMerkleRoot` is already exposed
-// via the typed `Account<..>` in `TakeSnapshot` above, so it needs no help here.
+// it from the IDL's `accounts` section.
 #[derive(Accounts)]
 pub struct __SnapshotHistoryIDL<'info> {
     pub snapshot_history: Account<'info, SnapshotHistory>,

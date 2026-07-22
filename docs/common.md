@@ -23,6 +23,14 @@ Defined here so downstream programs can deserialize `asset_configuration_pda` wi
 
 ---
 
+## State: `AssetClassVersion`
+
+A **zero-copy** (`#[repr(C)]`, `Pod`, `Zeroable`) field-for-field mirror of `factory::state::AssetClassVersion` — see [`docs/factory.md`](factory.md) for the field meanings and how the mask is populated. Defined here, rather than imported from `factory`, so downstream programs (`mint`, `transfer-control`, …) can `AccountLoader<AssetClassVersion>` it without a circular dependency on `factory`. A compile-time size assertion in `factory/src/state.rs` guards the two struct definitions against diverging.
+
+`FUNCTIONALITIES_BITS_MASK` / `FUNCTIONALITIES_BYTES_MASK` size the `mask` field; `ASSET_CLASS_VERSION_STATE_DRAFT` / `ASSET_CLASS_VERSION_STATE_FINALIZED` are the two values of the `state` field, checked by `require_functionality` above.
+
+---
+
 ## Error Codes
 
 ```rust
@@ -35,6 +43,7 @@ pub enum CommonError {
     AssetClassVersionNotFinalized,  // asset-class version is still Draft
     RoleOutOfBounds,                // role id is past the Roles.mask's capacity
     MissingRole,                    // signer's Roles PDA lacks the required role bit
+    WhitelistPdaMismatch,           // a remaining_accounts whitelist PDA doesn't match the derived address for its destination
 }
 ```
 
@@ -58,7 +67,7 @@ Callers pass the account as `&AccountInfo` to avoid importing `deactivate` as a 
 pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()>
 ```
 
-Parses the Token-2022 extension data of the mint using `StateWithExtensions::<Mint>::unpack` and locates the `PausableConfig` extension. Returns `Err(CommonError::MintPaused)` if `pausable_config.paused` is `true`. Returns `Ok(())` if the extension is absent or the mint is not paused.
+Parses the Token-2022 extension data of the mint using `StateWithExtensions::<Mint>::unpack` and locates the `PausableConfig` extension. Returns `Err(CommonError::MintPaused)` if `pausable_config.paused` is `true`, `Ok(())` if the mint is not paused. If the mint has no `PausableConfig` extension at all, `get_extension` returns `Err` (propagated via `?`) rather than `Ok(())` — this should never happen for a correctly deployed mint, since `deploy_mint` always attaches the extension.
 
 ---
 
@@ -87,6 +96,20 @@ Checks whether `role` (one of `common::roles`'s `u16` constants, e.g. `ROLE_ADMI
 The caller passes a `Ref<Roles>` obtained from its own `AccountLoader<Roles>` via `.load()?` — a **zero-copy** typed view, exactly like `require_functionality`. `common::state::Roles` is a field-for-field mirror of `access-control::state::Roles` (kept in sync by compile-time size *and* discriminator assertions in `access-control/src/state.rs`), defined here so callers can load the account without importing `access-control` (which would be circular).
 
 **Behavioural note**: because the account is now a typed `AccountLoader<Roles>`, Anchor validates its owner / discriminator at account resolution *before* the handler runs. A signer with **no** `Roles` PDA (a never-created, system-owned account) therefore fails with Anchor's `AccountOwnedByWrongProgram` (or `AccountNotInitialized`) rather than `MissingRole`. `MissingRole` is now reserved for the case where the PDA exists but the required bit is unset. An admin acting on their own PDA (`authority == account`) is still safe: `require_role` takes the `Ref` by value and drops it before the caller's mutable `load_init`/`load_mut` of the same account, so the borrows never overlap.
+
+---
+
+## Function: `verify_whitelist_pda`
+
+```rust
+pub fn verify_whitelist_pda(
+    whitelist_pda: &AccountInfo,
+    destination: &Pubkey,
+    mint: &Pubkey,
+) -> Result<()>
+```
+
+Re-derives the canonical `["whitelist", mint, destination]` PDA (owned by `transfer-control`) and checks it matches `whitelist_pda.key()`, returning `Err(CommonError::WhitelistPdaMismatch)` on a mismatch. Needed only where a whitelist PDA arrives without an Anchor `seeds` constraint — e.g. `mint::batch_mint`, which reads a whitelist PDA per destination from `remaining_accounts` (Anchor can't constrain seeds against a dynamic account list). Whether the PDA must *exist* (whitelist mode active) is a separate check left to the caller — see `transfer_control::verify_whitelist`.
 
 ---
 
@@ -120,6 +143,23 @@ pub fn verify_balance_proof(
 - **No explicit leaf/node domain separation.** Forgery of an internal node as a leaf (the classic second-preimage attack) is prevented *by length*: the leaf preimage is 40 bytes (32 + 8) while an internal-node preimage is 64 bytes, and the verifier always recomputes the leaf from structured inputs — so the two hash domains can never overlap. **This safety depends on the leaf staying < 64 bytes**; changing the leaf format to ≥ 64 bytes (or a variable size) would silently reintroduce the attack. If the leaf ever grows, add explicit prefix bytes (`0x00` leaf / `0x01` node) and match them off-chain.
 - **The verifier can only be as sound as the tree that produced `root`.** The off-chain builder must guarantee: exactly one leaf per account, canonical sorted-pair construction with safe odd-level handling (promote the lone node, do **not** naively duplicate it), and the same lexicographic (bytewise) sibling ordering + `u64` LE encoding used here.
 - **Bound the proof length in the caller.** This pure function does not cap `proof.len()`; each level is a keccak syscall. On-chain callers (e.g. `treasury::pay_coupon`) should `require!` a sane maximum (a legitimate proof is `ceil(log2(N))` — well under 32) to keep compute-unit usage deterministic.
+
+---
+
+## Module: `functionalities`
+
+```rust
+// flat u16 identifiers, one per instruction across the whole workspace
+// (append-only, sequential from 0), excluding `factory` itself
+pub const BOND_UPDATE_BOND_TERMS: u16 = 0;
+pub const COUPON_CREATE_COUPON: u16 = 1;
+// … one constant per instruction, named `<PROGRAM>_<INSTRUCTION>` …
+pub const ACCESS_CONTROL_REVOKE_ROLES: u16 = 21;
+```
+
+A single, continuous `u16` counter across the whole file — values are **not** scoped per program, so an existing constant must never be reordered or removed; new functionalities are only ever appended at the end. A unit test (`functionality_constants_are_sequential_from_zero`) parses the file's own source via `include_str!` and asserts every constant's value matches its 0-based declaration position, so the invariant can't silently drift.
+
+These ids are the bit positions read/written in a `factory` `AssetClassVersion`'s `mask` (see `require_functionality` above, and [`docs/factory.md`](factory.md) for how the mask itself is populated per asset-class version).
 
 ---
 

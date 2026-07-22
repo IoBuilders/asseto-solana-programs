@@ -302,17 +302,18 @@ What landed:
     `CurrentInstructionArgumentMismatch`, `NoPreviousInstruction`,
     `InstructionsSysvarUnreadable`) — each pinpointing exactly which check
     failed.
-- The `ExtraAccountMetaList` shrank from 16 entries to 7. The 10 compliance
-  PDAs/programs that used to be forwarded to the hook (`asset_configuration_pda`,
-  `deactivate_pda`, `deployer`, `transfer_control_mode_pda`,
-  `transfer-control` program, source/destination whitelist PDAs,
-  `freeze` program, `source_frozen_pda`, `source_frozen_balance_pda`)
-  are gone — `verify_transfer` consumes them directly at the top level
-  instead. The metalist now lists only what the hook still needs (snapshot
-  program + counter + sender/receiver snapshot PDAs + transfer hook authority
-  + system program + `Instructions` sysvar). With the metalist this small,
-  Token-2022 fits its resolution work in the 32 KiB heap and the OOM
-  documented at the top of this file no longer reproduces.
+- The `ExtraAccountMetaList` shrank from 16 entries to 7 at the time of this
+  fix. The 10 compliance PDAs/programs that used to be forwarded to the hook
+  (`asset_configuration_pda`, `deactivate_pda`, `deployer`,
+  `transfer_control_mode_pda`, `transfer-control` program, source/destination
+  whitelist PDAs, `freeze` program, `source_frozen_pda`,
+  `source_frozen_balance_pda`) are gone — `verify_transfer` consumes them
+  directly at the top level instead. With the metalist this small, Token-2022
+  fits its resolution work in the 32 KiB heap and the OOM documented at the
+  top of this file no longer reproduces. (The metalist has since grown back
+  to 11 entries to let the hook resolve `asset_class_version_pda` for
+  `require_functionality`; see [`docs/transfer-hook.md`](transfer-hook.md#metalist-contents)
+  for the current list — it's still comfortably small enough to fit the heap.)
 
 What clients have to do:
 

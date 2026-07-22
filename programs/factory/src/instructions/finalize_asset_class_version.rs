@@ -7,15 +7,6 @@ use crate::errors::ErrorCode;
 use crate::helpers::{require_not_paused, verify_owner};
 use crate::state::{AssetClassOwnership, AssetClassVersion, Factory};
 
-/// Seals a `Draft` asset-class version, making it immutable and usable.
-///
-/// Flips `state` to `Ready` and advances the asset class's `latest_version` to
-/// this version. The mask is already fully allocated (fixed-size, zero-copy), so
-/// there is nothing to "complete" — unwritten positions are simply `0` (disabled).
-/// After this the version PDA is immutable and `deploy`/`mint` may hook to it.
-///
-/// Operational instruction — only the asset class `owner` may call this, and only
-/// while the factory is not paused.
 pub fn finalize_asset_class_version(
     ctx: Context<FinalizeAssetClassVersion>,
     _config_id: u64,
@@ -58,18 +49,14 @@ pub fn finalize_asset_class_version(
 #[derive(Accounts)]
 #[instruction(config_id: u64, version: u64)]
 pub struct FinalizeAssetClassVersion<'info> {
-    /// The asset class owner — must sign.
     pub owner: Signer<'info>,
 
-    /// Singleton factory config PDA. Seeds: `["factory"]`.
     #[account(
         seeds = [pda_seeds::FACTORY],
         bump = factory.bump,
     )]
     pub factory: Account<'info, Factory>,
 
-    /// Asset-class ownership PDA. Seeds: `["asset_class_ownership", config_id]`.
-    /// `latest_version` is advanced to this version here.
     #[account(
         mut,
         seeds = [pda_seeds::ASSET_CLASS_OWNERSHIP, &config_id.to_le_bytes()],
@@ -77,8 +64,6 @@ pub struct FinalizeAssetClassVersion<'info> {
     )]
     pub asset_class_ownership_pda: Account<'info, AssetClassOwnership>,
 
-    /// Asset-class version PDA — sealed here (Draft → Ready). Must be `Draft`.
-    /// Seeds: `["asset_class_version", config_id, version]`.
     #[account(
         mut,
         seeds = [pda_seeds::ASSET_CLASS_VERSION, &config_id.to_le_bytes(), &version.to_le_bytes()],

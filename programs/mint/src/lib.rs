@@ -12,7 +12,6 @@ declare_id!("BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ");
 pub mod mint {
     use super::*;
 
-    /// Mints `amount` tokens to `destination` for the given Token-2022 mint.
     pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         instructions::mint::mint(ctx, amount)
     }
@@ -26,6 +25,6 @@ pub mod mint {
         ctx: Context<'info, BatchMintTokens<'info>>,
         amounts: Vec<u64>,
     ) -> Result<()> {
-        instructions::batch_mint::batch_mint(ctx, amounts)
+        batch_mint::batch_mint(ctx, amounts)
     }
 }

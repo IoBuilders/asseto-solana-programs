@@ -123,13 +123,17 @@ introspection can cross-check both instructions describe the same transfer.
 | 7 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
 | 8 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
 | 9 | `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
-| 10 | `snapshot_program` | no | no | UncheckedAccount | Forwarded to the hook for `update_holderbalance_snapshot` CPI |
+| 10 | `snapshot_program` | no | no | UncheckedAccount | Forwarded to the hook for `update_holderbalance_snapshot` CPI; no address constraint here — the hook's metalist pins the canonical program id and Token-2022 verifies our forwarded extras against it |
 | 11 | `snapshot_counter_pda` | no | no | UncheckedAccount | Forwarded; address verified by the metalist's seed-derived entry |
-| 12 | `sender_snapshot` | yes | no | UncheckedAccount | Forwarded; address verified by the metalist |
-| 13 | `receiver_snapshot` | yes | no | UncheckedAccount | Forwarded; address verified by the metalist |
-| 14 | `instructions_sysvar` | no | no | UncheckedAccount | address constrained to `Sysvar1nstructions...`; forwarded to the hook for introspection |
-| 15 | `token_2022_program` | no | no | Program<Token2022> | |
-| 16 | `system_program` | no | no | Program<System> | |
+| 12 | `sender_snapshot` | yes | no | UncheckedAccount | Forwarded (source's holder-balance snapshot); address verified by the metalist |
+| 13 | `receiver_snapshot` | yes | no | UncheckedAccount | Forwarded (destination's holder-balance snapshot); address verified by the metalist |
+| 14 | `deploy_program` | no | no | UncheckedAccount | address constrained to `DEPLOY_PROGRAM_ID`; forwarded so the hook can resolve `asset_configuration_pda` as an external PDA per its `ExtraAccountMetaList` |
+| 15 | `asset_configuration_pda` | no | no | UncheckedAccount | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; forwarded so the hook can read the asset-class config/version ids off it to derive `asset_class_version_pda` |
+| 16 | `factory_program` | no | no | UncheckedAccount | address constrained to `FACTORY_PROGRAM_ID`; forwarded so the hook can resolve `asset_class_version_pda` as an external PDA per its `ExtraAccountMetaList` |
+| 17 | `asset_class_version_pda` | no | no | UncheckedAccount | Forwarded; no address constraint here — the hook's metalist pins the canonical derivation (seeded from `asset_configuration_pda`'s ids) and Token-2022 verifies our forwarded extras against it |
+| 18 | `instructions_sysvar` | no | no | UncheckedAccount | address constrained to `Sysvar1nstructions...`; forwarded to the hook for introspection |
+| 19 | `token_2022_program` | no | no | Program<Token2022> | |
+| 20 | `system_program` | no | no | Program<System> | |
 
 ### Execution
 
@@ -140,9 +144,10 @@ introspection can cross-check both instructions describe the same transfer.
    The `ExtraAccountMetaList` + `transfer_hook_program` + every account listed
    in the metalist (`snapshot_program`, `snapshot_counter_pda`,
    `sender_snapshot`, `receiver_snapshot`, `transfer_hook_authority`,
-   `system_program`, `instructions_sysvar`) are appended to
-   `transfer_ix.accounts` (see note below). During this CPI Token-2022
-   invokes `transfer-hook::execute`, which performs the
+   `deploy_program`, `asset_configuration_pda`, `factory_program`,
+   `asset_class_version_pda`, `system_program`, `instructions_sysvar`) are
+   appended to `transfer_ix.accounts` (see note below). During this CPI
+   Token-2022 invokes `transfer-hook::execute`, which performs the
    double-introspection check and updates the sender/receiver
    holder-balance snapshots.
 5. CPI → `freeze::block_account(source)` signed with `["transfer", mint, bump]`.
@@ -153,10 +158,11 @@ introspection can cross-check both instructions describe the same transfer.
 `transfer_checked` builds only 4 `AccountMeta` entries. Token-2022 uses
 `instruction.accounts` to discover accessible accounts during the hook
 invocation, so `extra_account_meta_list`, `transfer_hook_program`, and every
-pubkey referenced by the `ExtraAccountMetaList` (the 7 hook extras: snapshot
+pubkey referenced by the `ExtraAccountMetaList` (the 11 hook extras: snapshot
 program + snapshot counter + sender/receiver snapshots + transfer hook
-authority + system program + Instructions sysvar) must be **appended to
-`transfer_ix.accounts`** before the `invoke` call.
+authority + deploy program + `asset_configuration_pda` + factory program +
+`asset_class_version_pda` + system program + Instructions sysvar) must be
+**appended to `transfer_ix.accounts`** before the `invoke` call.
 
 ---
 

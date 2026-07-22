@@ -1,10 +1,9 @@
-/// Flat `u16` identifiers for every access-control role in the workspace. One
-/// continuous counter across the whole file — values are not scoped per program
-/// — so do not reorder or remove an existing constant; only append new ones at
-/// the end.
+/// Flat `u16` identifiers for every access-control role in the workspace.
+/// Values are not scoped per program — so do not reorder or remove an existing constant;
+/// only append new ones at the end.
 ///
 /// Named `ROLE_<NAME>`. These map to bit positions in `access-control`'s
-/// `Roles.mask` (via `common::bitmask`).
+/// `Roles.mask`.
 pub const ROLE_ADMIN: u16 = 0;
 pub const ROLE_CONTROLLER: u16 = 1;
 pub const ROLE_CONTROL_LIST: u16 = 2;
