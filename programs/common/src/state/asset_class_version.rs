@@ -5,13 +5,9 @@ use bytemuck::{Pod, Zeroable};
 
 /// Global capacity, in bits, of every asset-class version's functionality mask.
 pub const FUNCTIONALITIES_BITS_MASK: usize = 8_192;
-/// Capacity of the mask in bytes
 pub const FUNCTIONALITIES_BYTES_MASK: usize = FUNCTIONALITIES_BITS_MASK / MASK_CHUNK_BITS;
 
-/// Lifecycle state of an asset-class version, stored as a `u8` (zero-copy /
-/// `Pod` accounts cannot hold a Borsh enum).
 pub const ASSET_CLASS_VERSION_STATE_DRAFT: u8 = 0;
-/// Mask sealed; the version is immutable and usable by `deploy`/`mint`.
 pub const ASSET_CLASS_VERSION_STATE_FINALIZED: u8 = 1;
 
 /// Full field-for-field mirror of `factory::state::AssetClassVersion`,
@@ -38,7 +34,6 @@ impl Discriminator for AssetClassVersion {
     const DISCRIMINATOR: &'static [u8] = &[255, 193, 180, 87, 186, 245, 78, 199];
 }
 
-// Defines the owner program of the Account<MintOwner>
 impl Owner for AssetClassVersion {
     fn owner() -> Pubkey {
         crate::program_ids::FACTORY_PROGRAM_ID

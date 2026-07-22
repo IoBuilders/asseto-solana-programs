@@ -8,7 +8,7 @@ import { MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { MetadataUpdate } from "../../../target/types/metadata_update";
 import { getEvent } from "../event_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { metadataUpdateAuthorityPda, metadataUpdateEventAuthorityPda } from "./metadata_update_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
@@ -42,8 +42,8 @@ export async function updateMetadataField(
 
   const program = getMetadataUpdateProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
@@ -53,14 +53,17 @@ export async function updateMetadataField(
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       metadataUpdateAuthority: metadataUpdateAuthorityPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: metadataUpdateEventAuthorityPda(),
       program: METADATA_UPDATE_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
@@ -109,8 +112,8 @@ export async function removeMetadataField(
 
   const program = getMetadataUpdateProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
@@ -120,7 +123,7 @@ export async function removeMetadataField(
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       metadataUpdateAuthority: metadataUpdateAuthorityPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -128,7 +131,10 @@ export async function removeMetadataField(
       rent: SYSVAR_RENT_PUBKEY,
       eventAuthority: metadataUpdateEventAuthorityPda(),
       program: METADATA_UPDATE_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });

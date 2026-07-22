@@ -23,7 +23,7 @@ use spl_token_metadata_interface::{
 
 use crate::errors::ErrorCode;
 use crate::events::MintDeployed;
-use crate::state::MintOwner;
+use crate::state::AssetConfiguration;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct MetadataField {
@@ -37,13 +37,8 @@ pub struct DeployMintParams {
     pub name: String,
     pub symbol: String,
     pub uri: String,
-    /// Optional custom key-value pairs written to additional_metadata at deploy time.
     pub additional_metadata: Vec<MetadataField>,
-    /// Asset-class config id. First half of the seed that derives the factory
-    /// asset-class PDA (`["asset_class", config_id, version_id]`) this mint is
-    /// hooked to. Persisted in `mint_owner_pda`.
     pub asset_class_config_id: u64,
-    /// Asset-class version id. Second half of that seed.
     pub asset_class_version_id: u64,
 }
 
@@ -329,32 +324,30 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     // Storing the seed — rather than the derived address — lets downstream
     // programs re-derive that PDA via `seeds::program = FACTORY_PROGRAM_ID`,
     // matching how every other cross-program PDA is referenced in this workspace.
-    ctx.accounts.mint_owner_pda.asset_class_config_id = params.asset_class_config_id;
-    ctx.accounts.mint_owner_pda.asset_class_version_id = params.asset_class_version_id;
-    ctx.accounts.mint_owner_pda.bump = ctx.bumps.mint_owner_pda;
+    ctx.accounts.asset_configuration_pda.asset_class_config_id = params.asset_class_config_id;
+    ctx.accounts.asset_configuration_pda.asset_class_version_id = params.asset_class_version_id;
+    ctx.accounts.asset_configuration_pda.bump = ctx.bumps.asset_configuration_pda;
 
     // ── 14. Initialize the ExtraAccountMetaList for the transfer hook ────────
     //
-    // CPI signed with mint_owner_pda so that the transfer hook program can verify
+    // CPI signed with asset_configuration_pda so that the transfer hook program can verify
     // this call originates from deploy_mint for this specific mint.
-    let mint_owner_signer_seeds = pda_utils::build_pda_signer_seeds(
-        pda_seeds::mint_owner_seeds(&mint_key),
-        &ctx.bumps.mint_owner_pda,
+    let asset_configuration_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::asset_configuration_seeds(&mint_key),
+        &ctx.bumps.asset_configuration_pda,
     );
-    transfer_hook::cpi::initialize_extra_account_meta_list(
-        CpiContext::new_with_signer(
-            constants::TRANSFER_HOOK_PROGRAM_ID,
-            transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
-                payer: ctx.accounts.payer.to_account_info(),
-                mint_owner_pda: ctx.accounts.mint_owner_pda.to_account_info(),
-                extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-                rent: ctx.accounts.rent.to_account_info(),
-            },
-            &[mint_owner_signer_seeds.as_slice()],
-        ),
-    )?;
+    transfer_hook::cpi::initialize_extra_account_meta_list(CpiContext::new_with_signer(
+        constants::TRANSFER_HOOK_PROGRAM_ID,
+        transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
+            payer: ctx.accounts.payer.to_account_info(),
+            asset_configuration_pda: ctx.accounts.asset_configuration_pda.to_account_info(),
+            extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+            rent: ctx.accounts.rent.to_account_info(),
+        },
+        &[asset_configuration_signer_seeds.as_slice()],
+    ))?;
 
     // ── 15. Grant ROLE_ADMIN to the deployer on this mint ─────────────────────
     access_control::cpi::initialize(CpiContext::new_with_signer(
@@ -391,7 +384,6 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
 #[derive(Accounts)]
 pub struct DeployMint<'info> {
     /// Pays for all rent-exempt accounts created during deployment
-    /// (mint account and mint_owner_pda).
     #[account(mut)]
     pub payer: Signer<'info>,
 
@@ -400,15 +392,14 @@ pub struct DeployMint<'info> {
     pub deployer: Signer<'info>,
 
     /// PDA that records the configuration of this mint.
-    /// Seeds: `["mint_owner", mint]` — unique per mint, owned by this program.
     #[account(
         init,
         payer = payer,
-        space = MintOwner::DISCRIMINATOR.len() + MintOwner::INIT_SPACE,
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        space = AssetConfiguration::DISCRIMINATOR.len() + AssetConfiguration::INIT_SPACE,
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         bump,
     )]
-    pub mint_owner_pda: Account<'info, MintOwner>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
     /// The new Token-2022 mint account.
     /// Must be a fresh keypair that signs the transaction so that

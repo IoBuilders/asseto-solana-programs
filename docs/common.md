@@ -6,21 +6,20 @@ All logic and types that are shared across programs live here. Adding a dependen
 
 ---
 
-## State: `MintOwner`
+## State: `AssetConfiguration`
 
 ```rust
 // Uses #[derive(AnchorSerialize, AnchorDeserialize)] — NOT #[account]
 // because #[account] requires declare_id!, which a library crate cannot have.
-pub struct MintOwner {
-    pub deployer: Pubkey,
+pub struct AssetConfiguration {
     pub asset_class_config_id: u64,   // asset-class PDA seed (1/2)
     pub asset_class_version_id: u64,  // asset-class PDA seed (2/2)
     pub bump: u8,
 }
-// LEN = 8 (discriminator) + 32 (deployer) + 8 (asset_class_config_id) + 8 (asset_class_version_id) + 1 (bump) = 57 bytes
+// LEN = 8 (discriminator) + 8 (asset_class_config_id) + 8 (asset_class_version_id) + 1 (bump) = 25 bytes
 ```
 
-Defined here so downstream programs can deserialize `mint_owner_pda` without importing `deploy`. `deploy` defines its own `#[account] MintOwner` (with the same fields) so it can use `Account<MintOwner>` in its accounts struct.
+Defined here so downstream programs can deserialize `asset_configuration_pda` without importing `deploy`. `deploy` defines its own `#[account] AssetConfiguration` (with the same fields) so it can use `Account<AssetConfiguration>` in its accounts struct.
 
 ---
 
@@ -32,7 +31,7 @@ pub enum CommonError {
     Deactivated,                    // deactivate_pda account exists
     FunctionalityOutOfBounds,       // functionality is past the AssetClassVersion.mask's capacity
     FunctionalityNotSupportedError, // functionality bit not set in AssetClassVersion.mask
-    InvalidMintOwnerData,           // could not read the mint_owner account data
+    InvalidAssetConfigurationData,  // could not read the asset_configuration account data
     AssetClassVersionNotFinalized,  // asset-class version is still Draft
     RoleOutOfBounds,                // role id is past the Roles.mask's capacity
     MissingRole,                    // signer's Roles PDA lacks the required role bit

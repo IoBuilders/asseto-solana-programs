@@ -34,7 +34,7 @@ describe("operations", () => {
 
   describe("burn ", async () => {
     let mint: PublicKey;
-    let mintOwnerPda: PublicKey;
+    let assetConfigurationPda: PublicKey;
     const MINT_DECIMALS = 6;
 
     // A fresh mint per test (unpaused + active out of the box) plus a fresh
@@ -44,7 +44,7 @@ describe("operations", () => {
     // via surfpool cheatcodes, so `burn` is the only instruction each test runs.
     beforeEach(async () => {
       ({ mint } = await deployMint({}, { decimals: MINT_DECIMALS }));
-      mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+      assetConfigurationPda = pdaUtils.assetConfigurationPda(mint);
       await setAssetClassVersionForMint(mint, { functionalities: [OPERATIONS_BURN] });
       await setRoles(mint, authority!.publicKey, [ROLE_CONTROLLER]);
     });
@@ -54,7 +54,7 @@ describe("operations", () => {
       const burnAmount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
 
       // Plant 1 000 tokens on the source account (owned by the mint-owner PDA).
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
       await mintTokensViaSurfpool(mint, source, mintAmount);
 
       // ── Call burn ──────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ describe("operations", () => {
       const partialFrozenAmount = new anchor.BN(5 ** MINT_DECIMALS);
 
       // ── Plant the holder balance and total supply ────────────────────────────
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
       await mintTokensViaSurfpool(mint, source, mintAmount);
 
       // ── Plant a partial-freeze marker for 5^6 tokens on source ───────────────
@@ -119,7 +119,7 @@ describe("operations", () => {
       const burnAmount = new anchor.BN(1 ** MINT_DECIMALS);
 
       // Plant tokens on the source account
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
       await mintTokensViaSurfpool(mint, source, balanceBeforeSnapshot);
 
       // Simulate one snapshot already taken: counter (the next id) = 1, so the
@@ -149,7 +149,7 @@ describe("operations", () => {
     });
 
     it("burn: fails with MissingRole when authority does not have the controller role", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
 
       // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
       const rogueKeypair = Keypair.generate();
@@ -171,7 +171,7 @@ describe("operations", () => {
     });
 
     it("burn: fails when mint is paused", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
       await mintTokensViaSurfpool(mint, source, new anchor.BN(1));
       await setMintPaused(mint, true);
 
@@ -193,7 +193,7 @@ describe("operations", () => {
     });
 
     it("burn: fails with Deactivated when mint has been deactivated", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
 
       // ── Deactivate the mint ────────────────────────────────────────────────
       await setDeactivateMarker(mint);
@@ -210,7 +210,7 @@ describe("operations", () => {
     });
 
     it("burn: fails with FunctionalityNotSupportedError when the burn functionality is not enabled", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
 
       // Re-seed the asset-class version WITHOUT the burn functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
@@ -230,7 +230,7 @@ describe("operations", () => {
     });
 
     it("burn: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
 
       await setAssetClassVersionForMint(mint, {
         state: ASSET_CLASS_VERSION_STATE_DRAFT,

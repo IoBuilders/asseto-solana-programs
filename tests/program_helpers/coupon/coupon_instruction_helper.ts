@@ -7,7 +7,7 @@ import { Program } from "@anchor-lang/core";
 import { Coupon } from "../../../target/types/coupon";
 import { PublicKey } from "@solana/web3.js";
 import { getEvent } from "../event_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { couponAuthorityPda, couponCounterPda, couponPda, couponEventAuthorityPda } from "./coupon_pda_helper";
 import {
@@ -58,8 +58,8 @@ export async function createCoupon(
   const program = getCouponProgram();
 
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
@@ -82,7 +82,7 @@ export async function createCoupon(
       payer: callContext.payer ?? callContext.authority.publicKey,
       authority: authority.publicKey,
       mint: callContext.mint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       couponAuthority: couponAuthorityPda(callContext.mint),
       couponCounter: couponCounterPda(callContext.mint),
@@ -94,7 +94,10 @@ export async function createCoupon(
       snapshotEventAuthority: snapshotTriggeredEventAuthorityPda(),
       eventAuthority: couponEventAuthorityPda(),
       program: getCouponProgram().programId,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
     })
     .signers(callContext?.signers ?? [authority])
@@ -150,8 +153,8 @@ export async function setCouponRate(
   const program = getCouponProgram();
 
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(context.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(context.mint);
 
   const authority = context.authority ?? program.provider.wallet.payer;
 
@@ -160,12 +163,15 @@ export async function setCouponRate(
     .accountsStrict({
       authority: authority.publicKey,
       mint: context.mint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(context.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(context.mint),
       deactivatePda: deactivatePda(context.mint),
       coupon: couponPda(context.mint, effectiveArgs.couponId),
       eventAuthority: couponEventAuthorityPda(),
       program: getCouponProgram().programId,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       authorityRolesPda: rolesPda(context.mint, authority.publicKey),
     })
     .signers(context?.signers ?? [authority])

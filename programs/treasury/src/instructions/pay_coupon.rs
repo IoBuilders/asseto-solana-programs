@@ -12,7 +12,7 @@ use crate::errors::ErrorCode;
 use crate::events::CouponPaid;
 use crate::state::{CouponPaidMarker, TreasuryConfig};
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
+use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
 /// Computes and pays the coupon to a single holder.
 ///
@@ -213,11 +213,11 @@ pub struct PayCoupon<'info> {
     pub authority: Signer<'info>,
 
     #[account(
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump = mint_owner_pda.bump,
+        bump = asset_configuration_pda.bump,
     )]
-    pub mint_owner_pda: Account<'info, MintOwner>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
@@ -343,7 +343,11 @@ pub struct PayCoupon<'info> {
     pub coupon_paid: Box<Account<'info, CouponPaidMarker>>,
 
     #[account(
-        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
         seeds::program = constants::FACTORY_PROGRAM_ID,
         bump = asset_class_version_pda.load()?.bump,
     )]

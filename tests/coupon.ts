@@ -20,12 +20,7 @@ import {
 import * as couponPdaUtils from "./program_helpers/coupon/coupon_pda_helper";
 import { getSnapshotCounter, getSnapshotCounterByPda } from "./program_helpers/snapshot/snapshot_pda_helper";
 import * as snapshotPdaUtils from "./program_helpers/snapshot/snapshot_pda_helper";
-import {
-  getAccountInfo,
-  getBalanceForRentExeption,
-  requestAirdrop,
-  surfnetSetAccount
-} from "./program_helpers/account_helper";
+import { getAccountInfo, getBalanceForRentExeption, surfnetSetAccount } from "./program_helpers/account_helper";
 import { U64_MAX } from "./constants";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,

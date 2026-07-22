@@ -17,7 +17,7 @@ import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
 import { frozenAccountPda, frozenBalancePda, freezeAuthorityPda } from "./freeze/freeze_pda_helper";
 import { snapshotCounterPda, snapshotHolderBalancePda } from "./snapshot/snapshot_pda_helper";
-import { getMintOwner } from "./deploy_helper";
+import { getAssetConfiguration } from "./deploy_helper";
 import { assetClassVersionPda } from "./factory/factory_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
@@ -136,8 +136,8 @@ export async function transfer(callContext: TransferContext, args?: TransferArgs
 
 export async function getTransferAccounts(callContext: Omit<TransferContext, "deployer">) {
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   return {
     mint: callContext.mint,
@@ -155,9 +155,12 @@ export async function getTransferAccounts(callContext: Omit<TransferContext, "de
     senderSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.source),
     receiverSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
     deployProgram: DEPLOY_PROGRAM_ID,
-    mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+    assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
     factoryProgram: FACTORY_PROGRAM_ID,
-    assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+    assetClassVersionPda: assetClassVersionPda(
+      assetConfiguration.assetClassConfigId,
+      assetConfiguration.assetClassVersionId
+    ),
     instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
     token2022Program: TOKEN_2022_PROGRAM_ID,
     systemProgram: SYSTEM_PROGRAM_ID,

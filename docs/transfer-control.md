@@ -84,7 +84,7 @@ Creates `transfer_control_mode_pda` (`init`, fixed space) and writes `mode` into
 |---|---|---|---|---|
 | `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; funds PDA creation |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
+| `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
 | `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | `init`, `payer = authority`; seeds `["transfer_control_mode", mint]` |
@@ -115,7 +115,7 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 |---|---|---|---|---|
 | `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; funds PDA creation |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
+| `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | Token account to whitelist; used as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |

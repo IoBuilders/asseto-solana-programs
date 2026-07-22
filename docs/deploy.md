@@ -2,22 +2,21 @@
 
 Program ID: `HCe5Um7ThFBzDSyn256EPQvyr6jy6E66ydzZ5hMta3Tq`
 
-Deploys new Token-2022 mints with all required extensions and records the deployer wallet in a PDA. This is the entry point for the entire system — all other programs trace authorization back to the `mint_owner_pda` created here. It also bootstraps access control: a final CPI to `access_control::initialize` grants the deployer `ROLE_ADMIN` on the new mint.
+Deploys new Token-2022 mints with all required extensions and records the deployer wallet in a PDA. This is the entry point for the entire system — all other programs trace authorization back to the `asset_configuration_pda` created here. It also bootstraps access control: a final CPI to `access_control::initialize` grants the deployer `ROLE_ADMIN` on the new mint.
 
 ---
 
-## State: `MintOwner`
+## State: `AssetConfiguration`
 
-Seeds: `["mint_owner", mint]` — one per mint, owned by this program.
+Seeds: `["asset_configuration", mint]` — one per mint, owned by this program.
 
 ```rust
-pub struct MintOwner {
-    pub deployer: Pubkey,
+pub struct AssetConfiguration {
     pub asset_class_config_id: u64,   // asset-class PDA seed (1/2)
     pub asset_class_version_id: u64,  // asset-class PDA seed (2/2)
     pub bump: u8,
 }
-// LEN = 8 (discriminator) + 32 (deployer) + 8 (asset_class_config_id) + 8 (asset_class_version_id) + 1 (bump) = 57 bytes
+// LEN = 8 (discriminator) + 8 (asset_class_config_id) + 8 (asset_class_version_id) + 1 (bump) = 25 bytes
 ```
 
 `asset_class_config_id` + `asset_class_version_id` are the seed of the factory asset-class PDA
@@ -27,9 +26,9 @@ programs re-derive that PDA with `seeds::program = FACTORY_PROGRAM_ID`, matching
 how every other cross-program PDA is referenced in this workspace. The deployer
 can re-point the mint to a newer asset-class version by updating these fields.
 
-The fields are defined in `common::state::MintOwner` so downstream programs can deserialize it without importing `deploy`. This program defines its own `state::MintOwner` with `#[account]` (required for `Account<MintOwner>` usage) whose fields mirror `common`'s version and whose `LEN` delegates to it.
+The fields are defined in `common::state::AssetConfiguration` so downstream programs can deserialize it without importing `deploy`. This program defines its own `state::AssetConfiguration` with `#[account]` (required for `Account<AssetConfiguration>` usage) whose fields mirror `common`'s version and whose `LEN` delegates to it.
 
-Downstream programs read this account as a typed `Account<MintOwner>` (using `common::state::MintOwner`, seeded with `seeds::program = DEPLOY_PROGRAM_ID`) to pull the asset-class ids for their own `asset_class_version_pda` derivation. There is no longer a `verify_deployer` helper — access is now gated by `require_role` against each caller's own `access-control` `Roles` PDA, not by matching the signer against the `deployer` pubkey stored here.
+Downstream programs read this account as a typed `Account<AssetConfiguration>` (using `common::state::AssetConfiguration`, seeded with `seeds::program = DEPLOY_PROGRAM_ID`) to pull the asset-class ids for their own `asset_class_version_pda` derivation. There is no longer a `verify_deployer` helper — access is now gated by `require_role` against each caller's own `access-control` `Roles` PDA, not by matching the signer against the `deployer` pubkey stored here.
 
 ---
 
@@ -44,8 +43,8 @@ pub struct DeployMintParams {
     pub symbol: String,
     pub uri: String,
     pub additional_metadata: Vec<MetadataField>,  // custom key-value pairs
-    pub asset_class_config_id: u64,   // asset-class PDA seed (1/2) — persisted in mint_owner_pda
-    pub asset_class_version_id: u64,  // asset-class PDA seed (2/2) — persisted in mint_owner_pda
+    pub asset_class_config_id: u64,   // asset-class PDA seed (1/2) — persisted in asset_configuration_pda
+    pub asset_class_version_id: u64,  // asset-class PDA seed (2/2) — persisted in asset_configuration_pda
 }
 
 pub struct MetadataField {
@@ -58,9 +57,9 @@ pub struct MetadataField {
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `payer` | yes | yes | Signer | Pays rent for mint account, `mint_owner_pda`, and `extra_account_meta_list` |
+| `payer` | yes | yes | Signer | Pays rent for mint account, `asset_configuration_pda`, and `extra_account_meta_list` |
 | `deployer` | no | yes | Signer | Stored as owner; can be same wallet as `payer` |
-| `mint_owner_pda` | yes | no | `Account<MintOwner>` | init; seeds `["mint_owner", mint]` |
+| `asset_configuration_pda` | yes | no | `Account<AssetConfiguration>` | init; seeds `["asset_configuration", mint]` |
 | `mint` | yes | yes | UncheckedAccount | Fresh keypair; must sign so SystemProgram can allocate it |
 | `temp_mint_authority` | no | no | UncheckedAccount | PDA seeds `["temp_mint_authority", mint]`; no storage; used as transient signer for steps 9–12 and the `access_control::initialize` CPI in step 15 |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]`, `seeds::program = MINT_AUTHORITY_PROGRAM_ID` |
@@ -123,13 +122,12 @@ pub struct MetadataField {
 **12 — `set_authority(MintTokens)`** (signed by `temp_mint_authority`)
 - Transfers mint authority from `temp_mint_authority` to `mint_authority`.
 
-**13 — Record deployer**
-- Writes `deployer` pubkey, `asset_class_config_id`, `asset_class_version_id`, and PDA bump into `mint_owner_pda`.
+**13 — Record the mint configuration**
+- Writes `asset_class_config_id`, `asset_class_version_id`, and PDA bump into `asset_configuration_pda`.
 
-**14 — CPI → `initialize_extra_account_meta_list`** (signed by `mint_owner_pda`)
-- Calls `transfer_hook::initialize_extra_account_meta_list(deployer.key())`.
-- Passes `mint_owner_pda` as signer via `invoke_signed` to prove the call originates from `deploy_mint`.
-- The deployer pubkey is forwarded so the hook can bake it into the `ExtraAccountMetaList` (Token-2022 then passes the deployer account to `execute` on every transfer, enabling the clearing-mode signature check).
+**14 — CPI → `initialize_extra_account_meta_list`** (signed by `asset_configuration_pda`)
+- Calls `transfer_hook::initialize_extra_account_meta_list`.
+- Passes `asset_configuration_pda` as signer via `invoke_signed` to prove the call originates from `deploy_mint`.
 - Creates the populated `ExtraAccountMetaList` PDA (`["extra-account-metas", mint]`) inside `transfer-hook`.
 
 **15 — CPI → `access_control::initialize`** (signed by `temp_mint_authority`)

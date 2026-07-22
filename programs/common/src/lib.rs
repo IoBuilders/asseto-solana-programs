@@ -26,8 +26,8 @@ pub enum CommonError {
     FunctionalityOutOfBounds,
     #[msg("The asset class version does not support this functionality")]
     FunctionalityNotSupportedError,
-    #[msg("Could not read the mint owner account data")]
-    InvalidMintOwnerData,
+    #[msg("Could not read the asset configuration account data")]
+    InvalidAssetConfigurationData,
     #[msg("The asset class version is not finalized")]
     AssetClassVersionNotFinalized,
     #[msg("Role is past the mask capacity")]

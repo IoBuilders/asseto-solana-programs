@@ -41,10 +41,10 @@ Creates the `deactivate_pda` marker. After this call, all calls to `mint::mint`,
 |---|---|---|---|---|
 | `authority` | yes | yes | Signer | Funds the PDA creation; must hold `ROLE_DEACTIVATE` |
 | `authority_roles_pda` | no | no | `AccountLoader<Roles>` | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `mint_owner_pda` | no | no | `Account<MintOwner>` | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies `asset_class_config_id`/`asset_class_version_id` for `asset_class_version_pda`'s seeds |
+| `asset_configuration_pda` | no | no | `Account<AssetConfiguration>` | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies `asset_class_config_id`/`asset_class_version_id` for `asset_class_version_pda`'s seeds |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` (checks the Pausable extension) |
 | `deactivate_pda` | yes | no | `Account<DeactivateStatus>` | init; seeds `["deactivate", mint]`; payer = `authority` |
-| `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", mint_owner_pda.asset_class_config_id, mint_owner_pda.asset_class_version_id]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
+| `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", asset_configuration_pda.asset_class_config_id, asset_configuration_pda.asset_class_version_id]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `Deactivated` |
 | `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |

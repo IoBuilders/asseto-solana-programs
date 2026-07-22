@@ -4,7 +4,7 @@ Program ID: `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA`
 
 Pays coupon interest to bond holders in a separate token mint (the *payment mint*, e.g. a stablecoin) — distinct from the bond mint the rest of the workspace targets. The payment mint may be **classic SPL Token or Token-2022** — `treasury` uses Anchor's token *interface* so either is accepted.
 
-Both instructions are **role- and functionality-gated**: the `authority` signer must hold `ROLE_TREASURER` on the bond mint (checked against its `access-control` `Roles` PDA via `require_role`), the mint's finalized asset-class version must enable the relevant functionality bit (`TREASURY_SET_PAYMENT_TOKEN` / `TREASURY_PAY_COUPON`, via `require_functionality`), and the bond mint must be neither paused nor deactivated. The deployer signature is no longer verified — `authority` need not be the recorded mint owner, only a `ROLE_TREASURER` holder.
+Both instructions are **role- and functionality-gated**: the `authority` signer must hold `ROLE_TREASURER` on the bond mint (checked against its `access-control` `Roles` PDA via `require_role`), the mint's finalized asset-class version must enable the relevant functionality bit (`TREASURY_SET_PAYMENT_TOKEN` / `TREASURY_PAY_COUPON`, via `require_functionality`), and the bond mint must be neither paused nor deactivated. The deployer signature is no longer verified — `authority` need not be the recorded asset configuration, only a `ROLE_TREASURER` holder.
 
 The check order in both handlers is `require_role → require_not_paused → require_active → require_functionality`.
 
@@ -98,7 +98,7 @@ Sets (or replaces) the mint used to settle coupon payments for this bond mint.
 |---|---|---|
 | 0 | `payer` | Signer, mut. Funds rent for `treasury_config` on the first call. |
 | 1 | `authority` | Signer. Must hold `ROLE_TREASURER` on this mint. |
-| 2 | `mint_owner_pda` | `Account<MintOwner>`, owned by `deploy`. Seeds `["mint_owner", mint]`. Used to derive `asset_class_version_pda`. |
+| 2 | `asset_configuration_pda` | `Account<AssetConfiguration>`, owned by `deploy`. Seeds `["asset_configuration", mint]`. Used to derive `asset_class_version_pda`. |
 | 3 | `deactivate_pda` | Owned by `deactivate`. Seeds `["deactivate", mint]`. Must not exist (verified by `require_active`). |
 | 4 | `mint` | Bond's Token-2022 mint. Pause state checked by `require_not_paused`. |
 | 5 | `treasury_config` | Owned by `treasury`. `init_if_needed`. Seeds `["treasury_config", mint]`. |
@@ -166,7 +166,7 @@ The `coupon_paid` marker PDA is created via `init` (not `init_if_needed`). The s
 |---|---|---|
 | 0 | `payer` | Signer, mut. Funds rent for the `coupon_paid` marker. |
 | 1 | `authority` | Signer. Must hold `ROLE_TREASURER` on this mint. |
-| 2 | `mint_owner_pda` | `Account<MintOwner>`. Seeds `["mint_owner", mint]`. Used to derive `asset_class_version_pda`. |
+| 2 | `asset_configuration_pda` | `Account<AssetConfiguration>`. Seeds `["asset_configuration", mint]`. Used to derive `asset_class_version_pda`. |
 | 3 | `deactivate_pda` | Seeds `["deactivate", mint]`. Must not exist. |
 | 4 | `mint` | Bond's Token-2022 mint, loaded as `InterfaceAccount<Mint>` so `decimals` is available for the payout math. Pause state checked by `require_not_paused` from the same account data. |
 | 5 | `treasury_config` | **mut** (locked to `coupon_id` on success). Seeds `["treasury_config", mint]`. |

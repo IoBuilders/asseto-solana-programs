@@ -152,14 +152,14 @@ bits outside `roles` are left untouched).
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds the PDA on the first call |
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ADMIN` |
-| `mint_owner_pda` | no | no | `Account<MintOwner>` | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
+| `asset_configuration_pda` | no | no | `Account<AssetConfiguration>` | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `authority_roles_pda` | no | no | `AccountLoader<Roles>` | the signer's own PDA, seeds `[mint, authority]`; loaded and read by `require_role` (must exist & be owned by `access-control`) |
 | `account` | no | no | UncheckedAccount | The grantee; any account; used only as a `roles_pda` seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; checked by `require_active` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `roles_pda` | yes | no | `AccountLoader<Roles>` | init_if_needed; seeds `["roles", mint, account]` |
 | `system_program` | no | no | Program<System> | |
-| `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`, ids from `mint_owner_pda`; checked by `require_functionality` |
+| `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`, ids from `asset_configuration_pda`; checked by `require_functionality` |
 
 ### Execution
 
@@ -191,13 +191,13 @@ via `mask[byte] &= !(1 << bit)` (a targeted merge — bits outside `roles` are l
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ADMIN` |
-| `mint_owner_pda` | no | no | `Account<MintOwner>` | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
+| `asset_configuration_pda` | no | no | `Account<AssetConfiguration>` | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `authority_roles_pda` | no | no | `AccountLoader<Roles>` | the signer's own PDA, seeds `[mint, authority]`; loaded and read by `require_role` (must exist & be owned by `access-control`) |
 | `account` | no | no | UncheckedAccount | The target; any account; used only as a `roles_pda` seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; checked by `require_active` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `roles_pda` | yes | no | `AccountLoader<Roles>` | mut; seeds `["roles", mint, account]`; must already exist |
-| `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`, ids from `mint_owner_pda`; checked by `require_functionality` |
+| `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`, ids from `asset_configuration_pda`; checked by `require_functionality` |
 
 ### Execution
 

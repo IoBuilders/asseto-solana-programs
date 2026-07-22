@@ -67,7 +67,7 @@ export async function grantRoles(callContext: GrantRolesContext, args: GrantRole
     .accountsStrict({
       payer,
       authority: authority.publicKey,
-      mintOwnerPda: pdaUtils.mintOwnerPda(mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(mint),
       authorityRolesPda: rolesPda(mint, authority.publicKey),
       account,
       deactivatePda: deactivatePda(mint),
@@ -104,7 +104,7 @@ export async function revokeRoles(
     .revokeRoles(args.roles)
     .accountsStrict({
       authority: authority.publicKey,
-      mintOwnerPda: pdaUtils.mintOwnerPda(mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(mint),
       authorityRolesPda: rolesPda(mint, authority.publicKey),
       account,
       deactivatePda: deactivatePda(mint),

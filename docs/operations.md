@@ -28,7 +28,7 @@ amount: u64  // raw token units to burn
 |---|---|---|---|---|
 | `deployer` | yes | yes | Signer | Signs and pays for snapshot PDA creation; no longer the authorization check |
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_CONTROLLER` on this mint |
-| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
+| `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; the caller's own PDA, loaded and read by `require_role` (must exist & be owned by `access-control`) |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |

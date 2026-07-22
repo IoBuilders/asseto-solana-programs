@@ -7,7 +7,7 @@ import { MintWriteContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Freeze } from "../../../target/types/freeze";
 import { getEvent } from "../event_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { frozenAccountPda, frozenBalancePda, freezeEventAuthorityPda } from "./freeze_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
@@ -25,8 +25,8 @@ export type FreezeAccountContext = MintWriteContext & {
 export async function freezeAccount(callContext: FreezeAccountContext): Promise<{ signature: string }> {
   const program = getFreezeProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
@@ -36,13 +36,16 @@ export async function freezeAccount(callContext: FreezeAccountContext): Promise<
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       account: callContext.account,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       frozenAccountPda: frozenAccountPda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
@@ -74,8 +77,8 @@ export type UnfreezeAccountContext = MintWriteContext & {
 export async function unfreezeAccount(callContext: UnfreezeAccountContext): Promise<{ signature: string }> {
   const program = getFreezeProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
@@ -85,12 +88,15 @@ export async function unfreezeAccount(callContext: UnfreezeAccountContext): Prom
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       account: callContext.account,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       frozenAccountPda: frozenAccountPda(callContext.mint, callContext.account),
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
@@ -140,8 +146,8 @@ export async function partiallyFreezeAccount(
 
   const program = getFreezeProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
@@ -151,13 +157,16 @@ export async function partiallyFreezeAccount(
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       account: callContext.account,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       frozenBalancePda: frozenBalancePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
@@ -192,8 +201,8 @@ export async function removePartialFreeze(
 ): Promise<{ signature: string }> {
   const program = getFreezeProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
@@ -203,13 +212,16 @@ export async function removePartialFreeze(
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       account: callContext.account,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       frozenBalancePda: frozenBalancePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });

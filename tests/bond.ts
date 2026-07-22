@@ -27,7 +27,7 @@ describe("bond", () => {
   const authority = provider.wallet.payer;
   let mint: PublicKey;
 
-  // `deployMint` records config 0 / version 0 on the mint_owner, so every test's
+  // `deployMint` records config 0 / version 0 on the asset_configuration, so every test's
   // update_bond_terms derives the asset-class version PDA at (0, 0). Seed it here
   // — Ready and with the bond functionality enabled — so the require_functionality
   // gate passes. The account must also exist for the precondition-error tests, as

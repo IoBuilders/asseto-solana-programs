@@ -8,7 +8,7 @@ use spl_token_2022::instruction::burn as spl_burn;
 
 use crate::events::ControllerRedemption;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
+use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
 /// Burns `amount` tokens from any `token_account` for the given mint.
 ///
@@ -140,13 +140,13 @@ pub struct BurnTokens<'info> {
     /// The caller — must sign and hold `ROLE_CONTROLLER` on this mint.
     pub authority: Signer<'info>,
 
-    /// PDA created by deploy that records the configuration for this mint.
+    /// PDA that contains the configuration for this mint.
     #[account(
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump = mint_owner_pda.bump,
+        bump = asset_configuration_pda.bump,
     )]
-    pub mint_owner_pda: Account<'info, MintOwner>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
@@ -230,7 +230,11 @@ pub struct BurnTokens<'info> {
 
     /// Asset-class version PDA this mint is hooked to.
     #[account(
-        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
         seeds::program = constants::FACTORY_PROGRAM_ID,
         bump = asset_class_version_pda.load()?.bump,
     )]

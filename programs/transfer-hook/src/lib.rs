@@ -13,7 +13,7 @@ pub mod transfer_hook {
     use super::*;
 
     /// Creates and initialises an empty ExtraAccountMetaList PDA for the given mint.
-    /// Only callable via CPI from deploy (enforced by `mint_owner_pda` as Signer).
+    /// Only callable via CPI from deploy (enforced by `asset_configuration_pda` as Signer).
     pub fn initialize_extra_account_meta_list(
         ctx: Context<InitializeExtraAccountMetaList>,
     ) -> Result<()> {

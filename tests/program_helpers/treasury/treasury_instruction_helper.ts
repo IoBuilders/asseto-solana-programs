@@ -10,7 +10,7 @@ import { getEvent } from "../event_helper";
 import { Treasury } from "../../../target/types/treasury";
 import { bondTermsPda } from "../bond/bond_pda_helper";
 import { couponCounterPda, couponPda } from "../coupon/coupon_pda_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import {
   treasuryConfigPda,
@@ -33,8 +33,8 @@ export type SetPaymentTokenContext = MintWriteWithPayerContext & {
 
 export async function setPaymentToken(callContext: SetPaymentTokenContext): Promise<{ signature: string }> {
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   const program = getTreasuryProgram();
 
@@ -47,11 +47,14 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
       authority: authority.publicKey,
       mint: callContext.mint,
       paymentMint: callContext.paymentMint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       treasuryConfig: treasuryConfigPda(callContext.mint),
       couponCounter: couponCounterPda(callContext.mint),
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: treasuryEventAuthorityPda(),
       program: TREASURY_PROGRAM_ID,
@@ -91,8 +94,8 @@ type PayCouponArgs = {
 
 export async function payCoupon(callContext: PayCouponContext, args: PayCouponArgs): Promise<{ signature: string }> {
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   const program = getTreasuryProgram();
 
@@ -108,7 +111,7 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       treasuryTokenAccount: callContext.treasuryTokenAccount,
       holderPaymentAccount: callContext.holderPaymentAccount,
       holderTokenAccount: callContext.holderTokenAccount,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       treasuryConfig: treasuryConfigPda(callContext.mint),
       treasuryAuthority: treasuryAuthorityPda(callContext.mint),
@@ -116,7 +119,10 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       coupon: couponPda(callContext.mint, args.couponId),
       holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
       couponPaid: couponPaidPda(callContext.mint, args.couponId, callContext.holderTokenAccount),
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       tokenProgram: TOKEN_2022_PROGRAM_ID,
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,

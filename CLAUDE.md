@@ -60,7 +60,7 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
 - `program_ids` — all 16 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
-- `state::MintOwner` — struct for the `mint_owner_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] MintOwner` wrapping the same fields for `Account<MintOwner>` usage.
+- `state::AssetConfiguration` — struct for the `asset_configuration_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] AssetConfiguration` wrapping the same fields for `Account<AssetConfiguration>` usage.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
 - `bitmask` — generic `[u8; N]` bit-mask primitives (`set_bits` / `clear_bits` / `is_set`) reused by every program with a bit-mask (`factory` functionalities, `access-control` roles, `require_functionality`). Bounds are derived from the mask slice length; only the shared `MASK_CHUNK_BITS = 8` lives here — per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`) stay with their structs.
@@ -129,7 +129,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 
 | Seeds | Owner | Purpose |
 |---|---|---|
-| `["mint_owner", mint]` | `deploy` | Stores deployer + asset-class PDA seed (`asset_class_config_id`, `asset_class_version_id`) + bump; type `common::state::MintOwner` |
+| `["asset_configuration", mint]` | `deploy` | Stores the asset-class PDA seed (`asset_class_config_id`, `asset_class_version_id`) + bump; type `common::state::AssetConfiguration` |
 | `["temp_mint_authority", mint]` | `deploy` | Ephemeral signing key during `deploy_mint` only |
 | `["mint_authority", mint]` | `mint` | Token-2022 mint authority |
 | `["metadata_update_authority", mint]` | `metadata-update` | Token-2022 metadata update authority |
@@ -164,8 +164,8 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
-#[account(seeds = [b"mint_owner", mint.key().as_ref()], seeds::program = constants::DEPLOY_PROGRAM_ID, bump)]
-pub mint_owner_pda: UncheckedAccount<'info>,
+#[account(seeds = [b"asset_configuration", mint.key().as_ref()], seeds::program = constants::DEPLOY_PROGRAM_ID, bump)]
+pub asset_configuration_pda: UncheckedAccount<'info>,
 ```
 
 ---

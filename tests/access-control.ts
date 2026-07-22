@@ -14,7 +14,6 @@ import {
   rolesPdaWithBump,
   setRoles,
 } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_ADMIN } from "./utils/roles";
 import { clearDeactivateMarker, setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
 import { setMintPaused } from "./program_helpers/spl_token_helper";

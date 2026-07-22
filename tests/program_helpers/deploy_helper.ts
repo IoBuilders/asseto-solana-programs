@@ -79,7 +79,7 @@ export async function deployMint(
       payer: callContext?.payer ?? deployer.publicKey,
       deployer: deployer.publicKey,
       mint: mint.publicKey,
-      mintOwnerPda: pdaUtils.mintOwnerPda(mint.publicKey),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(mint.publicKey),
       tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint.publicKey),
       mintAuthority: mintAuthorityPda(mint.publicKey),
       permanentDelegateAuthority: permanentDelegatePda(mint.publicKey),
@@ -124,7 +124,7 @@ export async function getMintDeployedEvent(signature: string) {
   return getEvent<MintDeployedEvent>(getDeployProgram(), signature, "mintDeployed");
 }
 
-export async function getMintOwner(mint: PublicKey) {
-  const pda = pdaUtils.mintOwnerPda(mint);
-  return await getDeployProgram().account.mintOwner.fetch(pda, "confirmed");
+export async function getAssetConfiguration(mint: PublicKey) {
+  const pda = pdaUtils.assetConfigurationPda(mint);
+  return await getDeployProgram().account.assetConfiguration.fetch(pda, "confirmed");
 }

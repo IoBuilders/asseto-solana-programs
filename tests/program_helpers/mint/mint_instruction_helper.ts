@@ -4,11 +4,11 @@ import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID, SNAPSHOT_PROGRAM_ID } from "../../utils/address_utils";
-import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
+import { MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
 import { getEvent, getEvents } from "../event_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
 import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
@@ -45,8 +45,8 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
   const mintProgram = getMintProgram();
 
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   return await mintProgram.methods
     .mint(effectiveArgs.amount)
@@ -55,7 +55,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       authority: callContext.authority.publicKey,
       mint: callContext.mint,
       destination: callContext.destination,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mintAuthority: mintAuthorityPda(callContext.mint),
       freezeAuthority: freezeAuthorityPda(callContext.mint),
@@ -70,7 +70,10 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: mintEventAuthorityPda(),
       program: mintProgram.programId,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       authorityRolesPda: rolesPda(callContext.mint, callContext.authority.publicKey),
     })
     .signers(callContext?.signers ?? [callContext.authority])

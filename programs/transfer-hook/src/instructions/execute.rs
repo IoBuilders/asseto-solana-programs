@@ -9,7 +9,7 @@ use crate::errors::TransferHookError;
 use common::program_ids::{
     DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, SNAPSHOT_PROGRAM_ID, TRANSFER_PROGRAM_ID,
 };
-use common::state::{AssetClassVersion, MintOwner};
+use common::state::{AssetClassVersion, AssetConfiguration};
 
 /// Called by Token-2022 on every transfer via the SPL Transfer Hook Interface.
 ///
@@ -281,17 +281,17 @@ pub struct Execute<'info> {
     pub transfer_hook_authority: UncheckedAccount<'info>,
 
     /// CHECK: deploy program (index 10). Address verified by constraint;
-    /// resolves `mint_owner_pda`'s external PDA in the metalist.
+    /// resolves `asset_configuration_pda`'s external PDA in the metalist.
     #[account(address = DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// PDA created by deploy that records the configuration for this mint (index 11).
+    /// PDA that contains the configuration for this mint (index 11).
     #[account(
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = DEPLOY_PROGRAM_ID,
-        bump = mint_owner_pda.bump,
+        bump = asset_configuration_pda.bump,
     )]
-    pub mint_owner_pda: Account<'info, MintOwner>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
     /// CHECK: factory program (index 12). Address verified by constraint;
     /// resolves `asset_class_version_pda`'s external PDA in the metalist.
@@ -300,7 +300,11 @@ pub struct Execute<'info> {
 
     /// Asset-class version PDA this mint is hooked to (index 13).
     #[account(
-        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
         seeds::program = FACTORY_PROGRAM_ID,
         bump = asset_class_version_pda.load()?.bump,
     )]
