@@ -68,24 +68,19 @@ positions.
 | 1 | `source` | no | no | UncheckedAccount | Source token account; balance read for `require_unfrozen_balance` |
 | 2 | `destination` | no | no | UncheckedAccount | Used as a seed for `destination_whitelist_pda` |
 | 3 | `mint` | no | no | UncheckedAccount | Token-2022 mint |
-| 4 | `deployer` | no | *cond.* | UncheckedAccount | Must sign in clearing mode; otherwise present but unused |
-| 5 | `mint_owner_pda` | no | no | UncheckedAccount | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| 6 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| 7 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID` |
-| 8 | `source_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, source]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID` |
-| 9 | `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, destination]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID` |
-| 10 | `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, source]`, `seeds::program = FREEZE_PROGRAM_ID` |
-| 11 | `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, source]`, `seeds::program = FREEZE_PROGRAM_ID` |
+| 4 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
+| 5 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; may be empty (no mode active) |
+| 6 | `source_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, source]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; must exist in whitelist mode |
+| 7 | `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, destination]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; must exist in whitelist mode |
+| 8 | `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, source]`, `seeds::program = FREEZE_PROGRAM_ID` |
+| 9 | `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, source]`, `seeds::program = FREEZE_PROGRAM_ID` |
 
 ### Execution
 
 1. `require_active(&deactivate_pda)` — mint must not be deactivated.
-2. Transfer-control mode dispatch via `get_transfer_mode(&transfer_control_mode_pda)`:
-   - `None` — no controls; proceed.
-   - `Some(TransferMode::Clearing)` — require `deployer.is_signer` and
-     `verify_deployer(&mint_owner_pda, &deployer.key())`.
-   - `Some(TransferMode::Whitelist)` — `verify_whitelist(&source_whitelist_pda)`
-     and `verify_whitelist(&destination_whitelist_pda)`.
+2. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[&source_whitelist_pda, &destination_whitelist_pda])`
+   — a no-op if `transfer_control_mode_pda` is empty (no mode active); otherwise, in whitelist
+   mode, both the source and destination whitelist PDAs are checked.
 3. `require_unfrozen_account(&source_frozen_pda)` — source must not be fully frozen.
 4. `require_unfrozen_balance(amount, &source, &source_frozen_balance_pda)`
    — pre-debit available balance covers `amount`.
@@ -168,15 +163,15 @@ authority + system program + Instructions sysvar) must be **appended to
 ## Error Codes
 
 ```rust
-pub enum CmtatTransferError {
+pub enum TransferError {
     UnauthorizedTransfer,       // legacy — ownership enforced by Token-2022
 }
 ```
 
 Other errors propagate from the helpers `verify_transfer` calls:
-- `common::CmtatCommonError::{Deactivated, UnauthorizedDeployer}`
+- `common::CommonError::Deactivated`
 - `freeze::ErrorCode::{AccountFrozen, InsufficientUnfrozenBalance}`
-- `transfer_control::CmtatTransferControlError::NotWhitelisted`
+- `transfer_control::TransferControlError::NotWhitelisted`
 
 The hook itself raises `transfer_hook::TransferHookError::*` on
 introspection failure (see [`transfer-hook.md`](transfer-hook.md)).

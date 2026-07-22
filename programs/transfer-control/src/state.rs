@@ -7,7 +7,6 @@ use anchor_lang::prelude::*;
 /// - `1` → `Whitelist`
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, InitSpace)]
 pub enum TransferMode {
-    Clearing,
     Whitelist,
 }
 
@@ -18,18 +17,10 @@ pub enum TransferMode {
 /// Closed (and rent returned) by `set_mode` with an empty list.
 /// When the PDA is absent, no transfer controls are active.
 #[account]
+#[derive(InitSpace)]
 pub struct TransferControlMode {
-    pub modes: Vec<TransferMode>,
+    pub mode: TransferMode,
     pub bump: u8,
-}
-
-impl TransferControlMode {
-    pub fn space(num_modes: usize) -> usize {
-        8       // discriminator
-        + 4     // vec length (u32)
-        + (num_modes * TransferMode::INIT_SPACE)
-        + 1 // bump
-    }
 }
 
 /// Whitelist marker PDA.

@@ -5,23 +5,15 @@ use common::{
     roles,
 };
 
-use crate::events::TransferControlModesSet;
+use crate::events::TransferControlModeSet;
 use crate::state::{TransferControlMode, TransferMode};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, MintOwner, Roles};
 
-/// Sets, updates, or removes the transfer control modes for a mint.
+/// Initializes the transfer control modes for a mint.
 ///
-/// | `modes` argument     | PDA absent       | PDA present               |
-/// |----------------------|------------------|---------------------------|
-/// | empty vec            | no-op            | close → return rent       |
-/// | non-empty vec        | create + write   | realloc if needed + write |
-///
-/// The full active mode list is replaced on every call.
-/// Duplicate modes in the input are rejected.
-///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
-pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> {
+/// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
+pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
         roles::ROLE_CONTROL_LIST,
@@ -35,50 +27,22 @@ pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> 
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
-        common::functionalities::TRANSFER_CONTROL_SET_MODES,
+        common::functionalities::TRANSFER_CONTROL_INITIALIZE,
     )?;
 
-    // ── Remove possible duplicate modes ─────────────────────────────────────────────────────
-    let mut modes = modes;
-    modes.sort_unstable_by_key(|m| *m as u8);
-    modes.dedup();
+    ctx.accounts.transfer_control_mode_pda.bump = ctx.bumps.transfer_control_mode_pda;
+    ctx.accounts.transfer_control_mode_pda.mode = mode;
 
-    let pda = &ctx.accounts.transfer_control_mode_pda;
-
-    if modes.is_empty() {
-        close_pda(pda, &ctx.accounts.authority)?;
-    } else {
-        let bump = ctx.bumps.transfer_control_mode_pda;
-        let new_space = TransferControlMode::space(modes.len());
-        if pda.data_is_empty() {
-            create_pda(&ctx, pda, bump, new_space)?;
-        } else if pda.data_len() != new_space {
-            resize_pda(
-                pda,
-                &ctx.accounts.authority,
-                &ctx.accounts.system_program,
-                new_space,
-            )?;
-        }
-        write_pda(
-            pda,
-            TransferControlMode {
-                modes: modes.clone(),
-                bump,
-            },
-        )?;
-    }
-
-    emit_cpi!(TransferControlModesSet {
+    emit_cpi!(TransferControlModeSet {
         mint: ctx.accounts.mint.key(),
         operator: ctx.accounts.authority.key(),
-        modes,
+        mode,
     });
 
     Ok(())
 }
 
-/// Closes the PDA and returns rent to the deployer. No-op if already absent.
+/// Closes the PDA and returns rent to the authority. No-op if already absent.
 fn close_pda<'info>(pda: &UncheckedAccount<'info>, authority: &Signer<'info>) -> Result<()> {
     if pda.data_is_empty() {
         return Ok(());
@@ -121,7 +85,7 @@ fn create_pda<'info>(
 /// Adjusts lamports and resizes an existing PDA to `new_space`.
 fn resize_pda<'info>(
     pda: &UncheckedAccount<'info>,
-    deployer: &Signer<'info>,
+    authority: &Signer<'info>,
     system_program: &Program<'info, System>,
     new_space: usize,
 ) -> Result<()> {
@@ -129,13 +93,13 @@ fn resize_pda<'info>(
     let current = pda.lamports();
     match new_min.cmp(&current) {
         std::cmp::Ordering::Greater => {
-            // Deployer pays the missing rent via a system transfer CPI
+            // Authority pays the missing rent via a system transfer CPI
             let diff = new_min - current;
             anchor_lang::system_program::transfer(
                 CpiContext::new(
                     system_program.key(),
                     anchor_lang::system_program::Transfer {
-                        from: deployer.to_account_info(),
+                        from: authority.to_account_info(),
                         to: pda.to_account_info(),
                     },
                 ),
@@ -143,10 +107,11 @@ fn resize_pda<'info>(
             )?;
         }
         std::cmp::Ordering::Less => {
-            // PDA pays the leftover rent to the deployer
+            // PDA pays the leftover rent to the authority
             let diff = current - new_min;
             **pda.try_borrow_mut_lamports()? = new_min;
-            **deployer.try_borrow_mut_lamports()? = deployer.lamports().checked_add(diff).unwrap();
+            **authority.try_borrow_mut_lamports()? =
+                authority.lamports().checked_add(diff).unwrap();
         }
         std::cmp::Ordering::Equal => {}
     }
@@ -175,7 +140,7 @@ pub struct SetMode<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA created by deploy that records the configuration for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -200,17 +165,14 @@ pub struct SetMode<'info> {
     pub deactivate_pda: UncheckedAccount<'info>,
 
     /// Transfer Control Mode PDA.
-    /// Created when `mode` is `Some(_)`, closed when `mode` is `None`.
-    /// Absent PDA == no controls active.
-    ///
-    /// CHECK: Account lifecycle (create / update / close) is handled entirely
-    /// in the instruction body; seeds/bump constraint verifies the address.
     #[account(
-        mut,
+        init,
+        payer = authority,
+        space = TransferControlMode::DISCRIMINATOR.len() + TransferControlMode::INIT_SPACE,
         seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
         bump,
     )]
-    pub transfer_control_mode_pda: UncheckedAccount<'info>,
+    pub transfer_control_mode_pda: Account<'info, TransferControlMode>,
 
     /// Asset-class version PDA this mint is hooked to.
     #[account(
@@ -221,10 +183,4 @@ pub struct SetMode<'info> {
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub system_program: Program<'info, System>,
-}
-
-// Just to make TransferControlMode part of the IDL
-#[derive(Accounts)]
-pub struct __TransferControlModeIDL<'info> {
-    pub transfer_control_mode: Account<'info, TransferControlMode>,
 }

@@ -13,7 +13,7 @@ use common::state::{AssetClassVersion, MintOwner, Roles};
 /// The `whitelist_pda` (seeds: `["whitelist", mint, account]`) is created on first call.
 /// If the PDA already exists the instruction is a no-op (idempotent).
 ///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+/// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
 pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -58,7 +58,7 @@ pub struct AddToWhitelist<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA created by deploy that records the configuration for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,

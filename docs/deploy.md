@@ -29,7 +29,7 @@ can re-point the mint to a newer asset-class version by updating these fields.
 
 The fields are defined in `common::state::MintOwner` so downstream programs can deserialize it without importing `deploy`. This program defines its own `state::MintOwner` with `#[account]` (required for `Account<MintOwner>` usage) whose fields mirror `common`'s version and whose `LEN` delegates to it.
 
-Downstream programs read this account through `common::verify_deployer`, which skips the 8-byte discriminator and Borsh-deserializes the remaining fields. `#[account]`'s full `AccountDeserialize` (with discriminator check) cannot be used in `common` because that macro requires `declare_id!`, which a library crate does not have. The discriminator check is redundant anyway since the `seeds::program` constraint in every caller already guarantees the correct account. The account is passed as `&AccountInfo` because `Account<T>` enforces ownership by the calling program, but this account is owned by `deploy`.
+Downstream programs read this account as a typed `Account<MintOwner>` (using `common::state::MintOwner`, seeded with `seeds::program = DEPLOY_PROGRAM_ID`) to pull the asset-class ids for their own `asset_class_version_pda` derivation. There is no longer a `verify_deployer` helper — access is now gated by `require_role` against each caller's own `access-control` `Roles` PDA, not by matching the signer against the `deployer` pubkey stored here.
 
 ---
 

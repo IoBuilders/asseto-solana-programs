@@ -7,7 +7,7 @@ use common::{pda_seeds, require_active, require_functionality, require_role, rol
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use snapshot::cpi::accounts::{UpdateHolderBalanceSnapshot, UpdateTotalSupplySnapshot};
 use spl_token_2022::instruction::mint_to;
-use transfer_control::{get_transfer_modes, verify_whitelist, TransferMode};
+use transfer_control::verify_transfer_control_mode;
 
 use crate::events::Issued;
 use common::program_ids as constants;
@@ -35,12 +35,11 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         common::functionalities::MINT_MINT,
     )?;
 
-    // ── If whitelist mode is active, verify destination is whitelisted ────────
-    if get_transfer_modes(&ctx.accounts.transfer_control_mode_pda.to_account_info())?
-        .contains(&TransferMode::Whitelist)
-    {
-        verify_whitelist(&ctx.accounts.destination_whitelist_pda.to_account_info())?;
-    }
+    // ── Transfer control mode check ──────────────────────────────────────
+    verify_transfer_control_mode(
+        &ctx.accounts.transfer_control_mode_pda.to_account_info(),
+        &[&ctx.accounts.destination_whitelist_pda.to_account_info()],
+    )?;
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();

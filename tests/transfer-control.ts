@@ -1,6 +1,6 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { createTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
@@ -8,13 +8,13 @@ import {
   addToWhitelist,
   getAccountRemovedFromWhitelistEvent,
   getAccountWhitelistedEvent,
-  getTransferControlModesSetEvent,
+  getTransferControlModeSetEvent,
   removeFromWhitelist,
-  setTransferControlModes,
-  TRANSFER_CONTROL_CLEARING,
+  initializeTransferControlMode,
   TRANSFER_CONTROL_WHITELIST,
+  getTransferControlProgram,
 } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
-import { getAccountInfo, getBalanceForRentExeption } from "./program_helpers/account_helper";
+import { getAccountInfo } from "./program_helpers/account_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
@@ -24,7 +24,7 @@ import {
   PAUSE_PAUSE,
   TRANSFER_CONTROL_ADD_TO_WHITELIST,
   TRANSFER_CONTROL_REMOVE_FROM_WHITELIST,
-  TRANSFER_CONTROL_SET_MODES,
+  TRANSFER_CONTROL_INITIALIZE,
 } from "./utils/functionalities";
 import {
   getTransferControlModeByPda,
@@ -50,7 +50,7 @@ describe("transfer-control", () => {
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
-        TRANSFER_CONTROL_SET_MODES,
+        TRANSFER_CONTROL_INITIALIZE,
         TRANSFER_CONTROL_ADD_TO_WHITELIST,
         TRANSFER_CONTROL_REMOVE_FROM_WHITELIST,
         DEACTIVATE_DEACTIVATE,
@@ -59,163 +59,68 @@ describe("transfer-control", () => {
     await setRoles(mint, authority.publicKey, [ROLE_CONTROL_LIST]);
   });
 
-  describe("set_modes", async () => {
-    // 8 discriminator + 4 vec-length prefix + 1 byte per TransferMode variant + 1 bump
-    function getSizeOfTransferControlModePda(numModes: number): number {
-      return 8 + 4 + numModes + 1;
-    }
-
-    // ── Happy-path: set_modes creates the PDA and sets modes = [Clearing] ───────────
-    it("set_modes: creates the transfer_control_mode PDA with modes = [Clearing]", async () => {
-      const modes = [TRANSFER_CONTROL_CLEARING];
+  describe("initialize", async () => {
+    // ── Happy-path: initialize creates the PDA and sets mode = Whitelist ───────────
+    it("initialize: creates the transfer_control_mode PDA with mode = Whitelist", async () => {
+      const mode = TRANSFER_CONTROL_WHITELIST;
       const transferControlMode = transferControlModePda(mint);
       const [, expectedBump] = transferControlModePdaWithBump(mint);
 
       // ── Verify the PDA does not exist before the instruction ────────────────
       const stateBefore = await getTransferControlModeByPda(transferControlMode);
 
-      // ── Call set_modes(TRANSFER_CONTROL_CLEARING) ────────────────────────────────────
-      const { signature } = await setTransferControlModes({ authority, mint }, { modes });
+      // ── Call initialize(TRANSFER_CONTROL_WHITELIST) ────────────────────────────────────
+      const { signature } = await initializeTransferControlMode({ authority, mint }, { mode });
 
       // ── Fetch and verify the PDA ─────────────────────────────────────────────
       const stateAfter = await getTransferControlModeByPda(transferControlMode);
       const accountInfo = await getAccountInfo(transferControlMode);
 
-      const expectedSize = getSizeOfTransferControlModePda(modes.length);
+      const expectedSize = getTransferControlProgram().account.transferControlMode.size;
 
-      assert.isNull(stateBefore, "transfer_control_mode PDA should not exist before set_modes");
-      assert.isNotNull(stateAfter, "transfer_control_mode PDA should exist after set_modes");
-      assert.deepEqual(stateAfter.modes, modes, `modes should be ${modes}`);
+      assert.isNull(stateBefore, "transfer_control_mode PDA should not exist before initialize");
+      assert.isNotNull(stateAfter, "transfer_control_mode PDA should exist after initialize");
+      assert.deepEqual(stateAfter.mode, mode, `mode should be ${mode}`);
       assert.equal(stateAfter.bump, expectedBump, "bump should match the canonical bump");
       assert.equal(accountInfo.data.length, expectedSize, `PDA size should be ${expectedSize} bytes`);
 
-      const modesSetEvent = await getTransferControlModesSetEvent(signature);
-      assert.isNotNull(modesSetEvent, "TransferControlModesSet event should be emitted");
-      assert.equal(modesSetEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+      const modeSetEvent = await getTransferControlModeSetEvent(signature);
+      assert.isNotNull(modeSetEvent, "TransferControlModesSet event should be emitted");
+      assert.equal(modeSetEvent!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
       assert.equal(
-        modesSetEvent!.operator.toBase58(),
+        modeSetEvent!.operator.toBase58(),
         authority.publicKey.toBase58(),
         "event operator should match authority"
       );
-      assert.deepEqual(modesSetEvent!.modes, modes, `event modes should be ${modes}`);
+      assert.deepEqual(modeSetEvent!.mode, mode, `event mode should be ${mode}`);
     });
 
-    // ── Happy-path: set_modes expands the PDA when a mode is added ────────────────────
-    it("set_modes: adds mode to an existing transfer_control_mode PDA", async () => {
-      const initialModes = [TRANSFER_CONTROL_CLEARING];
-      const newModes = [...initialModes, TRANSFER_CONTROL_WHITELIST];
-      const transferControlMode = transferControlModePda(mint);
+    // ── Error case: initialize — PDA already exists ────────────────────────────────
+    it("initialize: fails when the transfer_control_mode PDA already exists", async () => {
+      // Plant an existing transfer_control_mode PDA so a second `init` must fail.
+      await initializeTransferControlMode({ authority, mint });
 
-      // ── First call: create with modes = [Clearing] ────────────────────────────
-      await setTransferControlModes({ authority, mint }, { modes: initialModes });
-
-      const stateAfterFirst = await getTransferControlModeByPda(transferControlMode);
-      const accountInfoBefore = await getAccountInfo(transferControlMode);
-      const dataSizeBefore = accountInfoBefore.data.length;
-      const lamportsBefore = accountInfoBefore.lamports;
-      const expectedSizeBefore = getSizeOfTransferControlModePda(initialModes.length);
-      const expectedLamportsBefore = await getBalanceForRentExeption(expectedSizeBefore);
-
-      assert.deepEqual(stateAfterFirst.modes, initialModes, `modes should be ${initialModes} after first call`);
-      assert.equal(dataSizeBefore, expectedSizeBefore, `PDA size before should be ${expectedSizeBefore} bytes`);
-      assert.equal(
-        lamportsBefore,
-        expectedLamportsBefore,
-        `PDA lamports should be rent-exempt for ${expectedSizeBefore} bytes`
-      );
-
-      // ── Second call: Add Whitelist to modes ──────────────────
-      await setTransferControlModes({ authority, mint }, { modes: newModes });
-
-      const stateAfterUpdate = await getTransferControlModeByPda(transferControlMode);
-
-      const accountInfoAfter = await getAccountInfo(transferControlMode);
-      const lamportsAfter = accountInfoAfter.lamports;
-      const dataSizeAfter = accountInfoAfter.data.length;
-      const expectedSizeAfter = getSizeOfTransferControlModePda(newModes.length);
-      const expectedLamportsAfter = await getBalanceForRentExeption(expectedSizeAfter);
-
-      assert.deepEqual(stateAfterUpdate.modes, newModes, `modes should be ${newModes} after update`);
-      assert.equal(dataSizeAfter, expectedSizeAfter, `PDA size after should be ${expectedSizeAfter} bytes`);
-      assert.ok(dataSizeAfter > dataSizeBefore, `PDA data size should increase (${dataSizeBefore} → ${dataSizeAfter})`);
-      assert.equal(
-        lamportsAfter,
-        expectedLamportsAfter,
-        `PDA lamports should be rent-exempt for ${expectedSizeAfter} bytes`
-      );
-      assert.ok(lamportsAfter > lamportsBefore, `PDA lamports should increase (${lamportsBefore} → ${lamportsAfter})`);
+      try {
+        await initializeTransferControlMode({ authority, mint });
+        assert.fail("Expected failure but initialize succeeded on an existing PDA");
+      } catch (err) {
+        // `init` on an existing account fails in the System program with
+        // "already in use" — surfaced as a SendTransactionError, not an Anchor code.
+        assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
+        const logs = (err as SendTransactionError).logs ?? [];
+        assert.isTrue(
+          logs.some((l) => l.includes("already in use")),
+          "transaction logs should mention account already in use"
+        );
+      }
     });
 
-    // ── Happy-path: set_modes shrinks the PDA when a mode is removed ──────────────
-    it("set_modes: removes a mode from an existing transfer_control_mode PDA", async () => {
-      const initialModes = [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST] as any[];
-      const newModes = [TRANSFER_CONTROL_CLEARING];
-      const transferControlMode = transferControlModePda(mint);
-
-      // ── First call: create with modes = [Clearing, Whitelist] ────────────────
-      await setTransferControlModes({ authority, mint }, { modes: initialModes });
-
-      const stateAfterFirst = await getTransferControlModeByPda(transferControlMode);
-      const accountInfoBefore = await getAccountInfo(transferControlMode);
-      const dataSizeBefore = accountInfoBefore.data.length;
-      const lamportsBefore = accountInfoBefore.lamports;
-      const expectedSizeBefore = getSizeOfTransferControlModePda(initialModes.length);
-      const expectedLamportsBefore = await getBalanceForRentExeption(expectedSizeBefore);
-
-      assert.deepEqual(stateAfterFirst.modes, initialModes, `modes should be ${initialModes} after first call`);
-      assert.equal(dataSizeBefore, expectedSizeBefore, `PDA size before should be ${expectedSizeBefore} bytes`);
-      assert.equal(
-        lamportsBefore,
-        expectedLamportsBefore,
-        `PDA lamports should be rent-exempt for ${expectedSizeBefore} bytes`
-      );
-
-      // ── Second call: remove Whitelist, keeping only [Clearing] ───────────────
-      await setTransferControlModes({ authority, mint }, { modes: newModes });
-
-      const stateAfterUpdate = await getTransferControlModeByPda(transferControlMode);
-
-      const accountInfoAfter = await getAccountInfo(transferControlMode);
-      const dataSizeAfter = accountInfoAfter.data.length;
-      const lamportsAfter = accountInfoAfter.lamports;
-      const expectedSizeAfter = getSizeOfTransferControlModePda(newModes.length);
-      const expectedLamportsAfter = await getBalanceForRentExeption(expectedSizeAfter);
-
-      assert.deepEqual(stateAfterUpdate.modes, newModes, "modes should be [Clearing] after removing Whitelist");
-      assert.equal(dataSizeAfter, expectedSizeAfter, `PDA size after should be ${expectedSizeAfter} bytes`);
-      assert.ok(dataSizeAfter < dataSizeBefore, `PDA data size should decrease (${dataSizeBefore} → ${dataSizeAfter})`);
-      assert.equal(
-        lamportsAfter,
-        expectedLamportsAfter,
-        `PDA lamports should be rent-exempt for ${expectedSizeAfter} bytes`
-      );
-      assert.ok(lamportsAfter < lamportsBefore, `PDA lamports should decrease (${lamportsBefore} → ${lamportsAfter})`);
-    });
-
-    // ── Happy-path: set_modes(null) removes an existing transfer_control_mode PDA ──
-    it("set_modes: closes the transfer_control_mode PDA when called with empty vector", async () => {
-      const transferControlMode = transferControlModePda(mint);
-
-      // ── First: create the PDA with any mode ────────────────────────────────
-      await setTransferControlModes({ authority, mint });
-
-      const stateAfterCreate = await getTransferControlModeByPda(transferControlMode);
-      assert.isNotNull(stateAfterCreate, "transfer_control_mode PDA should exist after set_modes([clearing])");
-
-      // ── Then: remove it by passing empty vector ────────────────────
-      await setTransferControlModes({ authority, mint }, { modes: [] });
-
-      // ── Verify the PDA has been closed ────────────────────────────────────
-      const stateAfterRemove = await getTransferControlModeByPda(transferControlMode);
-      assert.isNull(stateAfterRemove, "transfer_control_mode PDA should not exist after set_modes([])");
-    });
-
-    // ── Error case: set_modes — MissingRole ──────────────────────────────
-    it("set_modes: fails with MissingRole when authority doesn't have required role", async () => {
+    // ── Error case: initialize — MissingRole ──────────────────────────────
+    it("initialize: fails with MissingRole when authority doesn't have required role", async () => {
       await setRoles(mint, authority.publicKey, []);
 
       try {
-        await setTransferControlModes({ authority, mint });
+        await initializeTransferControlMode({ authority, mint });
         assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -224,12 +129,12 @@ describe("transfer-control", () => {
       }
     });
 
-    // ── Error case: set_modes — MintPaused ────────────────────────────────────────
-    it("set_modes: fails with MintPaused when mint is paused", async () => {
+    // ── Error case: initialize — MintPaused ────────────────────────────────────────
+    it("initialize: fails with MintPaused when mint is paused", async () => {
       await setMintPaused(mint, true);
 
       try {
-        await setTransferControlModes({ authority, mint });
+        await initializeTransferControlMode({ authority, mint });
         assert.fail("Expected MintPaused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -238,12 +143,12 @@ describe("transfer-control", () => {
       }
     });
 
-    // ── Error case: set_modes — Deactivated ───────────────────────────────────────
-    it("set_modes: fails with Deactivated when mint has been deactivated", async () => {
+    // ── Error case: initialize — Deactivated ───────────────────────────────────────
+    it("initialize: fails with Deactivated when mint has been deactivated", async () => {
       await setDeactivateMarker(mint);
 
       try {
-        await setTransferControlModes({ authority, mint });
+        await initializeTransferControlMode({ authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -252,13 +157,13 @@ describe("transfer-control", () => {
       }
     });
 
-    // ── Error case: set_modes — FunctionalityNotSupportedError ────────────────────
-    it("set_modes: fails with FunctionalityNotSupportedError when the set_modes functionality is not enabled", async () => {
-      // Re-seed the asset-class version WITHOUT the set_modes functionality.
+    // ── Error case: initialize — FunctionalityNotSupportedError ────────────────────
+    it("initialize: fails with FunctionalityNotSupportedError when the initialize functionality is not enabled", async () => {
+      // Re-seed the asset-class version WITHOUT the initialize functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
       try {
-        await setTransferControlModes({ authority, mint });
+        await initializeTransferControlMode({ authority, mint });
         assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -271,16 +176,16 @@ describe("transfer-control", () => {
       }
     });
 
-    // ── Error case: set_modes — AssetClassVersionNotFinalized ─────────────────────
-    it("set_modes: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+    // ── Error case: initialize — AssetClassVersionNotFinalized ─────────────────────
+    it("initialize: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
       // Re-seed the asset-class version WITHOUT finalizing it.
       await setAssetClassVersionForMint(mint, {
         state: ASSET_CLASS_VERSION_STATE_DRAFT,
-        functionalities: [TRANSFER_CONTROL_SET_MODES],
+        functionalities: [TRANSFER_CONTROL_INITIALIZE],
       });
 
       try {
-        await setTransferControlModes({ authority, mint });
+        await initializeTransferControlMode({ authority, mint });
         assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -333,7 +238,7 @@ describe("transfer-control", () => {
       await setRoles(mint, authority.publicKey, []);
 
       try {
-        await setTransferControlModes({ authority, mint });
+        await initializeTransferControlMode({ authority, mint });
         assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

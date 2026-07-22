@@ -5,55 +5,57 @@ pub mod events;
 pub mod instructions;
 pub mod state;
 
+use crate::state::TransferControlMode;
 use instructions::*;
 pub use state::TransferMode;
 
 declare_id!("3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo");
 
-/// Checks whether a `whitelist_pda` (seeds: `["whitelist", mint, account]`) exists,
-/// indicating the account has been whitelisted for this mint.
+/// Checks that every `whitelist_pda` satisfies the active transfer control mode.
 ///
-/// Returns `Ok(())` if the PDA exists (account is whitelisted).
-/// Returns `Err(TransferControlError::NotWhitelisted)` if the PDA is absent.
-pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()> {
-    require!(
-        !whitelist_pda.data_is_empty(),
-        errors::TransferControlError::NotWhitelisted
-    );
-    Ok(())
-}
-
-/// Returns the active transfer control modes for the given mint.
-///
-/// Returns an empty vec when the PDA is absent (no controls active).
-/// Otherwise deserializes the PDA and returns the full list of active modes.
-pub fn get_transfer_modes(transfer_control_mode_pda: &AccountInfo) -> Result<Vec<TransferMode>> {
-    use crate::state::TransferControlMode;
-
+/// `transfer_control_mode_pda` and each `whitelist_pda` are raw, unchecked PDAs —
+/// their address is verified by the caller's `seeds`/`bump` constraints, but their
+/// contents are not deserialized by Anchor. An empty account means "does not exist"
+/// (no mode set / not whitelisted); a non-empty account is Borsh-deserialized here.
+pub fn verify_transfer_control_mode(
+    transfer_control_mode_pda: &AccountInfo,
+    whitelist_pdas: &[&AccountInfo],
+) -> Result<()> {
     if transfer_control_mode_pda.data_is_empty() {
-        return Ok(vec![]);
+        return Ok(());
     }
-    let data = transfer_control_mode_pda.try_borrow_data()?;
-    let mut slice: &[u8] = &data;
-    let mode_pda = TransferControlMode::try_deserialize(&mut slice)
-        .map_err(|_| error!(anchor_lang::error::ErrorCode::AccountDidNotDeserialize))?;
-    Ok(mode_pda.modes)
+
+    let transfer_control_mode = {
+        let data = transfer_control_mode_pda.try_borrow_data()?;
+        TransferControlMode::try_deserialize(&mut data.as_ref())?
+    };
+
+    if transfer_control_mode.mode == TransferMode::Whitelist {
+        for whitelist_pda in whitelist_pdas {
+            require!(
+                !whitelist_pda.data_is_empty(),
+                errors::TransferControlError::NotWhitelisted
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[program]
 pub mod transfer_control {
     use super::*;
 
-    /// Sets, updates, or removes the active transfer control modes for a mint.
+    /// Initializes the active transfer control modes for a mint.
     ///
     /// The full active mode list is replaced on every call.
     /// - Non-empty vec — creates or updates the PDA with the given modes.
-    /// - Empty vec     — closes the PDA if present (returns rent to deployer); no controls.
+    /// - Empty vec     — closes the PDA if present (returns rent to authority); no controls.
     ///
-    /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+    /// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
     /// The mint must not be paused or deactivated.
-    pub fn set_modes(ctx: Context<SetMode>, modes: Vec<TransferMode>) -> Result<()> {
-        set_modes::set_modes(ctx, modes)
+    pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
+        initialize::initialize(ctx, mode)
     }
 
     /// Adds a token account to the whitelist for a mint by creating a marker PDA.
@@ -61,7 +63,7 @@ pub mod transfer_control {
     /// Creates the `whitelist_pda` (seeds: `["whitelist", mint, account]`) if it does not
     /// exist yet. If it already exists the instruction is a no-op.
     ///
-    /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+    /// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
     /// The mint must not be paused or deactivated.
     pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
         add_to_whitelist::add_to_whitelist(ctx)
@@ -70,18 +72,11 @@ pub mod transfer_control {
     /// Removes a token account from the whitelist for a mint by closing the marker PDA.
     ///
     /// Closes the `whitelist_pda` (seeds: `["whitelist", mint, account]`) and returns its
-    /// rent lamports to the deployer. If the PDA does not exist the instruction is a no-op.
+    /// rent lamports to the authority. If the PDA does not exist the instruction is a no-op.
     ///
-    /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+    /// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
     /// The mint must not be paused or deactivated.
     pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
         remove_from_whitelist::remove_from_whitelist(ctx)
-    }
-
-    // Just to make TransferControlMode part of the IDL
-    pub fn __idl_expose_transfer_control_mode(
-        _ctx: Context<__TransferControlModeIDL>,
-    ) -> Result<()> {
-        Ok(())
     }
 }
