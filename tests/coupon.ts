@@ -107,7 +107,8 @@ describe("coupon", () => {
 
       // ── coupon PDA holds the right data ──────────────────────────────────────
       const coupon = await getCouponByPda(couponPda);
-      assert.equal(coupon.snapshotId.toString(), "1", "coupon.snapshot_id should match the just-taken snapshot");
+      // snapshot ids are 0-based (counter stores the next id), so the first coupon's snapshot is 0.
+      assert.equal(coupon.snapshotId.toString(), "0", "coupon.snapshot_id should match the just-taken snapshot");
       assert.equal(
         coupon.periodStartDate.toString(),
         periodStartDate.toString(),
@@ -174,7 +175,8 @@ describe("coupon", () => {
       assert.equal(snapshotCounter.count.toString(), "2", "snapshot_counter.count should be 2");
 
       const coupon2 = await getCoupon(mint, couponId2);
-      assert.equal(coupon2.snapshotId.toString(), "2");
+      // Second coupon → second snapshot → 0-based id 1.
+      assert.equal(coupon2.snapshotId.toString(), "1");
       assert.equal(coupon2.periodStartDate.toString(), periodStartDate2.toString());
       assert.equal(coupon2.periodEndDate.toString(), periodEndDate2.toString());
       assert.equal(coupon2.paymentDate.toString(), paymentDate2.toString());

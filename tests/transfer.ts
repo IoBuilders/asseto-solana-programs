@@ -1,12 +1,11 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { AccountMeta, Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
+import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_FREEZE_MANAGER } from "./utils/roles";
-import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import {
   freezeAccount,
   partiallyFreezeAccount,
@@ -23,12 +22,8 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
-import {
-  TRANSFER_CONTROL_CLEARING,
-  TRANSFER_CONTROL_WHITELIST,
-} from "./program_helpers/transfer_control/transfer_control_instruction_helper";
+import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { buildVerifyTransferInstruction, transfer, verifyTransfer } from "./program_helpers/transfer_helper";
-import { requestAirdrop } from "./program_helpers/account_helper";
 import { beforeEach } from "mocha";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -44,13 +39,13 @@ import {
   OPERATIONS_BURN,
   PAUSE_PAUSE,
   TRANSFER_CONTROL_ADD_TO_WHITELIST,
-  TRANSFER_CONTROL_SET_MODES,
+  TRANSFER_CONTROL_INITIALIZE,
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 import {
-  setTransferControlModesMarker,
+  setTransferControlModeMarker,
   setWhitelistMarker,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 
@@ -77,7 +72,7 @@ describe("transfer", () => {
       functionalities: [
         PAUSE_PAUSE,
         OPERATIONS_BURN,
-        TRANSFER_CONTROL_SET_MODES,
+        TRANSFER_CONTROL_INITIALIZE,
         TRANSFER_CONTROL_ADD_TO_WHITELIST,
         COUPON_CREATE_COUPON,
         DEACTIVATE_DEACTIVATE,
@@ -162,14 +157,10 @@ describe("transfer", () => {
       );
 
       // ── Assert snapshot values via get_holderbalance_snapshot_at ─────────────
-      const senderValue = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId }
-      );
-      const receiverValue = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId }
-      );
+      // snapshot id is 0-based: coupon N triggers snapshot N-1.
+      const snapshotId = couponId.sub(new anchor.BN(1));
+      const senderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
+      const receiverValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: destination }, { snapshotId });
 
       assert.equal(
         senderValue.toString(),
@@ -228,11 +219,11 @@ describe("transfer", () => {
       // ── Snapshot 1 must reflect the pre-first-transfer state ──────────────────
       const senderAt1_afterTwo = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: source },
-        { snapshotId: couponId1 }
+        { snapshotId: couponId1.sub(new anchor.BN(1)) }
       );
       const receiverAt1_afterTwo = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: destination },
-        { snapshotId: couponId1 }
+        { snapshotId: couponId1.sub(new anchor.BN(1)) }
       );
 
       assert.equal(
@@ -280,11 +271,11 @@ describe("transfer", () => {
       // ── Snapshot 1 must still be intact after the period-2 transfer ───────────
       const senderAt1_final = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: source },
-        { snapshotId: couponId1 }
+        { snapshotId: couponId1.sub(new anchor.BN(1)) }
       );
       const receiverAt1_final = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: destination },
-        { snapshotId: couponId1 }
+        { snapshotId: couponId1.sub(new anchor.BN(1)) }
       );
 
       assert.equal(
@@ -309,11 +300,11 @@ describe("transfer", () => {
 
       const senderAt2 = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: source },
-        { snapshotId: couponId2 }
+        { snapshotId: couponId2.sub(new anchor.BN(1)) }
       );
       const receiverAt2 = await getHolderBalanceSnapshotAt(
         { mint, holderTokenAccount: destination },
-        { snapshotId: couponId2 }
+        { snapshotId: couponId2.sub(new anchor.BN(1)) }
       );
 
       assert.equal(
@@ -665,186 +656,6 @@ describe("transfer", () => {
       }
     });
 
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: succeeds when clearing mode is active and the deployer co-signs verify_transfer", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING]);
-
-      await fundTransferHookAuthority(mint);
-
-      const sourceBefore = (await getTokenAccount(source)).amount;
-      const destBefore = (await getTokenAccount(destination)).amount;
-
-      // Build verify_transfer with the real deployer and flip isSigner so the
-      // runtime clearing-mode check sees deployer.is_signer = true. The provider
-      // wallet IS the deployer, so is automatically signs the transaction.
-      const verifyIx = await buildVerifyTransferInstruction(
-        { deployer, mint, source, sourceOwner, destination },
-        { amount: TRANSFER_AMOUNT }
-      );
-      const deployerIdxInVerify = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(deployer));
-      verifyIx.keys[deployerIdxInVerify].isSigner = true;
-      await transfer(
-        {
-          deployer,
-          mint,
-          source,
-          sourceOwner,
-          destination,
-          preInstructions: [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx],
-          signers: [sourceOwnerKeypair],
-        },
-        { amount: TRANSFER_AMOUNT }
-      );
-
-      const sourceAfter = (await getTokenAccount(source)).amount;
-      const destAfter = (await getTokenAccount(destination)).amount;
-
-      assert.equal(
-        (sourceBefore - sourceAfter).toString(),
-        TRANSFER_AMOUNT.toString(),
-        "source should be debited by the transfer amount"
-      );
-      assert.equal(
-        (destAfter - destBefore).toString(),
-        TRANSFER_AMOUNT.toString(),
-        "destination should be credited by the transfer amount"
-      );
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: succeeds when both Clearing and Whitelist modes are active and both conditions are satisfied", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Activate [Clearing, Whitelist] and whitelist both ends.
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST]);
-      await setWhitelistMarker(mint, source);
-      await setWhitelistMarker(mint, destination);
-
-      await fundTransferHookAuthority(mint);
-
-      const sourceBefore = (await getTokenAccount(source)).amount;
-      const destBefore = (await getTokenAccount(destination)).amount;
-
-      // Flip deployer.isSigner so the clearing-mode check sees a co-signature.
-      const verifyIx = await buildVerifyTransferInstruction(
-        { deployer, mint, source, sourceOwner, destination },
-        { amount: TRANSFER_AMOUNT }
-      );
-      const deployerIdx = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(deployer));
-      verifyIx.keys[deployerIdx].isSigner = true;
-      await transfer(
-        {
-          deployer,
-          mint,
-          source,
-          sourceOwner,
-          destination,
-          preInstructions: [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx],
-          signers: [sourceOwnerKeypair],
-        },
-        { amount: TRANSFER_AMOUNT }
-      );
-
-      const sourceAfter = (await getTokenAccount(source)).amount;
-      const destAfter = (await getTokenAccount(destination)).amount;
-
-      assert.equal(
-        sourceAfter.toString(),
-        (sourceBefore - BigInt(TRANSFER_AMOUNT.toString())).toString(),
-        "source should be debited by TRANSFER_AMOUNT"
-      );
-      assert.equal(
-        destAfter.toString(),
-        (destBefore + BigInt(TRANSFER_AMOUNT.toString())).toString(),
-        "destination should be credited TRANSFER_AMOUNT"
-      );
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: rule change between transactions takes effect immediately (hot-swap)", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Rogue keypair occupies the deployer slot so the wallet's fee-payer
-      // signature does not propagate is_signer=true onto it. Unused in phase A
-      // (Whitelist only), critical in phase B (Clearing requires a co-signature).
-      const rogueKeypair = Keypair.generate();
-
-      // Whitelist both ends — PDAs persist across the mode swap.
-      await setWhitelistMarker(mint, source);
-      await setWhitelistMarker(mint, destination);
-
-      await fundTransferHookAuthority(mint);
-
-      // ── Phase A: modes = [Whitelist] → transfer succeeds ────────────────────
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
-
-      const sourceBefore = (await getTokenAccount(source)).amount;
-      const destBefore = (await getTokenAccount(destination)).amount;
-
-      await transfer(
-        { deployer: rogueKeypair.publicKey, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: TRANSFER_AMOUNT }
-      );
-
-      const sourceMid = (await getTokenAccount(source)).amount;
-      const destMid = (await getTokenAccount(destination)).amount;
-      assert.equal(
-        sourceMid.toString(),
-        (sourceBefore - BigInt(TRANSFER_AMOUNT.toString())).toString(),
-        "phase A: source should be debited TRANSFER_AMOUNT under [Whitelist]"
-      );
-      assert.equal(
-        destMid.toString(),
-        (destBefore + BigInt(TRANSFER_AMOUNT.toString())).toString(),
-        "phase A: destination should be credited TRANSFER_AMOUNT under [Whitelist]"
-      );
-
-      // ── Phase B: same transfer params, now must fail under [Clearing, Whitelist] ──
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST]);
-
-      try {
-        await verifyTransfer(
-          { deployer: rogueKeypair.publicKey, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-          { amount: TRANSFER_AMOUNT }
-        );
-
-        assert.fail("Expected TransferControlDenied after hot-swap to [Clearing, Whitelist]");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr!.error.errorCode.code,
-          "TransferControlDenied",
-          "phase B: same transfer must now fail under [Clearing, Whitelist]"
-        );
-      }
-
-      // Rejected transfer must not move any tokens.
-      const sourceAfter = (await getTokenAccount(source)).amount;
-      const destAfter = (await getTokenAccount(destination)).amount;
-      assert.equal(
-        sourceAfter.toString(),
-        sourceMid.toString(),
-        "phase B: rejected transfer must not change source balance"
-      );
-      assert.equal(
-        destAfter.toString(),
-        destMid.toString(),
-        "phase B: rejected transfer must not change destination balance"
-      );
-    });
-
     // ── burn × partial freeze handled correctly (no panic, transfers stay blocked) ──
     it("transfer: burning below the partial-freeze amount leaves the frozen PDA stale and blocks all outbound transfers", async () => {
       const TOTAL_AMOUNT = new anchor.BN(100 * 10 ** MINT_DECIMALS);
@@ -923,115 +734,7 @@ describe("transfer", () => {
 
   describe("verify_transfer", async () => {
     // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with TransferControlDenied when both modes active and only whitelist passes (signer is not the deployer)", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Activate [Clearing, Whitelist] and whitelist BOTH ends so whitelist passes.
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST]);
-      await setWhitelistMarker(mint, source);
-      await setWhitelistMarker(mint, destination);
-
-      // Rogue signer that is NOT the recorded deployer.
-      const rogueKeypair = Keypair.generate();
-      await requestAirdrop(rogueKeypair.publicKey);
-
-      const verifyIx = await buildVerifyTransferInstruction(
-        { deployer: rogueKeypair.publicKey, mint, source, sourceOwner, destination },
-        { amount: TRANSFER_AMOUNT }
-      );
-      const deployerIdx = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(rogueKeypair.publicKey));
-      verifyIx.keys[deployerIdx].isSigner = true;
-      const tx = new anchor.web3.Transaction().add(verifyIx);
-
-      // The rejection happens entirely inside verify_transfer, so the paired
-      // transfer instruction (never executed once verify_transfer fails) is
-      // unnecessary here — sending verify_transfer alone keeps the transaction
-      // well under the 1232-byte legacy limit.
-      try {
-        await anchor.web3.sendAndConfirmTransaction(
-          provider.connection,
-          tx,
-          [payerKeypair, ...[sourceOwnerKeypair, rogueKeypair]],
-          {
-            commitment: "confirmed",
-          }
-        );
-        assert.fail("Expected TransferControlDenied but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
-        const sendErr = err as SendTransactionError;
-        const anchorErr = AnchorError.parse(sendErr.logs ?? []);
-        assert.isNotNull(anchorErr, "expected AnchorError in transaction logs");
-        assert.equal(
-          anchorErr!.error.errorCode.code,
-          "TransferControlDenied",
-          "error code should be TransferControlDenied (clearing fails, whitelist alone not enough)"
-        );
-      }
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with TransferControlDenied when clearing mode is active and signer is not the deployer", async () => {
-      // Mint tokens to source before activating clearing mode
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      // Create destination token account
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Activate clearing mode
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING]);
-
-      // A rogue keypair that is NOT the recorded deployer
-      const rogueKeypair = Keypair.generate();
-      await requestAirdrop(rogueKeypair.publicKey);
-
-      // The clearing-mode signer check now lives in `verify_transfer`, not in
-      // `transfer.transfer`. `deployer` is `UncheckedAccount` in the Rust
-      // struct, so Anchor never marks it isSigner when building the client-side
-      // instruction from the IDL. We build verify_transfer with the rogue pubkey
-      // as deployer override and manually flip its isSigner flag — otherwise Solana
-      // rejects the tx with "unknown signer" before verify_deployer runs.
-      const verifyIx = await buildVerifyTransferInstruction(
-        { deployer: rogueKeypair.publicKey, mint, source, sourceOwner, destination },
-        { amount: TRANSFER_AMOUNT }
-      );
-      const deployerIdxInVerify = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(rogueKeypair.publicKey));
-      verifyIx.keys[deployerIdxInVerify].isSigner = true;
-      const tx = new anchor.web3.Transaction().add(verifyIx);
-
-      // The rejection happens entirely inside verify_transfer, so the paired
-      // transfer instruction (never executed once verify_transfer fails) is
-      // unnecessary here — sending verify_transfer alone keeps the transaction
-      // well under the 1232-byte legacy limit.
-      try {
-        await anchor.web3.sendAndConfirmTransaction(
-          provider.connection,
-          tx,
-          [payerKeypair, ...[sourceOwnerKeypair, rogueKeypair]],
-          {
-            commitment: "confirmed",
-          }
-        );
-        assert.fail("Expected TransferControlDenied error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
-        const sendErr = err as SendTransactionError;
-        const anchorErr = AnchorError.parse(sendErr.logs ?? []);
-        assert.isNotNull(anchorErr, "expected AnchorError in transaction logs");
-        assert.equal(
-          anchorErr!.error.errorCode.code,
-          "TransferControlDenied",
-          "error code should be TransferControlDenied"
-        );
-      }
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with TransferControlDenied when whitelist mode is active and source is not whitelisted", async () => {
+    it("verify_transfer: fails with NotWhitelisted when whitelist mode is active and source is not whitelisted", async () => {
       // Mint tokens to source before activating whitelist mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
@@ -1040,7 +743,7 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // Activate whitelist mode
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
+      await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
       // Add destination to whitelist — source is NOT whitelisted
       await setWhitelistMarker(mint, destination);
@@ -1054,15 +757,11 @@ describe("transfer", () => {
           { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
-        assert.fail("Expected TransferControlDenied error but instruction succeeded");
+        assert.fail("Expected NotWhitelisted error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "TransferControlDenied",
-          "error code should be TransferControlDenied"
-        );
+        assert.equal(anchorErr.error.errorCode.code, "NotWhitelisted", "error code should be NotWhitelisted");
       }
 
       const sourceAfter = (await getTokenAccount(source)).amount;
@@ -1081,53 +780,7 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with TransferControlDenied when both modes active and only clearing passes (destination not whitelisted)", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Activate [Clearing, Whitelist] and whitelist ONLY source — destination check will fail.
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_CLEARING, TRANSFER_CONTROL_WHITELIST]);
-      await setWhitelistMarker(mint, source);
-
-      await fundTransferHookAuthority(mint);
-
-      // Flip deployer.isSigner so clearing passes; whitelist still fails on destination.
-      const verifyIx = await buildVerifyTransferInstruction(
-        { deployer, mint, source, sourceOwner, destination },
-        { amount: TRANSFER_AMOUNT }
-      );
-      const deployerIdx = verifyIx.keys.findIndex((k: AccountMeta) => k.pubkey.equals(deployer));
-      verifyIx.keys[deployerIdx].isSigner = true;
-
-      try {
-        await transfer(
-          {
-            deployer,
-            mint,
-            source,
-            sourceOwner,
-            destination,
-            preInstructions: [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx],
-            signers: [sourceOwnerKeypair, provider.wallet.payer],
-          },
-          { amount: TRANSFER_AMOUNT }
-        );
-        assert.fail("Expected TransferControlDenied but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "TransferControlDenied",
-          "error code should be TransferControlDenied (whitelist check fails, clearing alone is not enough)"
-        );
-      }
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with TransferControlDenied when whitelist mode is active and destination is not whitelisted", async () => {
+    it("verify_transfer: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
       // Mint tokens to source before activating whitelist mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
@@ -1136,7 +789,7 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // Activate whitelist mode
-      await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
+      await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
       // Add source to whitelist — destination is NOT whitelisted
       await setWhitelistMarker(mint, source);
@@ -1150,15 +803,11 @@ describe("transfer", () => {
           { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
-        assert.fail("Expected TransferControlDenied error but instruction succeeded");
+        assert.fail("Expected NotWhitelisted error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "TransferControlDenied",
-          "error code should be TransferControlDenied"
-        );
+        assert.equal(anchorErr.error.errorCode.code, "NotWhitelisted", "error code should be NotWhitelisted");
       }
 
       const sourceAfter = (await getTokenAccount(source)).amount;

@@ -28,7 +28,6 @@ Defined here so downstream programs can deserialize `mint_owner_pda` without imp
 
 ```rust
 pub enum CommonError {
-    UnauthorizedDeployer,           // signer does not match stored deployer
     MintPaused,                     // mint's Pausable extension has paused = true
     Deactivated,                    // deactivate_pda account exists
     FunctionalityOutOfBounds,       // functionality is past the AssetClassVersion.mask's capacity
@@ -39,18 +38,6 @@ pub enum CommonError {
     MissingRole,                    // signer's Roles PDA lacks the required role bit
 }
 ```
-
----
-
-## Function: `verify_deployer`
-
-```rust
-pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Result<()>
-```
-
-Borsh-deserializes the `MintOwner` stored in `mint_owner_pda` (skipping the 8-byte Anchor discriminator) and checks that `deployer` matches the stored pubkey.
-
-**Why `&AccountInfo` instead of `Account<MintOwner>`**: Anchor's `Account<T>` enforces ownership by the *current* program, but `mint_owner_pda` is owned by `deploy`. Passing it as `&AccountInfo` avoids that check. The `seeds::program` constraint in every caller's account struct already guarantees the account address is correct, making the discriminator check redundant.
 
 ---
 
@@ -101,6 +88,39 @@ Checks whether `role` (one of `common::roles`'s `u16` constants, e.g. `ROLE_ADMI
 The caller passes a `Ref<Roles>` obtained from its own `AccountLoader<Roles>` via `.load()?` — a **zero-copy** typed view, exactly like `require_functionality`. `common::state::Roles` is a field-for-field mirror of `access-control::state::Roles` (kept in sync by compile-time size *and* discriminator assertions in `access-control/src/state.rs`), defined here so callers can load the account without importing `access-control` (which would be circular).
 
 **Behavioural note**: because the account is now a typed `AccountLoader<Roles>`, Anchor validates its owner / discriminator at account resolution *before* the handler runs. A signer with **no** `Roles` PDA (a never-created, system-owned account) therefore fails with Anchor's `AccountOwnedByWrongProgram` (or `AccountNotInitialized`) rather than `MissingRole`. `MissingRole` is now reserved for the case where the PDA exists but the required bit is unset. An admin acting on their own PDA (`authority == account`) is still safe: `require_role` takes the `Ref` by value and drops it before the caller's mutable `load_init`/`load_mut` of the same account, so the borrows never overlap.
+
+---
+
+## Module: `merkle`
+
+Merkle-proof verification for snapshot balances. The snapshot programs store only a 32-byte Merkle root per snapshot; a holder's `(account, balance)` is proven against that root off-chain-style, on demand (e.g. in `treasury::pay_coupon`).
+
+```rust
+pub struct LeafData { pub account: Pubkey, pub amount: u64 }   // + fn hash(&self) -> [u8; 32]
+
+pub fn leaf_hash(account: &Pubkey, balance: u64) -> [u8; 32];
+
+pub fn verify_balance_proof(
+    proof: &[[u8; 32]],
+    root: [u8; 32],
+    account: Pubkey,
+    balance: u64,
+) -> bool;
+```
+
+- **Leaf** — `leaf_hash = keccak(account || balance.to_le_bytes())`. The balance uses **all 8 bytes little-endian** (e.g. `1500` → `dc 05 00 00 00 00 00 00`). Exactly one leaf per account. `verify_balance_proof` always recomputes this from the `(account, balance)` inputs — it never accepts a raw leaf hash.
+- **Tree** — **sorted-pair** (commutative): every internal node is `keccak(sort(left, right))`, comparing the two 32-byte children lexicographically. Proofs therefore carry only the sibling hashes (no left/right direction bits), and only leaf *existence* is proven, not position.
+- **`verify_balance_proof`** — folds `proof` up from the leaf using the sorted-pair rule and returns `true` iff the result equals `root`. An empty `proof` means a single-leaf tree (`leaf_hash == root`).
+
+### Hashing
+
+`solana-keccak-hasher` = **keccak256** (the Ethereum / bubblegum-cNFT variant), **not** NIST SHA3-256 — they differ in padding. The off-chain tree builder **must** use keccak256 (e.g. `@noble/hashes/sha3`'s `keccak_256`, *not* `sha3_256`). On the `solana` target `hashv` calls the `sol_keccak256` syscall; the crate's `sha3` feature provides a host implementation so the unit tests run under `cargo test`.
+
+### Security notes
+
+- **No explicit leaf/node domain separation.** Forgery of an internal node as a leaf (the classic second-preimage attack) is prevented *by length*: the leaf preimage is 40 bytes (32 + 8) while an internal-node preimage is 64 bytes, and the verifier always recomputes the leaf from structured inputs — so the two hash domains can never overlap. **This safety depends on the leaf staying < 64 bytes**; changing the leaf format to ≥ 64 bytes (or a variable size) would silently reintroduce the attack. If the leaf ever grows, add explicit prefix bytes (`0x00` leaf / `0x01` node) and match them off-chain.
+- **The verifier can only be as sound as the tree that produced `root`.** The off-chain builder must guarantee: exactly one leaf per account, canonical sorted-pair construction with safe odd-level handling (promote the lone node, do **not** naively duplicate it), and the same lexicographic (bytewise) sibling ordering + `u64` LE encoding used here.
+- **Bound the proof length in the caller.** This pure function does not cap `proof.len()`; each level is a keccak syscall. On-chain callers (e.g. `treasury::pay_coupon`) should `require!` a sane maximum (a legitimate proof is `ceil(log2(N))` — well under 32) to keep compute-unit usage deterministic.
 
 ---
 
@@ -168,5 +188,5 @@ common = { path = "../common" }
 
 Then call the helpers directly:
 ```rust
-use common::{verify_deployer, require_active, require_not_paused, require_functionality, require_role};
+use common::{require_active, require_not_paused, require_functionality, require_role};
 ```

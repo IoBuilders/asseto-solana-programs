@@ -8,7 +8,7 @@ use common::{
 };
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use spl_token_2022::instruction::mint_to;
-use transfer_control::{get_transfer_modes, verify_whitelist, TransferMode};
+use transfer_control::{verify_whitelist};
 
 use crate::errors::MintError;
 use crate::events::Issued;
@@ -34,9 +34,11 @@ pub fn batch_mint<'info>(
         common::functionalities::MINT_MINT,
     )?;
 
-    let whitelist_active =
-        get_transfer_modes(&ctx.accounts.transfer_control_mode_pda.to_account_info())?
-            .contains(&TransferMode::Whitelist);
+    let whitelist_active = !ctx
+        .accounts
+        .transfer_control_mode_pda
+        .to_account_info()
+        .data_is_empty();
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();

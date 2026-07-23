@@ -36,7 +36,7 @@ asseto-solana-programs/
 │   ├── transfer-control/     — whitelist / clearing mode
 │   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block)
 │   ├── transfer-hook/        — SPL Transfer Hook; double-introspection gate (prev = verify_transfer, curr = transfer / transfer_checked) + snapshot updates
-│   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
+│   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
 │   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (transfer_checked from treasury TA, signed by `treasury_authority` PDA)
@@ -61,12 +61,12 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
 - `program_ids` — all 16 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
 - `state::MintOwner` — struct for the `mint_owner_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] MintOwner` wrapping the same fields for `Account<MintOwner>` usage.
-- `verify_deployer()` — Borsh-deserializes `MintOwner` (skipping discriminator) and checks the signer.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
 - `bitmask` — generic `[u8; N]` bit-mask primitives (`set_bits` / `clear_bits` / `is_set`) reused by every program with a bit-mask (`factory` functionalities, `access-control` roles, `require_functionality`). Bounds are derived from the mask slice length; only the shared `MASK_CHUNK_BITS = 8` lives here — per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`) stay with their structs.
 - `roles` — flat append-only `u16` role ids (`ROLE_ADMIN = 0` … `ROLE_CUSTOM_DATA_MANAGER = 9`) + `ROLES_MASK_OFFSET`; mirror of `functionalities` for `access-control`. Beyond `access-control`'s own `ROLE_ADMIN` gating, management instructions in other programs are role-gated too (`pause`/`unpause` → `ROLE_PAUSER`; `freeze` management → `ROLE_FREEZE_MANAGER`; `metadata-update` → `ROLE_CUSTOM_DATA_MANAGER`). A unit test asserts ids are sequential from 0.
 - `require_role()` — checks an `access-control` `Roles` PDA has a given role bit; takes a `Ref<Roles>` from the caller's `AccountLoader<common::state::Roles>` (zero-copy typed load, same as `require_functionality`) and reads `.mask` via `bitmask::is_set`; errors `MissingRole` if the bit is unset, `RoleOutOfBounds` if the role id exceeds the mask. `common::state::Roles` is a field-for-field mirror of `access-control::state::Roles` (discriminator + size guarded by compile-time asserts in `access-control`), so `common` can load it without a circular dep. Note: an absent PDA now fails at account resolution (`AccountOwnedByWrongProgram`), not with `MissingRole`.
+- `merkle` — Merkle-proof verification for snapshot balances. `verify_balance_proof(proof, root, account, balance) -> bool` folds a **sorted-pair** (commutative) proof up from `leaf_hash = keccak(account || balance.to_le_bytes())` and checks it equals `root`; `LeafData { account, amount }` + `leaf_hash()` help build leaves. Only leaf existence is proven, not position. Uses `solana-keccak-hasher` (syscall on the `solana` target; `sha3` feature gives a host impl for unit tests). Consumed by `treasury::pay_coupon` to validate a holder's balance against a snapshot's Merkle root.
 
 ---
 
@@ -117,7 +117,7 @@ Every program exposes instructions in one of three categories:
 
 | Category | Caller | Auth check |
 |---|---|---|
-| **Management** | Deployer | `verify_deployer()` + optional `require_not_paused()` / `require_active()` |
+| **Management** | Any authority holding the relevant role | `require_role()` against the caller's own `access-control` `Roles` PDA + optional `require_not_paused()` / `require_active()` |
 | **Operational** | Token holders / participants | Program-specific access controls |
 | **Auxiliary** | Other programs via CPI only | Requires a specific known PDA as `Signer` (only the authorized program can produce it via `invoke_signed`) |
 
@@ -144,9 +144,10 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority; also the payer + calling-authority for snapshot CPIs during a transfer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
-| `["snapshot_counter", mint]` | `snapshot` | Current snapshot index for the mint (created by `take_snapshot`) |
+| `["snapshot_counter", mint]` | `snapshot` | Id of the **next** snapshot for the mint (0-based; after N snapshots `count == N`). Created by `take_snapshot` |
 | `["snapshot_totalsupply", mint]` | `snapshot` | `SnapshotHistory` of total supply (one entry per snapshot id) |
 | `["snapshot_holderbalance", mint, token_account]` | `snapshot` | `SnapshotHistory` of that holder's balance |
+| `["snapshot_merkle_root", mint, snapshot_id]` | `snapshot` | Immutable `SnapshotMerkleRoot` (32-byte Merkle root of `(account, balance)` leaves) — one per snapshot, created by `take_snapshot` |
 | `["bond_terms", mint]` | `bond` | Typed `BondTerms` PDA (interest rate, par value, min denomination, issuance date, day-count) |
 | `["coupon_authority", mint]` | `coupon` | Signing key for the `take_snapshot` CPI |
 | `["coupon_counter", mint]` | `coupon` | `CouponCounter` PDA — strictly-increasing coupon id per mint |

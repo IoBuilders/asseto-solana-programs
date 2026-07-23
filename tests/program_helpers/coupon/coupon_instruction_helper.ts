@@ -10,7 +10,12 @@ import { getEvent } from "../event_helper";
 import { getMintOwner } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { couponAuthorityPda, couponCounterPda, couponPda, couponEventAuthorityPda } from "./coupon_pda_helper";
-import { snapshotCounterPda, snapshotTriggeredEventAuthorityPda } from "../snapshot/snapshot_pda_helper";
+import {
+  snapshotCounterPda,
+  snapshotMerkleRootPda,
+  snapshotTriggeredEventAuthorityPda,
+  nextSnapshotId,
+} from "../snapshot/snapshot_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getCouponProgram(): Program<Coupon> {
@@ -26,6 +31,7 @@ type CreateCouponArgs = {
   paymentDate?: anchor.BN;
   interestRateOverride?: anchor.BN | null;
   interestRateOverrideDecimals?: number | null;
+  merkleRoot?: number[];
 };
 
 function getDefaultCreateCouponArgs(): Required<CreateCouponArgs> {
@@ -36,6 +42,7 @@ function getDefaultCreateCouponArgs(): Required<CreateCouponArgs> {
     paymentDate: new anchor.BN(1_800_000_000),
     interestRateOverride: null,
     interestRateOverrideDecimals: null,
+    merkleRoot: new Array(32).fill(0),
   };
 }
 
@@ -56,6 +63,11 @@ export async function createCoupon(
 
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
+  // `take_snapshot` (CPI'd inside create_coupon) creates the merkle-root PDA for
+  // the id the snapshot counter is about to allocate — compute it here to derive
+  // the account address the CPI expects.
+  const snapshotId = await nextSnapshotId(callContext.mint);
+
   const signature = await getCouponProgram()
     .methods.createCoupon(
       effectiveArgs.periodStartDate,
@@ -63,7 +75,8 @@ export async function createCoupon(
       effectiveArgs.paymentDate,
       effectiveArgs.couponId,
       effectiveArgs.interestRateOverride,
-      effectiveArgs.interestRateOverrideDecimals
+      effectiveArgs.interestRateOverrideDecimals,
+      effectiveArgs.merkleRoot
     )
     .accountsStrict({
       payer: callContext.payer ?? callContext.deployer,
@@ -75,6 +88,7 @@ export async function createCoupon(
       couponCounter: couponCounterPda(callContext.mint),
       coupon: couponPda(callContext.mint, effectiveArgs.couponId),
       snapshotCounter: snapshotCounterPda(callContext.mint),
+      snapshotMerkleRoot: snapshotMerkleRootPda(callContext.mint, snapshotId),
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       snapshotEventAuthority: snapshotTriggeredEventAuthorityPda(),

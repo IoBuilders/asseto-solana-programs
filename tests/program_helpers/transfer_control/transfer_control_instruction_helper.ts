@@ -13,7 +13,6 @@ import { transferControlModePda, transferControlEventAuthorityPda, whitelistPda 
 import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export const TRANSFER_CONTROL_WHITELIST = { whitelist: {} };
-export const TRANSFER_CONTROL_CLEARING = { clearing: {} };
 
 export function getTransferControlProgram(): Program<TransferControl> {
   return anchor.workspace.TransferControl as Program<TransferControl>;
@@ -21,22 +20,22 @@ export function getTransferControlProgram(): Program<TransferControl> {
 
 // ── set_modes ──────────────────────────────────────────────────────────────────
 
-export type SetModesArgs = {
-  modes: any[];
+export type SetModeArgs = {
+  mode: any;
 };
 
-function getDefaultSetModesArgs(): Required<SetModesArgs> {
+function getDefaultSetModesArgs(): Required<SetModeArgs> {
   return {
-    modes: [TRANSFER_CONTROL_CLEARING],
+    mode: TRANSFER_CONTROL_WHITELIST,
   };
 }
 
-export async function setTransferControlModes(
+export async function initializeTransferControlMode(
   callContext: MintWriteContext,
-  args?: SetModesArgs
+  args?: SetModeArgs
 ): Promise<{ signature: string }> {
   const program = getTransferControlProgram();
-  const effectiveArgs: Required<SetModesArgs> = {
+  const effectiveArgs: Required<SetModeArgs> = {
     ...getDefaultSetModesArgs(),
     ...args,
   };
@@ -47,7 +46,7 @@ export async function setTransferControlModes(
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
-    .setModes(effectiveArgs.modes)
+    .initialize(effectiveArgs.mode)
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
@@ -69,7 +68,7 @@ export async function setTransferControlModes(
 type TransferControlModesSetEvent = {
   mint: PublicKey;
   operator: PublicKey;
-  modes: any[];
+  mode: any;
 };
 
 /**
@@ -77,8 +76,8 @@ type TransferControlModesSetEvent = {
  * The coder returns the name in camelCase (`transferControlModesSet`). Delegates
  * to the shared, emit!/emit_cpi!-agnostic event helper.
  */
-export async function getTransferControlModesSetEvent(signature: string) {
-  return getEvent<TransferControlModesSetEvent>(getTransferControlProgram(), signature, "transferControlModesSet");
+export async function getTransferControlModeSetEvent(signature: string) {
+  return getEvent<TransferControlModesSetEvent>(getTransferControlProgram(), signature, "transferControlModeSet");
 }
 
 // ── add_to_whitelist ─────────────────────────────────────────────────────────

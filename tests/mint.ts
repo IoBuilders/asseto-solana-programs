@@ -28,11 +28,11 @@ import {
   DEACTIVATE_DEACTIVATE,
   MINT_MINT,
   PAUSE_PAUSE,
-  TRANSFER_CONTROL_SET_MODES,
+  TRANSFER_CONTROL_INITIALIZE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
-  setTransferControlModesMarker,
+  setTransferControlModeMarker,
   setWhitelistMarker,
   whitelistPda,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
@@ -50,7 +50,7 @@ describe("mint", () => {
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
-        TRANSFER_CONTROL_SET_MODES,
+        TRANSFER_CONTROL_INITIALIZE,
         COUPON_CREATE_COUPON,
         DEACTIVATE_DEACTIVATE,
         MINT_MINT,
@@ -105,11 +105,10 @@ describe("mint", () => {
     await mintTokens({ deployer, mint, destination, authority });
 
     // ── Assert snapshot values ──────────────────────────
-    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId });
-    const holderValue = await getHolderBalanceSnapshotAt(
-      { mint, holderTokenAccount: destination },
-      { snapshotId: couponId }
-    );
+    // snapshot id is 0-based: coupon N triggers snapshot N-1.
+    const snapshotId = couponId.sub(new anchor.BN(1));
+    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
+    const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: destination }, { snapshotId });
     assert.equal(
       totalSupplyValue.toString(),
       balanceBeforeSnapshot.toString(),
@@ -170,7 +169,7 @@ describe("mint", () => {
 
   it("mint: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
     const destination = await createTokenAccount({ mint, owner: deployer });
-    await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
+    await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
     try {
       await mintTokens({ deployer, mint, destination, authority });
@@ -241,8 +240,8 @@ describe("batch_mint", () => {
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
-        TRANSFER_CONTROL_SET_MODES,
         COUPON_CREATE_COUPON,
+        TRANSFER_CONTROL_INITIALIZE,
         DEACTIVATE_DEACTIVATE,
         MINT_MINT,
       ],
@@ -302,7 +301,7 @@ describe("batch_mint", () => {
     const destinationB = await createTokenAccount({ mint, owner: deployer });
     const amounts = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
     const destinations = [destinationA, destinationB];
-    await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
+    await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
     for (const destination of destinations) {
       await setWhitelistMarker(mint, destination);
     }
@@ -373,7 +372,7 @@ describe("batch_mint", () => {
   it("batch_mint: fails with NotWhitelisted when whitelist mode is active and a destination is not whitelisted", async () => {
     const whitelisted = await createTokenAccount({ mint, owner: deployer });
     const notWhitelisted = await createTokenAccount({ mint, owner: deployer });
-    await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
+    await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
     await setWhitelistMarker(mint, whitelisted); // only the first destination is whitelisted
 
     try {
@@ -463,7 +462,7 @@ describe("batch_mint", () => {
     const destination = await createTokenAccount({ mint, owner: deployer });
     const other = await createTokenAccount({ mint, owner: deployer });
     // The whitelist PDA is only checked when whitelist mode is active.
-    await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
+    await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
     try {
       await batchMintTokens(

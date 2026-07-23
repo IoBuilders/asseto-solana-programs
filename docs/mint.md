@@ -47,7 +47,7 @@ amount: u64  // raw token units (accounting for decimals)
 1. `require_role(authority_roles_pda.load()?, ROLE_ISSUER)` — errors with `MissingRole` if `authority` does not hold the issuer role (or `RoleOutOfBounds` if the role id exceeds the mask)
 2. `require_active(&deactivate_pda)` — errors if the mint has been deactivated
 3. `require_functionality(asset_class_version_pda.load()?, MINT_MINT)` — errors if the mint's asset-class version isn't finalized or doesn't enable `MINT_MINT`
-4. If whitelist mode is active (`get_transfer_mode(&transfer_control_mode_pda) == Some(TransferMode::Whitelist)`): `verify_whitelist(&destination_whitelist_pda)` — errors if destination is not whitelisted
+4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[&destination_whitelist_pda])` — a no-op if `transfer_control_mode_pda` is empty (no mode active); otherwise, in whitelist mode, errors with `NotWhitelisted` if `destination_whitelist_pda` is empty
 5. CPI → `snapshot::update_totalsupply_snapshot` signed with `["mint_authority", mint, bump]` — records pre-mint supply into the active snapshot (no-op if none)
 6. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["mint_authority", mint, bump]` — records pre-mint destination balance (no adjustment)
 7. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`

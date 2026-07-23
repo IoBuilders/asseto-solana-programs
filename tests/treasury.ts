@@ -118,7 +118,7 @@ describe("treasury", () => {
     const bondArgs = opts?.bondArgs ?? DEFAULT_UPDATE_BOND_ARGS;
     await updateBondTerms({ deployer, mint }, bondArgs);
 
-    // 3. create_coupon (also CPIs take_snapshot → snapshot_id = 1).
+    // 3. create_coupon (also CPIs take_snapshot → snapshot_id = 0, 0-based).
     const couponId = new anchor.BN(1);
     const periodStartDate = opts?.periodStartDate ?? PERIOD_START;
     const periodEndDate = opts?.periodEndDate ?? PERIOD_END;
@@ -414,7 +414,7 @@ describe("treasury", () => {
       const ctx = await deployBondAndCoupon();
 
       // The snapshot was taken inside create_coupon (before any new mints), so the
-      // recorded balance at snapshot_id=1 is 0 for this brand-new holder. Snapshot
+      // recorded balance at snapshot_id=0 is 0 for this brand-new holder. Snapshot
       // program falls back to the live balance when the history is empty for the
       // queried id — i.e. the current holder balance, which is BOND_HOLDER_AMOUNT.
       // (See snapshot::get_holderbalance_snapshot_at and the matching
@@ -425,7 +425,7 @@ describe("treasury", () => {
       // returns, by reading it off-chain via the same view.
       const holderBalance = await getHolderBalanceSnapshotAt(
         { mint: ctx.mint, holderTokenAccount: ctx.holderTokenAccount },
-        { snapshotId: ctx.couponId }
+        { snapshotId: ctx.couponId.sub(new anchor.BN(1)) }
       );
 
       const expectedAmount = computeExpectedAmount({
@@ -513,7 +513,7 @@ describe("treasury", () => {
 
       const holderBalance = await getHolderBalanceSnapshotAt(
         { mint: ctx.mint, holderTokenAccount: ctx.holderTokenAccount },
-        { snapshotId: ctx.couponId }
+        { snapshotId: ctx.couponId.sub(new anchor.BN(1)) }
       );
 
       const expectedAmount = computeExpectedAmount({

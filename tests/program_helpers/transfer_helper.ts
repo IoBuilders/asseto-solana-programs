@@ -52,12 +52,10 @@ export async function buildVerifyTransferInstruction(
   return await getTransferProgram()
     .methods.verifyTransfer(effectiveArgs.amount)
     .accountsStrict({
-      deployer: callContext.deployer,
       mint: callContext.mint,
       sourceOwner: callContext.sourceOwner,
       source: callContext.source,
       destination: callContext.destination,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
@@ -80,12 +78,10 @@ export async function verifyTransfer(
   return await getTransferProgram()
     .methods.verifyTransfer(effectiveArgs.amount)
     .accountsStrict({
-      deployer: callContext.deployer,
       mint: callContext.mint,
       sourceOwner: callContext.sourceOwner,
       source: callContext.source,
       destination: callContext.destination,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),

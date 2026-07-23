@@ -11,9 +11,9 @@ use common::state::{AssetClassVersion, MintOwner, Roles};
 /// Removes a token account from the whitelist for a mint by closing the marker PDA.
 ///
 /// The `whitelist_pda` (seeds: `["whitelist", mint, account]`) is closed here and its
-/// rent lamports are returned to the deployer.
+/// rent lamports are returned to the authority.
 ///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
+/// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
 pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -55,7 +55,7 @@ pub struct RemoveFromWhitelist<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA created by deploy that records the configuration for this mint.
     #[account(
         seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -84,7 +84,7 @@ pub struct RemoveFromWhitelist<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// Whitelist marker PDA — closed here; rent returned to deployer.
+    /// Whitelist marker PDA — closed here; rent returned to authority.
     /// Seeds: `["whitelist", mint, account]`.
     #[account(
         mut,
