@@ -34,6 +34,8 @@ pub enum CommonError {
     RoleOutOfBounds,
     #[msg("Signer does not hold the required role")]
     MissingRole,
+    #[msg("A whitelist PDA does not match the one derived for its destination")]
+    WhitelistPdaMismatch,
 }
 
 /// Checks whether a `deactivate_pda` (seeds: `["deactivate", mint]`, owned by
@@ -98,6 +100,32 @@ pub fn require_role(roles_pda: Ref<Roles>, role: u16) -> Result<()> {
         bitmask::is_set(&roles_pda.mask, role).map_err(|_| error!(CommonError::RoleOutOfBounds))?;
 
     require!(enabled, CommonError::MissingRole);
+
+    Ok(())
+}
+
+/// Validates that a `whitelist_pda` from a batch instruction's `remaining_accounts`
+/// is the canonical `["whitelist", mint, destination]` PDA owned by `transfer-control`.
+///
+/// Whitelist PDAs supplied via `remaining_accounts` carry no seed constraints, so the
+/// address must be re-derived and matched at runtime.
+///
+/// Returns `Err(CommonError::WhitelistPdaMismatch)` on a mismatch. Whether the whitelist
+/// PDA must *exist* (whitelist mode active) is a separate check left to the caller.
+pub fn verify_whitelist_pda(
+    whitelist_pda: &AccountInfo,
+    destination: &Pubkey,
+    mint: &Pubkey,
+) -> Result<()> {
+    let (expected_whitelist_pda, _) = Pubkey::find_program_address(
+        &[pda_seeds::WHITELIST, mint.as_ref(), destination.as_ref()],
+        &program_ids::TRANSFER_CONTROL_PROGRAM_ID,
+    );
+    require_keys_eq!(
+        whitelist_pda.key(),
+        expected_whitelist_pda,
+        CommonError::WhitelistPdaMismatch
+    );
 
     Ok(())
 }

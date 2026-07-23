@@ -11,6 +11,19 @@ pub use state::TransferMode;
 
 declare_id!("3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo");
 
+/// Checks whether a `whitelist_pda` (seeds: `["whitelist", mint, account]`) exists,
+/// indicating the account has been whitelisted for this mint.
+///
+/// Returns `Ok(())` if the PDA exists (account is whitelisted).
+/// Returns `Err(TransferControlError::NotWhitelisted)` if the PDA is absent.
+pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()> {
+    require!(
+        !whitelist_pda.data_is_empty(),
+        errors::TransferControlError::NotWhitelisted
+    );
+    Ok(())
+}
+
 /// Checks that every `whitelist_pda` satisfies the active transfer control mode.
 ///
 /// `transfer_control_mode_pda` and each `whitelist_pda` are raw, unchecked PDAs —
