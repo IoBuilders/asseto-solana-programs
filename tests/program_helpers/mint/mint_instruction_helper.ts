@@ -4,7 +4,7 @@ import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID, SNAPSHOT_PROGRAM_ID } from "../../utils/address_utils";
-import { MintWriteWithPayerContext } from "../base_helper";
+import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
 import { getEvent, getEvents } from "../event_helper";
@@ -125,20 +125,23 @@ export async function batchMintTokens(
 
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   return await mintProgram.methods
     .batchMint(amounts)
     .accountsStrict({
       authority: authority.publicKey,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       mintAuthority: mintAuthorityPda(callContext.mint),
       freezeAuthority: freezeAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       freezeProgram: FREEZE_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       eventAuthority: mintEventAuthorityPda(),
