@@ -35,6 +35,7 @@ pub mod coupon {
         coupon_id: u64,
         interest_rate_override: Option<u64>,
         interest_rate_override_decimals: Option<u8>,
+        merkle_root: [u8; 32],
     ) -> Result<()> {
         create_coupon::create_coupon(
             ctx,
@@ -44,6 +45,7 @@ pub mod coupon {
             coupon_id,
             interest_rate_override,
             interest_rate_override_decimals,
+            merkle_root,
         )
     }
 

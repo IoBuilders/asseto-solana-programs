@@ -17,8 +17,8 @@ declare_id!("hgUtrpstViwxutrkoVXwQh3GQC18wHAmuAvYFTNiV2M");
 pub mod snapshot {
     use super::*;
 
-    pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
-        take_snapshot::take_snapshot(ctx)
+    pub fn take_snapshot(ctx: Context<TakeSnapshot>, merkle_root: [u8; 32]) -> Result<()> {
+        take_snapshot::take_snapshot(ctx, merkle_root)
     }
 
     pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> Result<()> {

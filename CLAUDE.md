@@ -36,7 +36,7 @@ asseto-solana-programs/
 │   ├── transfer-control/     — whitelist / clearing mode
 │   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block)
 │   ├── transfer-hook/        — SPL Transfer Hook; double-introspection gate (prev = verify_transfer, curr = transfer / transfer_checked) + snapshot updates
-│   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
+│   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
 │   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (transfer_checked from treasury TA, signed by `treasury_authority` PDA)
@@ -144,9 +144,10 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority; also the payer + calling-authority for snapshot CPIs during a transfer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
-| `["snapshot_counter", mint]` | `snapshot` | Current snapshot index for the mint (created by `take_snapshot`) |
+| `["snapshot_counter", mint]` | `snapshot` | Id of the **next** snapshot for the mint (0-based; after N snapshots `count == N`). Created by `take_snapshot` |
 | `["snapshot_totalsupply", mint]` | `snapshot` | `SnapshotHistory` of total supply (one entry per snapshot id) |
 | `["snapshot_holderbalance", mint, token_account]` | `snapshot` | `SnapshotHistory` of that holder's balance |
+| `["snapshot_merkle_root", mint, snapshot_id]` | `snapshot` | Immutable `SnapshotMerkleRoot` (32-byte Merkle root of `(account, balance)` leaves) — one per snapshot, created by `take_snapshot` |
 | `["bond_terms", mint]` | `bond` | Typed `BondTerms` PDA (interest rate, par value, min denomination, issuance date, day-count) |
 | `["coupon_authority", mint]` | `coupon` | Signing key for the `take_snapshot` CPI |
 | `["coupon_counter", mint]` | `coupon` | `CouponCounter` PDA — strictly-increasing coupon id per mint |

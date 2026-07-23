@@ -75,6 +75,38 @@ export function snapshotHolderBalancePdaWithBump(mint: PublicKey, tokenAccount: 
   );
 }
 
+// ── snapshot_merkle_root PDA ───────────────────────────────────────────────────
+
+export function snapshotMerkleRootPda(mint: PublicKey, snapshotId: anchor.BN): PublicKey {
+  return snapshotMerkleRootPdaWithBump(mint, snapshotId)[0];
+}
+
+export function snapshotMerkleRootPdaWithBump(mint: PublicKey, snapshotId: anchor.BN): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("snapshot_merkle_root"), mint.toBuffer(), snapshotId.toArrayLike(Buffer, "le", 8)],
+    SNAPSHOT_PROGRAM_ID
+  );
+}
+
+export async function getSnapshotMerkleRoot(mint: PublicKey, snapshotId: anchor.BN) {
+  const pda = snapshotMerkleRootPda(mint, snapshotId);
+  return await getSnapshotProgram().account.snapshotMerkleRoot.fetch(pda, "confirmed");
+}
+
+/**
+ * Computes the snapshot id that the next `take_snapshot` call will allocate for
+ * `mint`. The `snapshot_counter` stores the id of the *next* snapshot, so its
+ * current value IS the next id (0 when the counter doesn't exist yet). Needed
+ * client-side to derive the `snapshot_merkle_root` PDA.
+ */
+export async function nextSnapshotId(mint: PublicKey): Promise<anchor.BN> {
+  try {
+    return (await getSnapshotCounterByPda(snapshotCounterPda(mint))).count;
+  } catch {
+    return new anchor.BN(0);
+  }
+}
+
 // ── __event_authority PDA ──────────────────────────────────────────────────────
 
 export function snapshotTriggeredEventAuthorityPda(): PublicKey {

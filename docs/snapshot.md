@@ -22,7 +22,23 @@ pub struct SnapshotCounter {
 // Seeds: ["snapshot_counter", mint]
 ```
 
-Holds the current snapshot id. Created by `take_snapshot` on its first call with `count = 1`; each subsequent call increments. When the PDA does not exist, no coupon has been created yet and all `update_*_snapshot` CPIs exit silently.
+Holds the id of the **next** snapshot (a 0-based, strictly-increasing counter). Created by `take_snapshot` on its first call with `count = 0`, which is then used as the first snapshot id and immediately incremented to `1`; each subsequent call uses the current `count` as the snapshot id and increments it. So after N snapshots, `count == N`, and the last-taken snapshot id is `count - 1`. When the PDA does not exist, no snapshot has been taken yet and all `update_*_snapshot` CPIs exit silently.
+
+Storing the *next* id (rather than the last) is deliberate: it lets `snapshot_merkle_root` be created with Anchor's `#[account(init)]`, whose seed reads `snapshot_counter.count` at account resolution (see `take_snapshot`).
+
+### `SnapshotMerkleRoot`
+
+```rust
+#[account]
+pub struct SnapshotMerkleRoot {
+    pub bump: u8,
+    pub merkle_root: [u8; 32],
+}
+// LEN = 8 + 1 + 32 = 41 bytes
+// Seeds: ["snapshot_merkle_root", mint, snapshot_id.to_le_bytes()]
+```
+
+One **immutable** commitment per snapshot. Created by `take_snapshot` with the caller-supplied 32-byte root of the off-chain Sorted-pair Merkle tree whose leaves are `(account, balance)` pairs at that snapshot. Created via Anchor's `#[account(init)]` keyed by the snapshot id, so it can be created only once per id — the root can never be rewritten — and Anchor transparently handles an attacker having pre-funded the (predictable) PDA address.
 
 ### `SnapshotEntry`
 
@@ -60,6 +76,7 @@ pub enum ErrorCode {
     Unauthorized,        // calling_authority not in the allowed set
     InvalidTokenAccount, // holder_token_account.mint does not match the mint arg
     DeltaOverflow,       // balance ± delta would overflow/underflow u64
+    SnapshotCounterOverflow,   // counter at u64::MAX when taking a new snapshot
 }
 ```
 
@@ -67,9 +84,20 @@ pub enum ErrorCode {
 
 ## Instruction: `take_snapshot` (Auxiliary)
 
-No parameters.
+### Parameters
 
-Creates `snapshot_counter` (`init_if_needed`) with `count = 1` on the first call, or increments the existing counter. The snapshot id is always `>= 1` whenever the counter PDA exists.
+```rust
+merkle_root: [u8; 32]
+```
+
+`snapshot_counter` stores the id of the **next** snapshot (see the State section). The snapshot id assigned is the counter's *current* value (`0` for the very first snapshot); the counter is created (`init_if_needed`, `count = 0`) if needed and incremented by one afterwards.
+
+Because the snapshot id equals `snapshot_counter.count` — a value that already exists at account resolution — the `snapshot_merkle_root` PDA is created with Anchor's **`#[account(init)]`**, whose `seeds = ["snapshot_merkle_root", mint, snapshot_counter.count.to_le_bytes()]` are resolved before the handler runs. The handler then just writes `{ bump, merkle_root }`. This means:
+
+- **Immutability**: `init` fails if the account already exists, so a given snapshot id's root can never be overwritten.
+- **No prefunding DoS**: Anchor's `init` internally handles a pre-funded destination (it falls back to `transfer` + `allocate` + `assign` instead of a bare `create_account`), so an attacker cannot brick snapshot creation by sending 1 lamport to the predictable PDA address.
+
+(An earlier iteration created the PDA manually because the id was computed as `counter + 1` inside the handler; switching the counter to store the *next* id removed the need for manual creation.)
 
 ### Authorization
 
@@ -84,7 +112,8 @@ Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause 
 | `calling_authority` | no | yes | Signer | `coupon_authority` PDA owned by `coupon` |
 | `payer` | yes | yes | Signer | Funds the `snapshot_counter` PDA on the first call. Distinct from `calling_authority` because PDAs cannot pay rent. |
 | `mint` | no | no | UncheckedAccount | Used as the seed for the `coupon_authority` PDA derivation |
-| `snapshot_counter` | yes | no | `Account<SnapshotCounter>` | `init_if_needed`; seeds `["snapshot_counter", mint]` |
+| `snapshot_counter` | yes | no | `Account<SnapshotCounter>` | `init_if_needed`; seeds `["snapshot_counter", mint]`; holds the next snapshot id |
+| `snapshot_merkle_root` | yes | no | `Account<SnapshotMerkleRoot>` | `init`; seeds `["snapshot_merkle_root", mint, snapshot_counter.count]` — Anchor creates it (id read from the counter at resolution) |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `SnapshotTriggered` |
 | `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
@@ -93,7 +122,7 @@ Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause 
 
 | Event | Fields | Emitted |
 |---|---|---|
-| `SnapshotTriggered` | `mint: Pubkey`, `snapshot_id: u64` | After the counter is created/incremented, with `snapshot_id` set to the new `count` |
+| `SnapshotTriggered` | `mint: Pubkey`, `snapshot_id: u64`, `merkle_root: [u8; 32]` | After the counter is created/incremented and the root PDA is written, with `snapshot_id` set to the new `count` |
 
 Emitted with `emit_cpi!` (not `emit!`), which records the event as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on `TakeSnapshot` (injecting the `event_authority` and `program` accounts above) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`).
 
@@ -103,7 +132,7 @@ Emitted with `emit_cpi!` (not `emit!`), which records the event as a self-CPI ca
 
 No parameters.
 
-Appends `(current_snapshot_id, mint.supply)` to `total_supply_snapshot`. Creates the PDA on first use, grows it by one entry otherwise. Silently succeeds when `snapshot_counter` does not exist (no active snapshot).
+Appends `(current_snapshot_id, mint.supply)` to `total_supply_snapshot`, where `current_snapshot_id = snapshot_counter.count - 1` (the last-taken snapshot, since the counter stores the *next* id). Creates the PDA on first use, grows it by one entry otherwise. Silently succeeds when `snapshot_counter` does not exist (no active snapshot).
 
 ### Authorization
 
@@ -133,7 +162,7 @@ delta:    u64
 increase: bool
 ```
 
-Records `(current_snapshot_id, balance ± delta)` for the given `holder_token_account`. With `increase = true` the recorded value is `balance + delta`; otherwise `balance - delta`. Callers that want to capture a balance as it was *before* a token movement that has already been applied (e.g. the transfer hook, which runs after the debit) pass the moved amount to reconstruct the pre-movement value. Callers that record the on-chain balance as-is pass `delta = 0`.
+Records `(current_snapshot_id, balance ± delta)` for the given `holder_token_account`, where `current_snapshot_id = snapshot_counter.count - 1` (the last-taken snapshot, since the counter stores the *next* id). With `increase = true` the recorded value is `balance + delta`; otherwise `balance - delta`. Callers that want to capture a balance as it was *before* a token movement that has already been applied (e.g. the transfer hook, which runs after the debit) pass the moved amount to reconstruct the pre-movement value. Callers that record the on-chain balance as-is pass `delta = 0`.
 
 Same "silent no-op when no snapshot is active" semantics as the total-supply variant.
 
