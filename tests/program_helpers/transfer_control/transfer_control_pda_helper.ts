@@ -20,9 +20,9 @@ export async function getTransferControlModeByPda(pda: PublicKey) {
   return await getTransferControlProgram().account.transferControlMode.fetchNullable(pda, "confirmed");
 }
 
-export async function setTransferControlModesMarker(mint: PublicKey, modes: any[]): Promise<void> {
+export async function setTransferControlModeMarker(mint: PublicKey, mode: any): Promise<void> {
   const [pda, bump] = transferControlModePdaWithBump(mint);
-  const data = await getTransferControlProgram().coder.accounts.encode("transferControlMode", { modes, bump });
+  const data = await getTransferControlProgram().coder.accounts.encode("transferControlMode", { mode, bump });
   const lamports = await getBalanceForRentExeption(data.length);
   await surfnetSetAccount(pda, {
     lamports,

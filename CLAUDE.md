@@ -61,7 +61,6 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
 - `program_ids` — all 16 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
 - `state::MintOwner` — struct for the `mint_owner_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] MintOwner` wrapping the same fields for `Account<MintOwner>` usage.
-- `verify_deployer()` — Borsh-deserializes `MintOwner` (skipping discriminator) and checks the signer.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
 - `bitmask` — generic `[u8; N]` bit-mask primitives (`set_bits` / `clear_bits` / `is_set`) reused by every program with a bit-mask (`factory` functionalities, `access-control` roles, `require_functionality`). Bounds are derived from the mask slice length; only the shared `MASK_CHUNK_BITS = 8` lives here — per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`) stay with their structs.
@@ -118,7 +117,7 @@ Every program exposes instructions in one of three categories:
 
 | Category | Caller | Auth check |
 |---|---|---|
-| **Management** | Deployer | `verify_deployer()` + optional `require_not_paused()` / `require_active()` |
+| **Management** | Any authority holding the relevant role | `require_role()` against the caller's own `access-control` `Roles` PDA + optional `require_not_paused()` / `require_active()` |
 | **Operational** | Token holders / participants | Program-specific access controls |
 | **Auxiliary** | Other programs via CPI only | Requires a specific known PDA as `Signer` (only the authorized program can produce it via `invoke_signed`) |
 

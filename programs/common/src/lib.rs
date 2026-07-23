@@ -1,4 +1,4 @@
-use crate::state::{AssetClassVersion, MintOwner, Roles};
+use crate::state::{AssetClassVersion, Roles};
 use anchor_lang::prelude::*;
 use std::cell::Ref;
 
@@ -18,8 +18,6 @@ pub(crate) mod test_support;
 
 #[error_code]
 pub enum CommonError {
-    #[msg("The deployer signature is required but was not provided or does not match")]
-    UnauthorizedDeployer,
     #[msg("The mint is paused")]
     MintPaused,
     #[msg("The mint has been deactivated")]
@@ -36,47 +34,6 @@ pub enum CommonError {
     RoleOutOfBounds,
     #[msg("Signer does not hold the required role")]
     MissingRole,
-}
-
-/// Verifies that `deployer` matches the pubkey stored in a `mint_owner_pda`
-/// account created by `deploy`.
-///
-/// Deserializes the account using Borsh (`MintOwner::deserialize`) after skipping
-/// the 8-byte Anchor discriminator. Full `AccountDeserialize` (which also checks the
-/// discriminator) is not available here because `MintOwner` cannot use the `#[account]`
-/// macro in a library crate (that macro requires `declare_id!`). The discriminator check
-/// is redundant anyway: the `seeds::program` constraint in every caller's account struct
-/// already guarantees this is the correct account at the correct address.
-///
-/// The account is passed as `&AccountInfo` rather than `Account<MintOwner>` because
-/// Anchor's `Account<T>` wrapper enforces ownership by the *current* program, but
-/// `mint_owner_pda` is owned by `deploy`.
-pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Result<()> {
-    use state::MintOwner;
-
-    let data = mint_owner_pda.try_borrow_data()?;
-    require!(
-        data.len() >= 8 + MintOwner::INIT_SPACE,
-        CommonError::UnauthorizedDeployer
-    );
-
-    // Skip 8-byte discriminator, then Borsh-deserialize the remaining fields.
-    let mint_owner = MintOwner::deserialize(&mut &data[8..])
-        .map_err(|_| error!(CommonError::UnauthorizedDeployer))?;
-
-    require!(
-        mint_owner.deployer == *deployer,
-        CommonError::UnauthorizedDeployer
-    );
-    Ok(())
-}
-
-pub fn verify_deployer_account(mint_owner_pda: &MintOwner, deployer: &Pubkey) -> Result<()> {
-    require!(
-        mint_owner_pda.deployer == *deployer,
-        CommonError::UnauthorizedDeployer
-    );
-    Ok(())
 }
 
 /// Checks whether a `deactivate_pda` (seeds: `["deactivate", mint]`, owned by

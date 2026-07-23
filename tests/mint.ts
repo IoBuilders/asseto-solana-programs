@@ -23,10 +23,10 @@ import {
   DEACTIVATE_DEACTIVATE,
   MINT_MINT,
   PAUSE_PAUSE,
-  TRANSFER_CONTROL_SET_MODES,
+  TRANSFER_CONTROL_INITIALIZE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
-import { setTransferControlModesMarker } from "./program_helpers/transfer_control/transfer_control_pda_helper";
+import { setTransferControlModeMarker } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
@@ -41,7 +41,7 @@ describe("mint", () => {
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
-        TRANSFER_CONTROL_SET_MODES,
+        TRANSFER_CONTROL_INITIALIZE,
         COUPON_CREATE_COUPON,
         DEACTIVATE_DEACTIVATE,
         MINT_MINT,
@@ -160,7 +160,7 @@ describe("mint", () => {
 
   it("mint: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
     const destination = await createTokenAccount({ mint, owner: deployer });
-    await setTransferControlModesMarker(mint, [TRANSFER_CONTROL_WHITELIST]);
+    await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
     try {
       await mintTokens({ deployer, mint, destination, authority });

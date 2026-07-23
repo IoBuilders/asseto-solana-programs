@@ -2,18 +2,15 @@
 
 Program ID: `3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo`
 
-Governs who may transfer tokens for a given mint. Two modes are supported:
+Governs who may transfer tokens for a given mint. One mode is currently supported:
 
 | Mode | Effect |
 |---|---|
 | **Whitelist** | Both source and destination must be individually whitelisted before a transfer is allowed |
-| **Clearing** | The deployer must co-sign every transfer (acts as a central clearing entity) |
 
 If no mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
 
-If multiple modes are set, all of them must succeed (additive evaluation — see `transfer::verify_transfer`).
-
-Also exports two helper functions (`verify_whitelist`, `get_transfer_modes`) used by `mint` and `transfer-hook` to enforce mode-specific rules.
+Also exports `verify_transfer_control_mode`, a helper function used by `mint` and `transfer` to enforce the active mode against one or more whitelist PDAs.
 
 ---
 
@@ -21,12 +18,13 @@ Also exports two helper functions (`verify_whitelist`, `get_transfer_modes`) use
 
 ```rust
 #[account]
+#[derive(InitSpace)]
 pub struct TransferControlMode {
-    pub modes: Vec<TransferMode>,
+    pub mode: TransferMode,
     pub bump: u8,
 }
 
-pub enum TransferMode { Clearing, Whitelist }
+pub enum TransferMode { Whitelist }
 
 // Seeds: ["transfer_control_mode", mint]
 ```
@@ -37,67 +35,65 @@ pub enum TransferMode { Clearing, Whitelist }
 
 ```rust
 pub enum TransferControlError {
-    NotWhitelisted,  // verify_whitelist called on an absent PDA
+    NotWhitelisted,  // whitelist mode is active and a whitelist_pda passed to verify_transfer_control_mode is empty
 }
 ```
 
 ---
 
-## Exported Functions
+## Exported Function
 
-### `verify_whitelist`
-
-```rust
-pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()>
-```
-
-Returns `Ok(())` if the `whitelist_pda` (seeds `["whitelist", mint, account]`) exists (non-empty data). Returns `Err(TransferControlError::NotWhitelisted)` if absent. Called by `mint` and `transfer-hook` when whitelist mode is active.
-
-### `get_transfer_modes`
+### `verify_transfer_control_mode`
 
 ```rust
-pub fn get_transfer_modes(transfer_control_mode_pda: &AccountInfo) -> Result<Vec<TransferMode>>
+pub fn verify_transfer_control_mode(
+    transfer_control_mode_pda: &AccountInfo,
+    whitelist_pdas: &[&AccountInfo],
+) -> Result<()>
 ```
 
-Single-deserialization mode read. Returns:
-- `.isEmpty()` when the PDA does not exist (no controls active).
-- `.contains(&TransferMode::Clearing)` — deployer must co-sign every transfer.
-- `.contains(&TransferMode::Whitelist)` — source and destination must each be whitelisted.
+`transfer_control_mode_pda` and every `whitelist_pda` are raw, unchecked PDAs — their address is verified by the caller's `seeds`/`bump` constraints, but Anchor does not deserialize their contents. Behaviour:
 
-Callers match on the returned `Vec<TransferMode>` instead of calling two boolean helpers back-to-back.
+- If `transfer_control_mode_pda` has empty data, no mode is active — returns `Ok(())` immediately.
+- Otherwise, Borsh-deserializes `TransferControlMode` from the account data (via `try_deserialize`, which also checks the discriminator).
+- If `mode == TransferMode::Whitelist`, every account in `whitelist_pdas` is checked with `data_is_empty()`; an empty account (not whitelisted) errors with `TransferControlError::NotWhitelisted`.
+
+Called by `mint::mint` (with the single `destination_whitelist_pda`) and `transfer::verify_transfer` (with both `source_whitelist_pda` and `destination_whitelist_pda`).
 
 ---
 
-## Instruction: `set_modes` (Management)
+## Instruction: `initialize` (Management)
 
 ### Parameters
 
 ```rust
-modes: Vec<TransferMode>
+mode: TransferMode
 ```
 
-Writes the mode into `transfer_control_mode_pda` (`init_if_needed`) when not empty. When empty, closes the PDA and returns its rent to `authority` — no transfer controls.
+Creates `transfer_control_mode_pda` (`init`, fixed space) and writes `mode` into it. Unlike a resizable/closable design, this instruction only creates the PDA — there is currently no instruction to close it or change the mode afterward.
 
 ### Preconditions
 
-- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint (checked against its own `["roles", mint, authority]` PDA). Replaces the previous `verify_deployer` gate.
+- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint (checked against its own `["roles", mint, authority]` PDA).
 - `require_not_paused`, `require_active`
-- `require_functionality(TRANSFER_CONTROL_SET_MODES)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_SET_MODES` functionality bit enabled.
+- `require_functionality(TRANSFER_CONTROL_INITIALIZE)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_INITIALIZE` functionality bit enabled.
 
 ### Accounts
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; funds PDA creation if needed |
+| `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; funds PDA creation |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | created if empty using `SystemProgram.create_account`; seeds `["transfer_control_mode", mint]` |
+| `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | `init`, `payer = authority`; seeds `["transfer_control_mode", mint]` |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
 | `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
+
+Calling `initialize` a second time for the same mint fails at the System program level ("already in use"), since the account struct uses `init` rather than `init_if_needed`.
 
 ---
 
@@ -109,7 +105,7 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 
 ### Preconditions
 
-- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint. Replaces the previous `verify_deployer` gate.
+- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint.
 - `require_not_paused`, `require_active`
 - `require_functionality(TRANSFER_CONTROL_ADD_TO_WHITELIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_ADD_TO_WHITELIST` functionality bit enabled.
 
@@ -139,7 +135,7 @@ Closes the `whitelist_pda` and returns rent to `authority`. If the PDA does not 
 
 ### Preconditions
 
-- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint. Replaces the previous `verify_deployer` gate.
+- `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint.
 - `require_not_paused`, `require_active`
 - `require_functionality(TRANSFER_CONTROL_REMOVE_FROM_WHITELIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_REMOVE_FROM_WHITELIST` functionality bit enabled.
 
@@ -154,22 +150,18 @@ Same shape as `add_to_whitelist` but the `whitelist_pda` constraint uses `close 
 Each instruction emits an event via `emit_cpi!` (requires the `event-cpi` feature on `anchor-lang`
 and the `event_authority` / `program` accounts above on the instruction context).
 
-### `TransferControlModesSet`
+### `TransferControlModeSet`
 
-Emitted at the end of `set_modes`, after the `transfer_control_mode_pda` has been created, updated,
-or closed.
+Emitted at the end of `initialize`, after the `transfer_control_mode_pda` has been created.
 
 ```rust
 #[event]
-pub struct TransferControlModesSet {
+pub struct TransferControlModeSet {
     pub mint: Pubkey,
     pub operator: Pubkey,
-    pub modes: Vec<TransferMode>,
+    pub mode: TransferMode,
 }
 ```
-
-`modes` mirrors the deduplicated, sorted list actually written (or, when empty, the fact that all
-controls were just removed) — not the raw, possibly-duplicated instruction argument.
 
 ### `AccountWhitelisted`
 

@@ -1,20 +1,19 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::{program::invoke_signed, system_instruction};
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
+    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
+    roles,
 };
 
-use crate::events::AccountWhitelisted;
-use crate::state::WhitelistStatus;
+use crate::events::TransferControlModeSet;
+use crate::state::{TransferControlMode, TransferMode};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, MintOwner, Roles};
 
-/// Adds a token account to the whitelist for a mint by creating a marker PDA.
-///
-/// The `whitelist_pda` (seeds: `["whitelist", mint, account]`) is created on first call.
-/// If the PDA already exists the instruction is a no-op (idempotent).
+/// Initializes the transfer control modes for a mint.
 ///
 /// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
-pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
+pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
         roles::ROLE_CONTROL_LIST,
@@ -28,16 +27,16 @@ pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
-        common::functionalities::TRANSFER_CONTROL_ADD_TO_WHITELIST,
+        common::functionalities::TRANSFER_CONTROL_INITIALIZE,
     )?;
 
-    // ── Record canonical bump in the whitelist marker PDA ─────────────────────
-    ctx.accounts.whitelist_pda.bump = ctx.bumps.whitelist_pda;
+    ctx.accounts.transfer_control_mode_pda.bump = ctx.bumps.transfer_control_mode_pda;
+    ctx.accounts.transfer_control_mode_pda.mode = mode;
 
-    emit_cpi!(AccountWhitelisted {
+    emit_cpi!(TransferControlModeSet {
         mint: ctx.accounts.mint.key(),
-        account: ctx.accounts.account.key(),
         operator: ctx.accounts.authority.key(),
+        mode,
     });
 
     Ok(())
@@ -45,7 +44,7 @@ pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct AddToWhitelist<'info> {
+pub struct SetMode<'info> {
     /// The authority — must sign and fund the PDA creation.
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -71,11 +70,6 @@ pub struct AddToWhitelist<'info> {
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// The token account to add to the whitelist.
-    ///
-    /// CHECK: Address used as a seed for whitelist_pda; not otherwise validated here.
-    pub account: UncheckedAccount<'info>,
-
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
     ///
@@ -87,16 +81,15 @@ pub struct AddToWhitelist<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// Whitelist marker PDA — created on first call; no-op if already exists.
-    /// Seeds: `["whitelist", mint, account]`.
+    /// Transfer Control Mode PDA.
     #[account(
-        init_if_needed,
+        init,
         payer = authority,
-        space = WhitelistStatus::DISCRIMINATOR.len() + WhitelistStatus::INIT_SPACE,
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), account.key().as_ref()],
+        space = TransferControlMode::DISCRIMINATOR.len() + TransferControlMode::INIT_SPACE,
+        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
         bump,
     )]
-    pub whitelist_pda: Account<'info, WhitelistStatus>,
+    pub transfer_control_mode_pda: Account<'info, TransferControlMode>,
 
     /// Asset-class version PDA this mint is hooked to.
     #[account(

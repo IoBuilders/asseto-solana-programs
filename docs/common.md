@@ -28,7 +28,6 @@ Defined here so downstream programs can deserialize `mint_owner_pda` without imp
 
 ```rust
 pub enum CommonError {
-    UnauthorizedDeployer,           // signer does not match stored deployer
     MintPaused,                     // mint's Pausable extension has paused = true
     Deactivated,                    // deactivate_pda account exists
     FunctionalityOutOfBounds,       // functionality is past the AssetClassVersion.mask's capacity
@@ -39,18 +38,6 @@ pub enum CommonError {
     MissingRole,                    // signer's Roles PDA lacks the required role bit
 }
 ```
-
----
-
-## Function: `verify_deployer`
-
-```rust
-pub fn verify_deployer(mint_owner_pda: &AccountInfo, deployer: &Pubkey) -> Result<()>
-```
-
-Borsh-deserializes the `MintOwner` stored in `mint_owner_pda` (skipping the 8-byte Anchor discriminator) and checks that `deployer` matches the stored pubkey.
-
-**Why `&AccountInfo` instead of `Account<MintOwner>`**: Anchor's `Account<T>` enforces ownership by the *current* program, but `mint_owner_pda` is owned by `deploy`. Passing it as `&AccountInfo` avoids that check. The `seeds::program` constraint in every caller's account struct already guarantees the account address is correct, making the discriminator check redundant.
 
 ---
 
@@ -201,5 +188,5 @@ common = { path = "../common" }
 
 Then call the helpers directly:
 ```rust
-use common::{verify_deployer, require_active, require_not_paused, require_functionality, require_role};
+use common::{require_active, require_not_paused, require_functionality, require_role};
 ```

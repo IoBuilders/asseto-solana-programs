@@ -3,10 +3,10 @@ use anchor_lang::prelude::*;
 use crate::state::TransferMode;
 
 #[event]
-pub struct TransferControlModesSet {
+pub struct TransferControlModeSet {
     pub mint: Pubkey,
     pub operator: Pubkey,
-    pub modes: Vec<TransferMode>,
+    pub mode: TransferMode,
 }
 
 #[event]
