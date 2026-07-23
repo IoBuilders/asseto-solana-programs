@@ -465,6 +465,7 @@ dependencies = [
  "operations",
  "pause",
  "snapshot",
+ "solana-keccak-hasher",
  "spl-token-2022",
  "transfer",
  "transfer-control",
@@ -1530,6 +1531,17 @@ dependencies = [
  "solana-instruction",
  "solana-program-entrypoint",
  "solana-stable-layout",
+]
+
+[[package]]
+name = "solana-keccak-hasher"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed1c0d16d6fdeba12291a1f068cdf0d479d9bff1141bf44afd7aa9d485f65ef8"
+dependencies = [
+ "sha3",
+ "solana-define-syscall 4.0.1",
+ "solana-hash",
 ]
 
 [[package]]
