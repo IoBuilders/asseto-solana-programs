@@ -17,7 +17,13 @@ pub mod treasury {
         set_payment_token::set_payment_token(ctx)
     }
 
-    pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
-        pay_coupon::pay_coupon(ctx, coupon_id)
+    pub fn pay_coupon(
+        ctx: Context<PayCoupon>,
+        coupon_id: u64,
+        account: Pubkey,
+        balance: u64,
+        merkle_proof: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        pay_coupon::pay_coupon(ctx, coupon_id, account, balance, merkle_proof)
     }
 }
