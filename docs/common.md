@@ -104,6 +104,39 @@ The caller passes a `Ref<Roles>` obtained from its own `AccountLoader<Roles>` vi
 
 ---
 
+## Module: `merkle`
+
+Merkle-proof verification for snapshot balances. The snapshot programs store only a 32-byte Merkle root per snapshot; a holder's `(account, balance)` is proven against that root off-chain-style, on demand (e.g. in `treasury::pay_coupon`).
+
+```rust
+pub struct LeafData { pub account: Pubkey, pub amount: u64 }   // + fn hash(&self) -> [u8; 32]
+
+pub fn leaf_hash(account: &Pubkey, balance: u64) -> [u8; 32];
+
+pub fn verify_balance_proof(
+    proof: &[[u8; 32]],
+    root: [u8; 32],
+    account: Pubkey,
+    balance: u64,
+) -> bool;
+```
+
+- **Leaf** — `leaf_hash = keccak(account || balance.to_le_bytes())`. The balance uses **all 8 bytes little-endian** (e.g. `1500` → `dc 05 00 00 00 00 00 00`). Exactly one leaf per account. `verify_balance_proof` always recomputes this from the `(account, balance)` inputs — it never accepts a raw leaf hash.
+- **Tree** — **sorted-pair** (commutative): every internal node is `keccak(sort(left, right))`, comparing the two 32-byte children lexicographically. Proofs therefore carry only the sibling hashes (no left/right direction bits), and only leaf *existence* is proven, not position.
+- **`verify_balance_proof`** — folds `proof` up from the leaf using the sorted-pair rule and returns `true` iff the result equals `root`. An empty `proof` means a single-leaf tree (`leaf_hash == root`).
+
+### Hashing
+
+`solana-keccak-hasher` = **keccak256** (the Ethereum / bubblegum-cNFT variant), **not** NIST SHA3-256 — they differ in padding. The off-chain tree builder **must** use keccak256 (e.g. `@noble/hashes/sha3`'s `keccak_256`, *not* `sha3_256`). On the `solana` target `hashv` calls the `sol_keccak256` syscall; the crate's `sha3` feature provides a host implementation so the unit tests run under `cargo test`.
+
+### Security notes
+
+- **No explicit leaf/node domain separation.** Forgery of an internal node as a leaf (the classic second-preimage attack) is prevented *by length*: the leaf preimage is 40 bytes (32 + 8) while an internal-node preimage is 64 bytes, and the verifier always recomputes the leaf from structured inputs — so the two hash domains can never overlap. **This safety depends on the leaf staying < 64 bytes**; changing the leaf format to ≥ 64 bytes (or a variable size) would silently reintroduce the attack. If the leaf ever grows, add explicit prefix bytes (`0x00` leaf / `0x01` node) and match them off-chain.
+- **The verifier can only be as sound as the tree that produced `root`.** The off-chain builder must guarantee: exactly one leaf per account, canonical sorted-pair construction with safe odd-level handling (promote the lone node, do **not** naively duplicate it), and the same lexicographic (bytewise) sibling ordering + `u64` LE encoding used here.
+- **Bound the proof length in the caller.** This pure function does not cap `proof.len()`; each level is a keccak syscall. On-chain callers (e.g. `treasury::pay_coupon`) should `require!` a sane maximum (a legitimate proof is `ceil(log2(N))` — well under 32) to keep compute-unit usage deterministic.
+
+---
+
 ## Module: `roles`
 
 ```rust

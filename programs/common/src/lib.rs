@@ -4,11 +4,14 @@ use std::cell::Ref;
 
 pub mod bitmask;
 pub mod functionalities;
+pub mod merkle;
 pub mod pda_seeds;
 pub mod pda_utils;
 pub mod program_ids;
 pub mod roles;
 pub mod state;
+
+pub use merkle::{leaf_hash, verify_balance_proof, LeafData};
 
 #[cfg(test)]
 pub(crate) mod test_support;
