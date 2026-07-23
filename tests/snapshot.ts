@@ -87,7 +87,7 @@ describe.skip("snapshot", () => {
     });
 
     it("take_snapshot: stores the provided merkle root in a per-snapshot PDA", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON],
       });
@@ -95,14 +95,14 @@ describe.skip("snapshot", () => {
       const merkleRoot = Array.from({ length: 32 }, (_, i) => (i + 1) & 0xff);
       // take_snapshot is CPI-only; drive it through create_coupon. The counter
       // stores the next id, so the first snapshot has id 0.
-      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot });
+      await createCoupon({ authority, mint }, { couponId: new anchor.BN(1), merkleRoot });
 
       const record = await getSnapshotMerkleRoot(mint, new anchor.BN(0));
       assert.deepEqual(Array.from(record.merkleRoot), merkleRoot, "stored root should match the provided root");
     });
 
     it("take_snapshot: each snapshot gets its own immutable root PDA (prior roots untouched)", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON],
       });
@@ -110,8 +110,8 @@ describe.skip("snapshot", () => {
       const rootA = Array.from({ length: 32 }, (_, i) => (i + 1) & 0xff);
       const rootB = Array.from({ length: 32 }, (_, i) => (0xff - i) & 0xff);
 
-      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot: rootA });
-      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(2), merkleRoot: rootB });
+      await createCoupon({ authority, mint }, { couponId: new anchor.BN(1), merkleRoot: rootA });
+      await createCoupon({ authority, mint }, { couponId: new anchor.BN(2), merkleRoot: rootB });
 
       // Snapshot ids are 0-based (counter stores the next id): coupon 1 → id 0,
       // coupon 2 → id 1.
@@ -125,7 +125,7 @@ describe.skip("snapshot", () => {
     });
 
     it("take_snapshot: succeeds even if the merkle-root PDA was pre-funded by a griefer (create-or-adopt)", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON],
       });
@@ -145,7 +145,7 @@ describe.skip("snapshot", () => {
 
       const merkleRoot = Array.from({ length: 32 }, (_, i) => (i + 7) & 0xff);
       // Must still succeed thanks to create-or-adopt (top-up + allocate + assign).
-      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot });
+      await createCoupon({ authority, mint }, { couponId: new anchor.BN(1), merkleRoot });
 
       const record = await getSnapshotMerkleRoot(mint, snapshotId);
       assert.deepEqual(
