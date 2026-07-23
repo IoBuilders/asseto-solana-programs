@@ -38,12 +38,11 @@ pub enum CommonError {
     WhitelistPdaMismatch,
 }
 
-/// Checks whether a `deactivate_pda` (seeds: `["deactivate", mint]`, owned by
-/// `deactivate`) exists for a given mint, indicating the mint has been deactivated.
+/// Checks whether a `deactivate_pda` exists for a given mint.
 ///
-/// The account is passed as `&AccountInfo` rather than `Account<T>` so callers are not
-/// required to import `deactivate` as a dependency. The `seeds::program` constraint
-/// in every caller's account struct already guarantees the address is correct.
+/// Takes `&AccountInfo` rather than `Account<T>` so callers don't need `deactivate`
+/// as a dependency — the caller's own `seeds::program` constraint already guarantees
+/// the address is correct.
 ///
 /// Returns `Ok(())` if the account does not exist (empty data).
 /// Returns `Err(CommonError::Deactivated)` if the account has been created.
@@ -53,9 +52,6 @@ pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()> {
 }
 
 /// Checks whether a Token-2022 mint is paused via the `PausableConfig` extension.
-///
-/// Parses the TLV extension data of the mint account using `StateWithExtensions`
-/// to locate `PausableConfig` and reads its `paused` flag.
 ///
 /// Returns `Ok(())` if the mint is **not** paused.
 /// Returns `Err(CommonError::MintPaused)` if the mint is paused.
@@ -77,6 +73,7 @@ pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()> {
 
 /// Checks whether `functionality` (one of the constants above) is enabled in an
 /// `AssetClassVersion` account's mask.
+///
 /// Returns `Ok(())` if the bit for `functionality` is set.
 /// Returns `Err(CommonError::FunctionalityNotSupportedError)` if it isn't
 pub fn require_functionality(
@@ -104,14 +101,10 @@ pub fn require_role(roles_pda: Ref<Roles>, role: u16) -> Result<()> {
     Ok(())
 }
 
-/// Validates that a `whitelist_pda` from a batch instruction's `remaining_accounts`
-/// is the canonical `["whitelist", mint, destination]` PDA owned by `transfer-control`.
+/// Validates that a `whitelist_pda` is the canonical PDA owned by `transfer-control`.
 ///
-/// Whitelist PDAs supplied via `remaining_accounts` carry no seed constraints, so the
-/// address must be re-derived and matched at runtime.
-///
-/// Returns `Err(CommonError::WhitelistPdaMismatch)` on a mismatch. Whether the whitelist
-/// PDA must *exist* (whitelist mode active) is a separate check left to the caller.
+/// Returns `Ok(())` if the whitelist PDA is correct.
+/// Returns `Err(CommonError::WhitelistPdaMismatch)` on a mismatch.
 pub fn verify_whitelist_pda(
     whitelist_pda: &AccountInfo,
     destination: &Pubkey,

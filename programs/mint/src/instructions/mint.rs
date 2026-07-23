@@ -13,17 +13,6 @@ use crate::events::Issued;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration};
 
-/// Mints `amount` tokens of the given mint to `destination`.
-///
-///
-/// Before minting, records the pre-mint total supply and destination balance into
-/// any active snapshot (CPIs to snapshot, both signed by `mint_authority`).
-/// Both CPIs are no-ops when no snapshot has been taken yet.
-///
-/// Because all token accounts are frozen by default, the instruction thaws
-/// `destination` before minting (CPI to freeze) and re-freezes it
-/// immediately after (CPI to freeze). Both CPIs are signed by the
-/// `mint_authority` PDA, which is the only caller freeze accepts.
 pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_ISSUER)?;
 
@@ -140,14 +129,11 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct MintTokens<'info> {
-    /// Payer for potential account creation
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The caller — must sign and hold `ROLE_ISSUER` on this mint.
     pub authority: Signer<'info>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -155,9 +141,6 @@ pub struct MintTokens<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -166,17 +149,10 @@ pub struct MintTokens<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// The Token-2022 mint to issue tokens from.
-    ///
     /// CHECK: Writable; validated by Token-2022 during the mint_to CPI.
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
 
-    /// Mint authority PDA owned by this program — the only key authorised to
-    /// call mint_to on the Token-2022 mint, and the only caller freeze accepts
-    /// for freeze/thaw instructions.
-    /// Seeds: `["mint_authority", mint]`.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::MINT_AUTHORITY, mint.key().as_ref()],
@@ -184,16 +160,10 @@ pub struct MintTokens<'info> {
     )]
     pub mint_authority: UncheckedAccount<'info>,
 
-    /// The token account that will receive the minted tokens.
-    /// Thawed before minting and re-frozen after.
-    ///
     /// CHECK: Writable; validated by Token-2022 and freeze during CPIs.
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
 
-    /// freeze's freeze authority PDA for this mint.
-    /// Passed through to freeze for the freeze/thaw CPIs.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
@@ -202,11 +172,7 @@ pub struct MintTokens<'info> {
     )]
     pub freeze_authority: UncheckedAccount<'info>,
 
-    /// Transfer Control Mode PDA for this mint.
-    /// Seeds: `["transfer_control_mode", mint]`, owned by `transfer-control`.
-    /// Read to determine whether whitelist mode is active for the mint.
-    ///
-    /// CHECK: Address verified by seeds/bump; contents read by get_transfer_mode.
+    /// CHECK: Address verified by seeds/bump; contents read by verify_transfer_control_mode.
     #[account(
         seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
@@ -214,11 +180,7 @@ pub struct MintTokens<'info> {
     )]
     pub transfer_control_mode_pda: UncheckedAccount<'info>,
 
-    /// Whitelist marker PDA for the destination token account.
-    /// Seeds: `["whitelist", mint, destination]`, owned by `transfer-control`.
-    /// Must exist when whitelist mode is active; ignored otherwise.
-    ///
-    /// CHECK: Address verified by seeds/bump; existence checked by verify_whitelist if needed.
+    /// CHECK: Address verified by seeds/bump; existence checked by verify_transfer_control_mode if needed
     #[account(
         seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), destination.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
@@ -226,10 +188,6 @@ pub struct MintTokens<'info> {
     )]
     pub destination_whitelist_pda: UncheckedAccount<'info>,
 
-    /// Snapshot counter PDA for this mint — read by snapshot to determine
-    /// the active snapshot index. May not exist yet (no snapshot taken).
-    /// Seeds: `["snapshot_counter", mint]`, owned by `snapshot`.
-    ///
     /// CHECK: Address verified by seeds/bump; existence and contents checked by snapshot.
     #[account(
         seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
@@ -238,18 +196,10 @@ pub struct MintTokens<'info> {
     )]
     pub snapshot_counter_pda: UncheckedAccount<'info>,
 
-    /// Total supply snapshot PDA for the current snapshot index.
-    /// Dynamic address (depends on snapshot count) — verified inside snapshot.
-    /// Created by snapshot if a snapshot is active and not yet recorded.
-    ///
     /// CHECK: Writable; address and existence verified inside update_totalsupply_snapshot.
     #[account(mut)]
     pub total_supply_snapshot: UncheckedAccount<'info>,
 
-    /// Holder balance snapshot PDA for the current snapshot index.
-    /// Dynamic address (depends on snapshot count) — verified inside snapshot.
-    /// Created by snapshot if a snapshot is active and not yet recorded.
-    ///
     /// CHECK: Writable; address and existence verified inside update_holderbalance_snapshot.
     #[account(mut)]
     pub holder_balance_snapshot: UncheckedAccount<'info>,
@@ -262,7 +212,6 @@ pub struct MintTokens<'info> {
     #[account(address = constants::SNAPSHOT_PROGRAM_ID)]
     pub snapshot_program: UncheckedAccount<'info>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,
@@ -274,17 +223,13 @@ pub struct MintTokens<'info> {
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
-    pub token_2022_program: Program<'info, Token2022>,
-    pub system_program: Program<'info, System>,
-
-    /// The caller's own `Roles` PDA — read to verify `ROLE_ISSUER`. Seeds: `["roles", mint, authority]`.
-    ///
-    /// CHECK: Address verified by seeds/bump; issuer bit checked by require_role.
-    /// An absent PDA fails at account resolution (AccountOwnedByWrongProgram).
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
         bump = authority_roles_pda.load()?.bump,
     )]
     pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
+
+    pub token_2022_program: Program<'info, Token2022>,
+    pub system_program: Program<'info, System>,
 }

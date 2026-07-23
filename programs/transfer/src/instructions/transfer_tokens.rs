@@ -9,16 +9,6 @@ use spl_token_2022::{
     extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
 };
 
-/// Transfers `amount` tokens from `source` to `destination`.
-///
-/// Operational instruction — called by the token holder who owns `source`.
-/// Authorization: `source_owner` must sign; Token-2022's `transfer_checked`
-/// enforces that `source.owner == source_owner`. All compliance checks
-/// (deactivation, transfer-mode, whitelist, frozen account, frozen balance)
-/// now live in `transfer::verify_transfer`, which clients must invoke as
-/// the immediately-prior top-level instruction. This instruction is responsible
-/// only for the unblock / transfer / re-block sequence and for forwarding the
-/// snapshot accounts to the transfer hook.
 pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     // ── Read mint decimals ───────────────────────────────────────────────────
     let decimals = {
@@ -62,12 +52,6 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
     ))?;
 
     // ── 2. Transfer ─────────────────────────────────────────────────────────
-    //
-    // token_2022::transfer_checked produces only 4 AccountMeta entries.
-    // Token-2022 uses instruction.accounts to discover accessible accounts, so
-    // the hook program, ExtraAccountMetaList, and every account referenced in
-    // the ExtraAccountMetaList must be appended explicitly, matching what
-    // `transfer-hook::initialize_extra_account_meta_list` builds.
     let mut transfer_ix = transfer_checked(
         &token_program_id,
         &ctx.accounts.source.key(),
@@ -87,7 +71,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         ctx.accounts.transfer_hook_program.key(),
         false,
     ));
-    // Extras from the ExtraAccountMetaList (hook indices 5..=11).
+    // Extras from the ExtraAccountMetaList (hook indices 5..=15).
     transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.snapshot_program.key(),
         false,
@@ -214,9 +198,6 @@ pub struct TransferTokens<'info> {
     /// CHECK: Validated by Token-2022 during CPI; decimals read in instruction body.
     pub mint: UncheckedAccount<'info>,
 
-    /// Transfer authority PDA — authorizes freeze/thaw CPIs to freeze.
-    /// Seeds: `["transfer", mint]`.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::TRANSFER, mint.key().as_ref()],
@@ -224,10 +205,6 @@ pub struct TransferTokens<'info> {
     )]
     pub transfer_authority: UncheckedAccount<'info>,
 
-    /// Transfer hook authority PDA — owned by `transfer-hook`. Forwarded
-    /// to the hook so it can sign the snapshot CPI and pay rent for newly-created
-    /// snapshot PDAs.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         mut,
@@ -237,9 +214,6 @@ pub struct TransferTokens<'info> {
     )]
     pub transfer_hook_authority: UncheckedAccount<'info>,
 
-    /// freeze's freeze authority PDA for this mint.
-    /// Passed through to freeze for the freeze/thaw CPIs.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
@@ -248,9 +222,6 @@ pub struct TransferTokens<'info> {
     )]
     pub freeze_authority: UncheckedAccount<'info>,
 
-    /// ExtraAccountMetaList PDA for the transfer hook.
-    /// Must be present so Token-2022 can invoke the hook during transfer_checked.
-    ///
     /// CHECK: Address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::EXTRA_ACCOUNT_METAS, mint.key().as_ref()],
@@ -259,9 +230,6 @@ pub struct TransferTokens<'info> {
     )]
     pub extra_account_meta_list: UncheckedAccount<'info>,
 
-    /// The transfer hook program — must be present in the transaction so
-    /// Token-2022 can invoke it during transfer_checked.
-    ///
     /// CHECK: Address verified by constraint.
     #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
@@ -270,41 +238,25 @@ pub struct TransferTokens<'info> {
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
-    /// snapshot program — forwarded to the hook so it can CPI into
-    /// `update_holderbalance_snapshot`.
-    ///
     /// CHECK: No address constraint here; the hook's metalist pins the canonical
     /// snapshot program ID, and Token-2022 verifies our forwarded extras against it.
     pub snapshot_program: UncheckedAccount<'info>,
 
-    /// Snapshot counter PDA for this mint — forwarded to the hook.
-    ///
     /// CHECK: Address verified by Token-2022 against the metalist's seed-derived entry.
     pub snapshot_counter_pda: UncheckedAccount<'info>,
 
-    /// Sender (source) holder balance snapshot PDA for this mint and source — forwarded to the hook.
-    ///
     /// CHECK: Writable; address verified by Token-2022 against the metalist's seed-derived entry.
     #[account(mut)]
     pub sender_snapshot: UncheckedAccount<'info>,
 
-    /// Receiver (destination) holder balance snapshot PDA for this mint and destination — forwarded to the hook.
-    ///
     /// CHECK: Writable; address verified by Token-2022 against the metalist's seed-derived entry.
     #[account(mut)]
     pub receiver_snapshot: UncheckedAccount<'info>,
 
-    /// deploy program — forwarded to the hook so it can resolve `asset_configuration_pda`
-    /// as an external PDA per its ExtraAccountMetaList.
-    ///
     /// CHECK: Address verified by constraint.
     #[account(address = constants::DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// PDA that contains configuration for this mint — forwarded to the hook,
-    /// which reads the asset class config/version ids off it to derive
-    /// `asset_class_version_pda`.
-    ///
     /// CHECK: Address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
@@ -313,24 +265,15 @@ pub struct TransferTokens<'info> {
     )]
     pub asset_configuration_pda: UncheckedAccount<'info>,
 
-    /// factory program — forwarded to the hook so it can resolve
-    /// `asset_class_version_pda` as an external PDA per its ExtraAccountMetaList.
-    ///
     /// CHECK: Address verified by constraint.
     #[account(address = constants::FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
 
-    /// Asset class version PDA for this mint's asset class — forwarded to the hook.
-    ///
     /// CHECK: No address constraint here; the hook's metalist pins the canonical
     /// derivation (seeded from `asset_configuration_pda`'s asset class config/version ids),
     /// and Token-2022 verifies our forwarded extras against it.
     pub asset_class_version_pda: UncheckedAccount<'info>,
 
-    /// Instructions sysvar — forwarded to the hook so it can introspect the
-    /// preceding `verify_transfer` instruction and the current top-level
-    /// instruction.
-    ///
     /// CHECK: Address pinned by constraint and re-verified by the hook's metalist.
     #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,

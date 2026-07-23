@@ -53,9 +53,6 @@ pub mod snapshot {
     }
 }
 
-/// Asserts that `caller` is the `coupon_authority` PDA owned by `coupon`
-/// (seeds: `["coupon_authority", mint]`). Sole authorised caller of
-/// `take_snapshot`.
 pub(crate) fn assert_take_snapshot_authorized_caller(
     mint_key: &Pubkey,
     caller: &Pubkey,
@@ -70,10 +67,6 @@ pub(crate) fn assert_take_snapshot_authorized_caller(
     Ok(())
 }
 
-/// Asserts that `caller` is one of the three PDAs authorised to call
-/// `update_totalsupply_snapshot`:
-///   - `mint_authority`     (mint,       seeds: `["mint_authority",     mint]`)
-///   - `permanent_delegate` (operations,  seeds: `["permanent_delegate", mint]`)
 pub(crate) fn assert_total_supply_authorized_caller(
     mint_key: &Pubkey,
     caller: &Pubkey,
@@ -95,11 +88,6 @@ pub(crate) fn assert_total_supply_authorized_caller(
     Ok(())
 }
 
-/// Asserts that `caller` is one of the three PDAs authorised to call
-/// `update_holderbalance_snapshot`:
-///   - `mint_authority`     (mint,       seeds: `["mint_authority",     mint]`)
-///   - `permanent_delegate` (operations,  seeds: `["permanent_delegate", mint]`)
-///   - `transfer_hook_authority` (transfer,   seeds: `["transfer_hook_authority",           mint]`)
 pub(crate) fn assert_holder_balance_authorized_caller(
     mint_key: &Pubkey,
     caller: &Pubkey,

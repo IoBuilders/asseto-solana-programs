@@ -43,9 +43,8 @@ pub struct BondTerms {
 
 ```rust
 pub enum DayCountConvention {
-    Actual360,
-    Actual365,
-    Thirty360E,
+    Actual360,  // actual days / 360 (money-market convention)
+    Actual365,  // actual days / 365
 }
 ```
 

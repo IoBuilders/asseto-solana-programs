@@ -10,6 +10,8 @@ The `operations_authority` (permanent_delegate PDA) is one of the three callers 
 
 ## Instruction: `burn` (Operational — controller only)
 
+Burns `amount` tokens from any `token_account` for the given mint via the permanent delegate, without the holder's consent. Before burning, records the pre-burn total supply and holder balance into any active snapshot (no-ops when no snapshot has been taken yet).
+
 ### Parameters
 
 ```rust
@@ -26,7 +28,7 @@ amount: u64  // raw token units to burn
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `deployer` | yes | yes | Signer | Signs and pays for snapshot PDA creation; no longer the authorization check |
+| `payer` | yes | yes | Signer | Signs and pays for snapshot PDA creation |
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_CONTROLLER` on this mint |
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; the caller's own PDA, loaded and read by `require_role` (must exist & be owned by `access-control`) |
@@ -72,7 +74,7 @@ the same pattern `deploy` uses for `MintDeployed`.
 #[event]
 pub struct ControllerRedemption {
     pub mint: Pubkey,
-    pub controller: Pubkey,  // the `authority` that signed and holds ROLE_CONTROLLER (not the `deployer`/payer)
+    pub controller: Pubkey,  // the `authority` that signed and holds ROLE_CONTROLLER (not `payer`)
     pub from: Pubkey,        // the token account burned from
     pub value: u64,          // raw token units burned
 }

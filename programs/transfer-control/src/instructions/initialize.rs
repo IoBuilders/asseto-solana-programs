@@ -10,9 +10,6 @@ use crate::state::{TransferControlMode, TransferMode};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
-/// Initializes the transfer control modes for a mint.
-///
-/// Management instruction — only an authority with role `ROLE_CONTROL_LIST` may call this.
 pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -45,11 +42,9 @@ pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct SetMode<'info> {
-    /// The authority — must sign and fund the PDA creation.
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// The authority's own `Roles` PDA.
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
@@ -57,7 +52,6 @@ pub struct SetMode<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -65,14 +59,9 @@ pub struct SetMode<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// The Token-2022 mint.
-    ///
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -81,7 +70,6 @@ pub struct SetMode<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// Transfer Control Mode PDA.
     #[account(
         init,
         payer = authority,
@@ -91,7 +79,6 @@ pub struct SetMode<'info> {
     )]
     pub transfer_control_mode_pda: Account<'info, TransferControlMode>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

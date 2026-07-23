@@ -6,6 +6,20 @@ Modular multi-program Anchor workspace extending Token-2022 for compliant token 
 
 ---
 
+## Code Comments
+
+`docs/*.md` (and this file) are the source of truth for *what* a program or instruction does and *why* its accounts are shaped the way they are. Code comments are for the *why*, not the *what* — this applies to every edit in this repo, not just when a skill below is invoked.
+
+- **Don't** add a comment that restates the identifier/type/seeds already visible at the point of use — e.g. `/// The Token-2022 mint.` above `pub mint: UncheckedAccount<'info>`, or a function-level `///` doc that repeats what `docs/<program>.md` already says about that instruction. If you're about to write a comment, ask whether a reader could get the same information by reading the code one line further — if yes, don't write it.
+- **Do** keep a comment when it encodes something the compiler won't enforce and the docs don't already state at the point of use — a load-bearing invariant (e.g. account ordering the transfer hook depends on), a non-obvious arithmetic/padding/alignment rationale, or a workaround for a specific runtime constraint (BPF stack/heap limits, etc.).
+- **Always** keep the `/// CHECK:` comment on every `UncheckedAccount` field explaining how its safety is established (seeds constraint, runtime check, Token-2022 CPI, etc.) — this is Anchor's own convention, not something to prune.
+- Section-marker comments inside a handler body (`// ── Auth checks ──`) are fine to keep or drop at your judgement — they're navigational, not explanatory duplication.
+- Before trimming an existing comment, check whether the information it carries is already in `docs/<program>.md`; if not, add it there first, then delete the code comment. Every instruction's doc section should open with a plain-language sentence describing what it does — not jump straight to a parameter/account table — even if that sentence doesn't exist yet and you have to add it.
+
+See `.claude/skills/add-new-instruction/SKILL.md` §5/§9 for the fuller reference (account-struct conventions and worked examples) when actively adding a new instruction.
+
+---
+
 ## Skills
 
 This project ships task recipes in `.claude/skills/`. **Before starting any task that matches one of these — list the folder and read the matching `SKILL.md` first**, even if the session was launched from a parent directory and Claude Code didn't auto-load them.
@@ -26,14 +40,14 @@ asseto-solana-programs/
 ├── Cargo.toml                — workspace root (glob: programs/*)
 ├── programs/
 │   ├── common/               — shared library: no program ID, no entrypoint
-│   ├── deploy/               — deploys mints; records deployer; bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
-│   ├── mint/                 — controls token minting
+│   ├── deploy/               — deploys mints; records the asset-class config/version ids in `asset_configuration_pda`; bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
+│   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated)
 │   ├── metadata-update/      — controls metadata updates
 │   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
 │   ├── operations/           — burn via permanent delegate
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
-│   ├── transfer-control/     — whitelist / clearing mode
+│   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers
 │   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block)
 │   ├── transfer-hook/        — SPL Transfer Hook; double-introspection gate (prev = verify_transfer, curr = transfer / transfer_checked) + snapshot updates
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
@@ -63,6 +77,8 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 - `state::AssetConfiguration` — struct for the `asset_configuration_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] AssetConfiguration` wrapping the same fields for `Account<AssetConfiguration>` usage.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
+- `functionalities` — flat append-only `u16` ids, one per instruction across the whole workspace (`BOND_UPDATE_BOND_TERMS = 0` … `ACCESS_CONTROL_REVOKE_ROLES = 21`), excluding `factory` itself. A unit test asserts ids are sequential from 0.
+- `require_functionality()` — checks a `factory` `AssetClassVersion`'s mask has a given functionality bit set; takes a `Ref<AssetClassVersion>` from the caller's `AccountLoader<common::state::AssetClassVersion>` (zero-copy typed load) and reads `.mask` via `bitmask::is_set`; errors `AssetClassVersionNotFinalized` if the version isn't sealed `Ready`, `FunctionalityNotSupportedError` if the bit is unset, `FunctionalityOutOfBounds` if the functionality id exceeds the mask.
 - `bitmask` — generic `[u8; N]` bit-mask primitives (`set_bits` / `clear_bits` / `is_set`) reused by every program with a bit-mask (`factory` functionalities, `access-control` roles, `require_functionality`). Bounds are derived from the mask slice length; only the shared `MASK_CHUNK_BITS = 8` lives here — per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`) stay with their structs.
 - `roles` — flat append-only `u16` role ids (`ROLE_ADMIN = 0` … `ROLE_CUSTOM_DATA_MANAGER = 9`) + `ROLES_MASK_OFFSET`; mirror of `functionalities` for `access-control`. Beyond `access-control`'s own `ROLE_ADMIN` gating, management instructions in other programs are role-gated too (`pause`/`unpause` → `ROLE_PAUSER`; `freeze` management → `ROLE_FREEZE_MANAGER`; `metadata-update` → `ROLE_CUSTOM_DATA_MANAGER`). A unit test asserts ids are sequential from 0.
 - `require_role()` — checks an `access-control` `Roles` PDA has a given role bit; takes a `Ref<Roles>` from the caller's `AccountLoader<common::state::Roles>` (zero-copy typed load, same as `require_functionality`) and reads `.mask` via `bitmask::is_set`; errors `MissingRole` if the bit is unset, `RoleOutOfBounds` if the role id exceeds the mask. `common::state::Roles` is a field-for-field mirror of `access-control::state::Roles` (discriminator + size guarded by compile-time asserts in `access-control`), so `common` can load it without a circular dep. Note: an absent PDA now fails at account resolution (`AccountOwnedByWrongProgram`), not with `MissingRole`.
@@ -107,7 +123,7 @@ use common::program_ids as constants;
 seeds::program = constants::FREEZE_PROGRAM_ID,
 ```
 
-**When a program ID changes:** update the value in `common/src/program_ids.rs` only.
+**When a program ID changes:** it's a literal in three places — update all of them: `declare_id!` in the program's own `src/lib.rs`, the workspace `Anchor.toml`, and the constant in `common/src/program_ids.rs`.
 
 ---
 
@@ -139,7 +155,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["permanent_delegate", mint]` | `operations` | Token-2022 PermanentDelegate authority |
 | `["pausable_authority", mint]` | `pause` | Token-2022 Pausable authority |
 | `["deactivate", mint]` | `deactivate` | Marker: mint permanently deactivated |
-| `["transfer_control_mode", mint]` | `transfer-control` | Stores `is_clearing` flag |
+| `["transfer_control_mode", mint]` | `transfer-control` | Stores the active `TransferMode` (currently only `Whitelist`) + bump; created once by `initialize` (no close/update path) |
 | `["whitelist", mint, account]` | `transfer-control` | Marker: account is whitelisted |
 | `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority; also the payer + calling-authority for snapshot CPIs during a transfer |

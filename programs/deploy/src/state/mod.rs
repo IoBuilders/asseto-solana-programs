@@ -1,14 +1,9 @@
 use anchor_lang::prelude::*;
 use common::state::{discriminators_eq, AssetConfiguration as AssetConfigurationCommon};
 
-/// Re-exports common's AssetConfiguration with the `#[account]` attribute so that
-/// this program can initialize it.
-///
-/// The type itself (fields, serialization) is defined in `common::state::AssetConfiguration`
-/// so downstream programs can deserialize it without importing deploy.
-///
-/// Both definitions must stay in sync — the compile-time assertion below guards against
-/// divergence by failing the build if the two structs ever differ in size.
+// Mirrors `common::state::AssetConfiguration` field-for-field, wrapped with
+// `#[account]` so this program can initialize/write it; the asserts below
+// enforce the two definitions never diverge.
 #[account(discriminator = AssetConfigurationCommon::DISCRIMINATOR)]
 #[derive(InitSpace)]
 pub struct AssetConfiguration {

@@ -73,10 +73,10 @@ Entries are always appended with a strictly-increasing `key`. `SnapshotHistory::
 
 ```rust
 pub enum ErrorCode {
-    Unauthorized,        // calling_authority not in the allowed set
-    InvalidTokenAccount, // holder_token_account.mint does not match the mint arg
-    DeltaOverflow,       // balance ± delta would overflow/underflow u64
-    SnapshotCounterOverflow,   // counter at u64::MAX when taking a new snapshot
+    Unauthorized,             // calling_authority not in the allowed set
+    InvalidTokenAccount,      // holder_token_account.mint does not match the mint arg
+    DeltaOverflow,            // balance ± delta would overflow/underflow u64
+    SnapshotCounterOverflow,  // counter at u64::MAX when taking a new snapshot
 }
 ```
 

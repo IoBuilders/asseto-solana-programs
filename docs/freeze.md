@@ -83,7 +83,7 @@ Reads the current token balance from `token_account` and the frozen balance from
 
 ## Instruction: `block_account` (Auxiliary)
 
-No parameters.
+No parameters. Freezes `token_account` at the token level via a Token-2022 CPI signed by this program's `freeze_authority` PDA.
 
 ### Authorization
 
@@ -112,7 +112,7 @@ No external wallet can produce these signatures. Only the owning program can via
 
 ## Instruction: `unblock_account` (Auxiliary)
 
-No parameters. Same accounts and authorization model as `block_account`.
+No parameters. Thaws `token_account` at the token level via a Token-2022 CPI signed by this program's `freeze_authority` PDA. Same accounts and authorization model as `block_account`.
 
 ### Execution
 

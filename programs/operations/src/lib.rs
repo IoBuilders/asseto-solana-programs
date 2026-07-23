@@ -12,7 +12,6 @@ declare_id!("BHDyg8PeUyVBpmkcjYLdnt3VCmYf4wp8Xeu6TXREiLKp");
 pub mod operations {
     use super::*;
 
-    /// Burns tokens from any token account.
     pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         burn_tokens::burn(ctx, amount)
     }

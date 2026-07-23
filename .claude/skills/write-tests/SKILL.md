@@ -159,9 +159,9 @@ Derive PDAs via `tests/utils/pda_utils.ts` rather than inline `findProgramAddres
 ```ts
 import * as pdaUtils from "./utils/pda_utils";
 
-const mintOwnerPda        = pdaUtils.mintOwnerPda(mint);
-const treasuryAuthority   = pdaUtils.treasuryAuthorityPda(mint);
-const snapshotCounterPda  = pdaUtils.snapshotCounterPda(mint);
+const assetConfigurationPda = pdaUtils.assetConfigurationPda(mint);
+const treasuryAuthority      = pdaUtils.treasuryAuthorityPda(mint);
+const snapshotCounterPda     = pdaUtils.snapshotCounterPda(mint);
 // etc.
 ```
 
@@ -188,7 +188,34 @@ const supply = await getTotalSupplySnapshotAt(
 
 These query the on-chain snapshot PDAs via `.view()` — no transaction sent.
 
-## 10. Transfer-specific patterns
+## 10. Role setup for Management-instruction tests
+
+Every Management instruction is role-gated (`require_role`), so its happy-path test must grant the caller the right role first, and its error cases must include a `MissingRole` case:
+
+```ts
+import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
+import { ROLE_PAUSER } from "./utils/roles"; // one ROLE_* constant per common::roles entry
+
+beforeEach(async () => {
+  ({ mint } = await deployMint({ deployer }));
+  await setRoles(mint, authority.publicKey, [ROLE_PAUSER]);
+});
+
+it("pause: fails with MissingRole when authority doesn't have required role", async () => {
+  await setRoles(mint, authority.publicKey, []); // revoke for this one test
+  try {
+    await pauseMint({ authority, mint });
+    assert.fail("Expected MissingRole error but instruction succeeded");
+  } catch (err) {
+    assert.instanceOf(err, AnchorError);
+    assert.equal((err as AnchorError).error.errorCode.code, "MissingRole");
+  }
+});
+```
+
+`tests/utils/roles.ts` mirrors `common::roles` — check there for the exact constant name before hardcoding a role id. If the instruction is also functionality-gated (see `docs/<program>.md`'s Preconditions section), also cover the `FunctionalityNotSupportedError` case by not enabling the relevant `functionalities` bit on the asset-class version.
+
+## 11. Transfer-specific patterns
 
 ### Fund the transfer-hook authority
 
@@ -237,7 +264,7 @@ If you build the transfer instruction manually (instead of using the `transfer()
 
 The CU limit covers the hook CPI chain; the heap frame is required because the metalist resolution path needs more than the default 32 KiB.
 
-## 11. Assertion style — `AnchorError` vs `SendTransactionError`
+## 12. Assertion style — `AnchorError` vs `SendTransactionError`
 
 This is the part that most often breaks a test. Pick based on **where the error is raised**:
 
@@ -271,7 +298,7 @@ try {
 }
 ```
 
-## 12. `it()` shape
+## 13. `it()` shape
 
 One happy-path `it()` per instruction, then one `it()` per precondition error. Every test starts with a fresh `deployMint()` so tests don't share state.
 
@@ -284,6 +311,6 @@ it("<instruction>: <expected behaviour>", async () => {
 });
 ```
 
-## 13. Silence noise
+## 14. Silence noise
 
 `tests/setup.ts` suppresses `console.log` by default. Mocha picks it up via `--require tests/setup.ts` in `Anchor.toml`. Use `console.log` freely in tests; flip `VERBOSE = true` in `setup.ts` when debugging.

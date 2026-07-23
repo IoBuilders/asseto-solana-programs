@@ -5,8 +5,8 @@ use anchor_lang::prelude::*;
 /// Derived from the fields that precede it in declaration order
 pub const ASSET_CLASS_CONFIG_ID_OFFSET: u8 = AssetConfiguration::DISCRIMINATOR.len() as u8;
 
-/// Byte offset of `AssetConfiguration::asset_class_version_id` within the account data —
-/// immediately after `asset_class_config_id: u64`.
+/// Byte offset of `AssetConfiguration::asset_class_version_id` within the account data.
+/// Derived from the fields that precede it in declaration order.
 pub const ASSET_CLASS_VERSION_ID_OFFSET: u8 = ASSET_CLASS_CONFIG_ID_OFFSET + size_of::<u64>() as u8;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]

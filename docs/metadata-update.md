@@ -72,6 +72,8 @@ pub struct MetadataFieldRemoved {
 
 ## Instruction: `update_metadata_field`
 
+Updates the value of an existing metadata field (name / symbol / uri or any custom key) or adds a new custom key-value pair if the key does not yet exist.
+
 ### Parameters
 
 ```rust
@@ -112,14 +114,14 @@ pass a target size; `payer` just needs enough lamports to cover the (possible) t
 
 ## Instruction: `remove_metadata_field`
 
+Removes a custom key-value pair from `additional_metadata`. Only custom keys can be removed — core fields (name, symbol, uri) cannot be removed (use `update_metadata_field` to clear their values instead); Token-2022 will reject the CPI if attempted.
+
 ### Parameters
 
 ```rust
 key: String,
 idempotent: bool  // if true, silently succeeds when the key doesn't exist
 ```
-
-Core fields (name, symbol, uri) cannot be removed — Token-2022 will reject the CPI.
 
 ### Execution
 

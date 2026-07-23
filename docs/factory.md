@@ -75,6 +75,27 @@ A version is fully defined by its bit-mask — there is no separate length. Bit 
 
 ---
 
+## Error Codes
+
+```rust
+pub enum ErrorCode {
+    NotManager,               // signer is not factory.manager
+    NotPendingManager,        // signer does not match factory_pending_manager.pending_manager
+    FactoryPaused,            // factory.pause is true (checked by require_not_paused)
+    FactoryNotPaused,         // factory.pause is false (checked by require_paused, e.g. in unpause)
+    NotOwner,                 // signer is not asset_class_ownership.owner
+    NotPendingOwner,          // signer does not match asset_class_pending_owner.pending_owner
+    InvalidVersion,           // version != asset_class_ownership.latest_version + 1
+    VersionNotDraft,          // asset_class_version.state != Draft
+    FunctionalityOutOfBounds, // functionality id past the mask's capacity
+    Overflow,                 // version + 1 or latest_version + 1 overflowed u64
+}
+```
+
+`NotManager` / `NotPendingManager` come from `verify_manager` / `verify_pending_manager`; `NotOwner` / `NotPendingOwner` from `verify_owner` / `verify_pending_owner`; `FactoryPaused` / `FactoryNotPaused` from `require_not_paused` / `require_paused` — all in `helpers.rs`.
+
+---
+
 ## Instructions
 
 ### `initialize()`
@@ -167,6 +188,48 @@ Callable only by the current `factory.manager`, and only while the factory is no
 1. `require_not_paused` — fails if the factory is paused.
 2. `verify_manager` — fails unless `current_manager` is the recorded `factory.manager`.
 3. Closes the `factory_pending_manager` PDA (rent → `current_manager`).
+
+---
+
+### `pause()`
+
+Pauses the factory, setting `factory.pause` to `true`. Once paused, every other factory instruction (nomination, asset-class creation/ownership, version deployment) is rejected by their own `require_not_paused` check.
+
+Callable only by the current `factory.manager`, and only while the factory is **not** already paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `manager` | `Signer` | The current factory manager. Must sign. |
+| `factory` | `Account<Factory>` (mut) | Singleton config PDA. Seeds: `["factory"]`. |
+
+**Execution**
+
+1. `require_not_paused` — fails if the factory is already paused.
+2. `verify_manager` — fails unless `manager` is the recorded `factory.manager`.
+3. Sets `factory.pause = true`.
+
+---
+
+### `unpause()`
+
+Unpauses the factory, setting `factory.pause` to `false`, restoring normal operation of every other factory instruction.
+
+Callable only by the current `factory.manager`, and only while the factory **is** paused.
+
+**Accounts**
+
+| Account | Type | Notes |
+|---|---|---|
+| `manager` | `Signer` | The current factory manager. Must sign. |
+| `factory` | `Account<Factory>` (mut) | Singleton config PDA. Seeds: `["factory"]`. |
+
+**Execution**
+
+1. `require_paused` — fails if the factory is not currently paused.
+2. `verify_manager` — fails unless `manager` is the recorded `factory.manager`.
+3. Sets `factory.pause = false`.
 
 ---
 

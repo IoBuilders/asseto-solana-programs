@@ -12,12 +12,6 @@ use common::{
 
 use crate::events::MetadataFieldRemoved;
 
-/// Removes a custom key-value pair from `additional_metadata`.
-///
-/// Note: only custom keys can be removed.  The core fields (name, symbol, uri)
-/// cannot be removed — use `update_metadata_field` to clear their values.
-///
-/// Set `idempotent = true` to silently succeed when the key does not exist.
 pub fn remove_metadata_field(
     ctx: Context<RemoveMetadata>,
     key: String,
@@ -76,14 +70,11 @@ pub fn remove_metadata_field(
 #[event_cpi]
 #[derive(Accounts)]
 pub struct RemoveMetadata<'info> {
-    /// Pays for any additional rent when the account needs to grow.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The caller — must sign and hold `ROLE_CUSTOM_DATA_MANAGER`.
     pub authority: Signer<'info>,
 
-    /// The authority's own `Roles` PDA — read to verify `ROLE_CUSTOM_DATA_MANAGER`.
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
@@ -91,13 +82,10 @@ pub struct RemoveMetadata<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// The Token-2022 mint whose embedded metadata is being modified.
-    ///
     /// CHECK: Validated by Token-2022 during the metadata CPI.
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -105,9 +93,6 @@ pub struct RemoveMetadata<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// Metadata update authority PDA — the only key authorised to modify
-    /// on-chain token metadata. Owned by this program; signs remove_key CPIs.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::METADATA_UPDATE_AUTHORITY, mint.key().as_ref()],
@@ -115,9 +100,6 @@ pub struct RemoveMetadata<'info> {
     )]
     pub metadata_update_authority: UncheckedAccount<'info>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -130,7 +112,6 @@ pub struct RemoveMetadata<'info> {
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

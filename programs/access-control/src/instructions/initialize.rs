@@ -30,22 +30,16 @@ pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
-    /// Pays for the `roles_pda` on the first call.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The caller — must sign and hold `ROLE_ADMIN` on this mint.
     pub temp_mint_authority: Signer<'info>,
 
     pub account: Signer<'info>,
 
-    /// The Token-2022 mint — must not be paused.
-    ///
-    /// CHECK: Read-only; pause state validated by require_not_paused.
+    /// CHECK: Read-only; used only as a `roles_pda` seed.
     pub mint: UncheckedAccount<'info>,
 
-    /// Role bit-mask PDA for `(mint, account)` — created on the first grant,
-    /// updated on subsequent grants. Seeds: `[mint, account]`.
     #[account(
         init,
         payer = payer,

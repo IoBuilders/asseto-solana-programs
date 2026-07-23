@@ -15,16 +15,6 @@ use common::state::asset_configuration::{
 /// Keep in sync with the `metas` vec length in the handler.
 const EXTRA_ACCOUNT_META_COUNT: usize = 11;
 
-/// Initialises an empty ExtraAccountMetaList PDA for this mint.
-///
-/// Restricted to CPI from deploy: the caller must pass `asset_configuration_pda`
-/// as a signer (only deploy can produce that signature via invoke_signed).
-///
-/// Only the accounts the hook needs for the snapshot CPI are listed. All
-/// compliance checks have been moved to `transfer::verify_transfer`,
-/// so the previous 10 compliance-related extra metas are no longer needed —
-/// keeping the list small is what lets Token-2022's 32 KiB heap fit metalist
-/// resolution.
 pub fn initialize_extra_account_meta_list(
     ctx: Context<InitializeExtraAccountMetaList>,
 ) -> Result<()> {
@@ -136,14 +126,9 @@ pub fn initialize_extra_account_meta_list(
 
 #[derive(Accounts)]
 pub struct InitializeExtraAccountMetaList<'info> {
-    /// Pays for the ExtraAccountMetaList account rent.
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The asset configuration PDA created by deploy for this mint.
-    /// deploy passes this as a signer via invoke_signed to prove the call
-    /// originates from deploy_mint — no external wallet can produce this signature.
-    ///
     /// CHECK: Signer flag proves origin; seeds verify this is the canonical PDA for this mint.
     #[account(
         signer,
@@ -153,10 +138,6 @@ pub struct InitializeExtraAccountMetaList<'info> {
     )]
     pub asset_configuration_pda: UncheckedAccount<'info>,
 
-    /// ExtraAccountMetaList PDA — created and initialised by this instruction.
-    /// Seeds match the SPL transfer-hook-interface convention so that Token-2022
-    /// can locate and verify the list on every transfer.
-    ///
     /// CHECK: Created by this instruction; seeds/bump verified by the constraint.
     #[account(
         init,
@@ -167,8 +148,6 @@ pub struct InitializeExtraAccountMetaList<'info> {
     )]
     pub extra_account_meta_list: AccountInfo<'info>,
 
-    /// The Token-2022 mint being initialised.
-    ///
     /// CHECK: Address only — used as a seed component.
     pub mint: UncheckedAccount<'info>,
 

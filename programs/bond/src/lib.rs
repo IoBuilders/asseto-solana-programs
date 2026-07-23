@@ -13,12 +13,6 @@ declare_id!("8opYXiWzWBrUEr5vtcvaX1ybzYaMKrndxkW1U9Patk46");
 pub mod bond {
     use super::*;
 
-    /// Creates the `bond_terms_pda` for the mint on the first call, then
-    /// overwrites every field with `args` on each subsequent call.
-    ///
-    /// Other on-chain programs read the stored terms by loading the PDA
-    /// themselves via `Account<'info, BondTerms>` constrained by
-    /// `seeds::program = bond::ID` — no CPI getter is exposed.
     pub fn update_bond_terms(ctx: Context<UpdateBondTerms>, args: BondTermsArgs) -> Result<()> {
         update_bond_terms::update_bond_terms(ctx, args)
     }

@@ -12,29 +12,6 @@ use crate::state::{Coupon, CouponCounter};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
-/// Creates a coupon for the mint:
-/// 1. Verifies the authority role, mint not paused, mint not deactivated.
-/// 2. Validates the date triple: `period_start_date < period_end_date < payment_date`
-///    (strict, not enforcing chaining with previous coupons).
-/// 3. Validates that `interest_rate_override` and `interest_rate_override_decimals`
-///    are either both `Some` or both `None` (`InconsistentRateOverride` otherwise).
-/// 4. Increments `coupon_counter` (creating it on the first call).
-/// 5. CPIs `snapshot::take_snapshot` (forwarding `merkle_root`) signed by the
-///    `coupon_authority` PDA. `take_snapshot` stores the root in a new immutable
-///    `snapshot_merkle_root` PDA keyed by the freshly-allocated snapshot id.
-/// 6. Reads the resulting snapshot id from `snapshot_counter`.
-/// 7. Stores `(snapshot_id, period_start_date, period_end_date, payment_date,
-///    interest_rate_override, interest_rate_override_decimals)` in the new `coupon` PDA.
-///
-/// `coupon_id` is supplied by the client (it's needed in the seeds for the
-/// `coupon` PDA address derivation) and the program re-checks it equals the
-/// expected new counter value before committing.
-///
-/// `interest_rate_override` / `interest_rate_override_decimals` are optional.
-/// When both are `Some`, `treasury::pay_coupon` uses them instead of the
-/// asset-level rate in `bond_terms`. Pass `None` for both to inherit the
-/// bond-level rate (the default). The rate can be updated later with
-/// `set_coupon_rate`.
 pub fn create_coupon(
     ctx: Context<CreateCoupon>,
     period_start_date: i64,
@@ -147,10 +124,6 @@ pub fn create_coupon(
 #[derive(Accounts)]
 #[instruction(period_start_date: i64, period_end_date: i64, payment_date: i64, coupon_id: u64)]
 pub struct CreateCoupon<'info> {
-    /// Funds rent for the new PDAs (`coupon_counter` on first call, `coupon`
-    /// always, and `snapshot_counter` when this is the very first snapshot).
-    /// Distinct from `authority` so a wallet can pay without holding the
-    /// mint-owner signature.
     #[account(mut)]
     pub payer: Signer<'info>,
 
@@ -163,9 +136,6 @@ pub struct CreateCoupon<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -174,14 +144,9 @@ pub struct CreateCoupon<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// The Token-2022 mint — must not be paused.
-    ///
     /// CHECK: Read-only; pause state validated by require_not_paused.
     pub mint: UncheckedAccount<'info>,
 
-    /// Signer for the `take_snapshot` CPI. Address verified by seeds/bump
-    /// here, signs via `invoke_signed` inside the handler.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::COUPON_AUTHORITY, mint.key().as_ref()],
@@ -189,8 +154,6 @@ pub struct CreateCoupon<'info> {
     )]
     pub coupon_authority: UncheckedAccount<'info>,
 
-    /// Per-mint coupon counter — created on the first call, incremented after.
-    /// Seeds: `["coupon_counter", mint]`.
     #[account(
         init_if_needed,
         payer = payer,
@@ -200,8 +163,6 @@ pub struct CreateCoupon<'info> {
     )]
     pub coupon_counter: Account<'info, CouponCounter>,
 
-    /// The new coupon PDA. Seeds: `["coupon", mint, coupon_id.to_le_bytes()]`.
-    /// `coupon_id` is checked against `coupon_counter.count + 1` in the handler.
     #[account(
         init,
         payer = payer,
@@ -211,9 +172,6 @@ pub struct CreateCoupon<'info> {
     )]
     pub coupon: Account<'info, Coupon>,
 
-    /// `snapshot`'s `snapshot_counter` PDA — passed through to the CPI
-    /// and re-read after to learn the snapshot id just allocated.
-    ///
     /// CHECK: Writable; address verified by seeds/bump; ownership and contents
     /// validated inside `take_snapshot`.
     #[account(
@@ -224,12 +182,6 @@ pub struct CreateCoupon<'info> {
     )]
     pub snapshot_counter: UncheckedAccount<'info>,
 
-    /// The immutable Merkle-root PDA that `take_snapshot` creates for the new
-    /// snapshot. Its address depends on the snapshot id, only known inside
-    /// `take_snapshot` after the counter increments, so it's forwarded
-    /// unchecked; the snapshot program derives, verifies, and creates it.
-    /// Seeds: `["snapshot_merkle_root", mint, snapshot_id]`, owned by snapshot.
-    ///
     /// CHECK: Writable; address verified and account created inside snapshot::take_snapshot.
     #[account(mut)]
     pub snapshot_merkle_root: UncheckedAccount<'info>,
@@ -243,7 +195,6 @@ pub struct CreateCoupon<'info> {
     /// CHECK: Address verified by snapshot program.
     pub snapshot_event_authority: UncheckedAccount<'info>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,

@@ -9,13 +9,6 @@ use spl_token_2022::extension::pausable::instruction::resume as spl_resume;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
-/// Unpauses (resumes) the Token-2022 mint.
-///
-/// Lifts the pause set by `pause`, allowing minting, burning, and transfers
-/// to proceed normally again.
-///
-/// Management instruction — only an account holding `ROLE_PAUSER` may call this.
-/// The `pausable_authority` PDA (owned by this program) signs the Token-2022 resume CPI.
 pub fn unpause(ctx: Context<UnpauseMint>) -> Result<()> {
     // ── Verify caller holds the pauser role ──────────────────────────────────
     require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_PAUSER)?;
@@ -63,10 +56,8 @@ pub fn unpause(ctx: Context<UnpauseMint>) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct UnpauseMint<'info> {
-    /// The caller — must sign and hold `ROLE_PAUSER`.
     pub authority: Signer<'info>,
 
-    /// The authority's own `Roles` PDA — read to verify `ROLE_PAUSER`.
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
@@ -74,7 +65,6 @@ pub struct UnpauseMint<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA that contains the configuration for this mint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -82,9 +72,6 @@ pub struct UnpauseMint<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// Deactivation marker PDA — must not exist for the instruction to proceed.
-    /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
-    ///
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
@@ -93,15 +80,10 @@ pub struct UnpauseMint<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// The Token-2022 mint to unpause (resume).
-    ///
     /// CHECK: Writable; validated by Token-2022 during the resume CPI.
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
 
-    /// Pausable authority PDA — signs the Token-2022 resume CPI.
-    /// Seeds: `["pausable_authority", mint]`.
-    ///
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::PAUSABLE_AUTHORITY, mint.key().as_ref()],
@@ -109,7 +91,6 @@ pub struct UnpauseMint<'info> {
     )]
     pub pausable_authority: UncheckedAccount<'info>,
 
-    /// Asset-class version PDA this mint is hooked to.
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,
