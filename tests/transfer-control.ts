@@ -41,12 +41,11 @@ import { ROLE_CONTROL_LIST } from "./utils/roles";
 describe("transfer-control", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const deployer = provider.wallet.publicKey;
   const authority = provider.wallet.payer;
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer }));
+    ({ mint } = await deployMint());
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,

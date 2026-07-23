@@ -1,10 +1,10 @@
 use anchor_lang::solana_program::pubkey::Pubkey;
 
 /********************************** DEPLOY **********************************/
-pub const MINT_OWNER: &[u8] = b"mint_owner";
+pub const ASSET_CONFIGURATION: &[u8] = b"asset_configuration";
 
-pub fn mint_owner_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
-    vec![MINT_OWNER, mint.as_ref()]
+pub fn asset_configuration_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![ASSET_CONFIGURATION, mint.as_ref()]
 }
 
 pub const TEMP_MINT_AUTHORITY_SEED: &[u8] = b"temp_mint_authority";

@@ -10,9 +10,9 @@ import {
   SNAPSHOT_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
 } from "../../utils/address_utils";
-import { MintWriteContext } from "../base_helper";
+import { MintWriteWithPayerContext } from "../base_helper";
 import { getEvent } from "../event_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, operationsEventAuthorityPda } from "./burn_pda_helper";
@@ -26,7 +26,7 @@ export function getOperationsProgram(): Program<Operations> {
 
 // ── burn ─────────────────────────────────────────────────────────────────────
 
-export type BurnTokensContext = MintWriteContext & {
+export type BurnTokensContext = MintWriteWithPayerContext & {
   tokenAccount: PublicKey;
 };
 
@@ -44,27 +44,24 @@ export async function burnTokens(
   callContext: BurnTokensContext,
   args?: BurnTokensArgs
 ): Promise<{ signature: string }> {
-  const program = getOperationsProgram();
-
+  getOperationsProgram();
   const effectiveArgs: Required<BurnTokensArgs> = {
     ...getDefaultArgs(),
     ...args,
   };
 
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
-
-  const authority = callContext.authority ?? program.provider.wallet.payer;
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   const signature = await getOperationsProgram()
     .methods.burn(effectiveArgs.amount)
     .accountsStrict({
-      deployer: callContext.deployer,
-      authority: authority.publicKey,
+      payer: callContext.payer ?? callContext.authority.publicKey,
+      authority: callContext.authority.publicKey,
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
       freezeAuthority: freezeAuthorityPda(callContext.mint),
@@ -73,14 +70,17 @@ export async function burnTokens(
       holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.tokenAccount),
       freezeProgram: FREEZE_PROGRAM_ID,
       snapshotProgram: SNAPSHOT_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: operationsEventAuthorityPda(),
       program: OPERATIONS_PROGRAM_ID,
-      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
+      authorityRolesPda: rolesPda(callContext.mint, callContext.authority.publicKey),
     })
-    .signers(callContext?.signers ?? [authority])
+    .signers(callContext?.signers ?? [callContext.authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };

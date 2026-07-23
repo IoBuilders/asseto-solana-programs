@@ -15,7 +15,7 @@ import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
 import { freezeAuthorityPda } from "./program_helpers/freeze/freeze_pda_helper";
 import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "./program_helpers/metadata_update/metadata_update_pda_helper";
-import { deployMint, getMintDeployedEvent, getMintOwner } from "./program_helpers/deploy_helper";
+import { deployMint, getMintDeployedEvent, getAssetConfiguration } from "./program_helpers/deploy_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
 import { getRoles, isRoleGranted, rolesPdaWithBump } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN } from "./utils/roles";
@@ -34,10 +34,9 @@ const MINT_ASSET_CLASS_VERSION_ID = 3;
 describe("deploy", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  // The wallet that signs as deployer and becomes the recorded mint owner.
-  const deployer = provider.wallet.publicKey;
 
   it("deploy_mint: deploys a Token-2022 mint with all extensions and metadata", async () => {
+    const deployer = provider.wallet.payer;
     const { mint, signature } = await deployMint(
       { deployer },
       {
@@ -56,7 +55,7 @@ describe("deploy", () => {
     const pausableAuthority = pausableAuthorityPda(mint);
     const freezeAuthority = freezeAuthorityPda(mint);
     const mintInfo = await getMint(mint);
-    const mintOwnerAccount = await getMintOwner(mint);
+    const assetConfigurationAccount = await getAssetConfiguration(mint);
     const metadataPointerState = getMetadataPointerState(mintInfo);
     const permanentDelegateState = getPermanentDelegate(mintInfo);
     const defaultAccountState = getDefaultAccountState(mintInfo);
@@ -115,31 +114,26 @@ describe("deploy", () => {
       "additional metadata should contain the ISIN field"
     );
 
-    // ── Assertions: Mint owner PDA ─────────────────────────────────────────────
-    assert.equal(
-      mintOwnerAccount.deployer.toBase58(),
-      deployer.toBase58(),
-      "mint owner PDA should record the deployer"
-    );
+    // ── Assertions: Asset configuration PDA ─────────────────────────────────────
     // Verify the stored bump is consistent with the derived PDA address.
-    const [, expectedBump] = pdaUtils.mintOwnerPdaWithBump(mint);
-    assert.equal(mintOwnerAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
+    const [, expectedBump] = pdaUtils.assetConfigurationPdaWithBump(mint);
+    assert.equal(assetConfigurationAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
     // The asset-class PDA seed (config_id, version_id) is persisted verbatim.
     assert.equal(
-      mintOwnerAccount.assetClassConfigId.toNumber(),
+      assetConfigurationAccount.assetClassConfigId.toNumber(),
       MINT_ASSET_CLASS_CONFIG_ID,
-      "mint owner PDA should record the asset-class config id"
+      "asset configuration PDA should record the asset-class config id"
     );
     assert.equal(
-      mintOwnerAccount.assetClassVersionId.toNumber(),
+      assetConfigurationAccount.assetClassVersionId.toNumber(),
       MINT_ASSET_CLASS_VERSION_ID,
-      "mint owner PDA should record the asset-class version id"
+      "asset configuration PDA should record the asset-class version id"
     );
 
     // ── Assertions: Deployer has been granted Admin Role ─────────
-    const [, expectedRolesBump] = rolesPdaWithBump(mint, deployer);
+    const [, expectedRolesBump] = rolesPdaWithBump(mint, deployer.publicKey);
     const roles = [ROLE_ADMIN];
-    const rolesAccount = await getRoles(mint, deployer);
+    const rolesAccount = await getRoles(mint, deployer.publicKey);
 
     assert.equal(rolesAccount.bump, expectedRolesBump, "stored bump should be the canonical PDA bump");
 
@@ -151,7 +145,7 @@ describe("deploy", () => {
     const event = await getMintDeployedEvent(signature);
     assert.isNotNull(event, "MintDeployed event should be emitted");
     assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
-    assert.equal(event!.deployer.toBase58(), deployer.toBase58(), "event deployer should match");
+    assert.equal(event!.deployer.toBase58(), deployer.publicKey.toBase58(), "event deployer should match");
     assert.equal(event!.decimals, MINT_DECIMALS);
     assert.equal(event!.name, MINT_NAME);
     assert.equal(event!.symbol, MINT_SYMBOL);
@@ -170,7 +164,7 @@ describe("deploy", () => {
   });
 
   it("deploy_mint: MintDeployed event has a null isin when no isin metadata is provided", async () => {
-    const { signature } = await deployMint({ deployer }, { additionalMetadata: [] });
+    const { signature } = await deployMint({}, { additionalMetadata: [] });
 
     const event = await getMintDeployedEvent(signature);
 
@@ -179,13 +173,13 @@ describe("deploy", () => {
   });
 
   it("deploy_mint: fails when attempting to deploy an already-deployed mint", async () => {
-    const mintKeypair = Keypair.generate();
-    await deployMint({ deployer, signers: [mintKeypair] });
+    const mint = Keypair.generate();
+    await deployMint({ mint });
 
-    // Attempt to deploy the same mint again (by using the same mint pda) — mint_owner_pda already exists,
+    // Attempt to deploy the same mint again (by using the same mint pda) — asset_configuration_pda already exists,
     // so Anchor's `init` constraint rejects it before the instruction body runs.
     try {
-      await deployMint({ deployer, signers: [mintKeypair] });
+      await deployMint({ mint });
 
       assert.fail("Expected re-deploy to fail but it succeeded");
     } catch (err) {

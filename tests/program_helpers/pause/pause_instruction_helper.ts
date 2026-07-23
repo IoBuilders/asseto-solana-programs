@@ -7,7 +7,7 @@ import { Pause } from "../../../target/types/pause";
 import { MintWriteContext } from "../base_helper";
 import { PublicKey } from "@solana/web3.js";
 import { getEvent } from "../event_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { PAUSE_PROGRAM_ID } from "../../utils/address_utils";
 import { pausableAuthorityPda, pauseEventAuthorityPda } from "./pause_pda_helper";
@@ -22,8 +22,8 @@ function getPauseProgram(): Program<Pause> {
 export async function pauseMint(callContext: MintWriteContext): Promise<{ signature: string }> {
   const program = getPauseProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
@@ -32,10 +32,13 @@ export async function pauseMint(callContext: MintWriteContext): Promise<{ signat
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       pausableAuthority: pausableAuthorityPda(callContext.mint),
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: pauseEventAuthorityPda(),
       program: PAUSE_PROGRAM_ID,
@@ -65,8 +68,8 @@ export async function getPausedEvent(signature: string) {
 export async function unpauseMint(callContext: MintWriteContext): Promise<{ signature: string }> {
   const program = getPauseProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `mint_owner` account — the same values the on-chain program reads.
-  const mintOwner = await getMintOwner(callContext.mint);
+  // `asset_configuration` account — the same values the on-chain program reads.
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
@@ -75,10 +78,13 @@ export async function unpauseMint(callContext: MintWriteContext): Promise<{ sign
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       pausableAuthority: pausableAuthorityPda(callContext.mint),
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: pauseEventAuthorityPda(),
       program: PAUSE_PROGRAM_ID,

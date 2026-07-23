@@ -8,15 +8,9 @@ export type PayerContext = {
   payer?: PublicKey;
 };
 
-// Deprecated: Will be deprecated in favor of AuthorityContext
-export type DeployerContext = BaseWriteContext & {
-  deployer?: PublicKey;
+export type AuthorityContext = BaseWriteContext & {
+  authority: Keypair;
 };
-
-export type AuthorityContext = BaseWriteContext &
-  DeployerContext & {
-    authority?: Keypair;
-  };
 
 export type AuthorityWithPayerContext = AuthorityContext & PayerContext;
 

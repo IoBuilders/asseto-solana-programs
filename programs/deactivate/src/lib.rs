@@ -14,7 +14,6 @@ pub mod deactivate {
 
     /// Deactivates the Token-2022 mint by creating an on-chain marker PDA.
     /// The PDA's existence signals permanent deactivation of the mint.
-    /// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
     pub fn deactivate(ctx: Context<Deactivate>) -> Result<()> {
         instructions::deactivate::deactivate(ctx)
     }

@@ -303,7 +303,7 @@ What landed:
     `InstructionsSysvarUnreadable`) — each pinpointing exactly which check
     failed.
 - The `ExtraAccountMetaList` shrank from 16 entries to 7. The 10 compliance
-  PDAs/programs that used to be forwarded to the hook (`mint_owner_pda`,
+  PDAs/programs that used to be forwarded to the hook (`asset_configuration_pda`,
   `deactivate_pda`, `deployer`, `transfer_control_mode_pda`,
   `transfer-control` program, source/destination whitelist PDAs,
   `freeze` program, `source_frozen_pda`, `source_frozen_balance_pda`)

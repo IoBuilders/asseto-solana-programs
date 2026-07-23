@@ -48,7 +48,7 @@ deployer: Pubkey  // retained for ABI stability with deploy; no longer used
 ```
 
 Creates and populates the `ExtraAccountMetaList` PDA. Called exclusively via
-CPI from `deploy::deploy_mint`, authorised by requiring `mint_owner_pda`
+CPI from `deploy::deploy_mint`, authorised by requiring `asset_configuration_pda`
 as `Signer` — only `deploy` can produce that signature.
 
 ### Accounts
@@ -56,7 +56,7 @@ as `Signer` — only `deploy` can produce that signature.
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds rent |
-| `mint_owner_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `asset_configuration_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
 | `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 7) |
 | `mint` | no | no | UncheckedAccount | Seed component and PDA-precompute input |
 | `system_program` | no | no | Program<System> | |
@@ -79,7 +79,7 @@ is what lets Token-2022 fit metalist resolution into its 32 KiB heap.
 | 11 | Instructions sysvar | literal pubkey (`Sysvar1nstructions...`) — required by the introspection check |
 
 The 10 compliance entries that lived here before commit `7d417c2`'s heap-OOM
-incident (`mint_owner_pda`, `deactivate_pda`, `deployer`,
+incident (`asset_configuration_pda`, `deactivate_pda`, `deployer`,
 `transfer_control_mode_pda`, `transfer-control` program, source/destination
 whitelist PDAs, `freeze` program, `source_frozen_pda`,
 `source_frozen_balance_pda`) are gone — `verify_transfer` consumes them

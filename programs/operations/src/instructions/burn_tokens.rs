@@ -8,13 +8,12 @@ use spl_token_2022::instruction::burn as spl_burn;
 
 use crate::events::ControllerRedemption;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner, Roles as RolesCommon};
+use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
 /// Burns `amount` tokens from any `token_account` for the given mint.
 ///
-/// Management instruction — only the deployer recorded in `mint_owner_pda` may call this.
-/// The operations authority PDA (permanent delegate) executes the burn, allowing the
-/// deployer to reduce the balance of any holder without their consent.
+/// The operations authority PDA (permanent delegate) executes the burn, allowing
+/// to reduce the balance of any holder without their consent.
 ///
 /// Before burning, records the pre-burn total supply and holder balance into any active
 /// snapshot (CPIs to snapshot, both signed by `permanent_delegate`).
@@ -46,7 +45,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         constants::SNAPSHOT_PROGRAM_ID,
         UpdateTotalSupplySnapshot {
             calling_authority: ctx.accounts.operations_authority.to_account_info(),
-            payer: ctx.accounts.deployer.to_account_info(),
+            payer: ctx.accounts.payer.to_account_info(),
             mint: ctx.accounts.mint.to_account_info(),
             snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
             total_supply_snapshot: ctx.accounts.total_supply_snapshot.to_account_info(),
@@ -61,7 +60,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
             constants::SNAPSHOT_PROGRAM_ID,
             UpdateHolderBalanceSnapshot {
                 calling_authority: ctx.accounts.operations_authority.to_account_info(),
-                payer: ctx.accounts.deployer.to_account_info(),
+                payer: ctx.accounts.payer.to_account_info(),
                 mint: ctx.accounts.mint.to_account_info(),
                 snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
                 holder_balance_snapshot: ctx.accounts.holder_balance_snapshot.to_account_info(),
@@ -134,21 +133,20 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct BurnTokens<'info> {
-    /// The deployer recorded as mint owner — must sign to authorise burning;
-    /// marked mutable to pay for snapshot PDA creation.
+    /// Payer for potential account creation
     #[account(mut)]
-    pub deployer: Signer<'info>,
+    pub payer: Signer<'info>,
 
     /// The caller — must sign and hold `ROLE_CONTROLLER` on this mint.
     pub authority: Signer<'info>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA that contains the configuration for this mint.
     #[account(
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump = mint_owner_pda.bump,
+        bump = asset_configuration_pda.bump,
     )]
-    pub mint_owner_pda: Account<'info, MintOwner>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
     /// Deactivation marker PDA — must not exist for the instruction to proceed.
     /// Seeds: `["deactivate", mint]`, owned by `deactivate`.
@@ -232,7 +230,11 @@ pub struct BurnTokens<'info> {
 
     /// Asset-class version PDA this mint is hooked to.
     #[account(
-        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
         seeds::program = constants::FACTORY_PROGRAM_ID,
         bump = asset_class_version_pda.load()?.bump,
     )]

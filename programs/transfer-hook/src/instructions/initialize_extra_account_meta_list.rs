@@ -7,7 +7,9 @@ use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 use crate::errors::TransferHookError;
 use common::pda_seeds;
 use common::program_ids::{DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, SNAPSHOT_PROGRAM_ID};
-use common::state::mint_owner::{ASSET_CLASS_CONFIG_ID_OFFSET, ASSET_CLASS_VERSION_ID_OFFSET};
+use common::state::asset_configuration::{
+    ASSET_CLASS_CONFIG_ID_OFFSET, ASSET_CLASS_VERSION_ID_OFFSET,
+};
 
 /// Number of extra account metas produced by `initialize_extra_account_meta_list`.
 /// Keep in sync with the `metas` vec length in the handler.
@@ -15,24 +17,17 @@ const EXTRA_ACCOUNT_META_COUNT: usize = 11;
 
 /// Initialises an empty ExtraAccountMetaList PDA for this mint.
 ///
-/// Restricted to CPI from deploy: the caller must pass `mint_owner_pda`
+/// Restricted to CPI from deploy: the caller must pass `asset_configuration_pda`
 /// as a signer (only deploy can produce that signature via invoke_signed).
 ///
 /// Only the accounts the hook needs for the snapshot CPI are listed. All
 /// compliance checks have been moved to `transfer::verify_transfer`,
 /// so the previous 10 compliance-related extra metas are no longer needed —
 /// keeping the list small is what lets Token-2022's 32 KiB heap fit metalist
-/// resolution. The `deployer` argument is retained for API stability with
-/// `deploy` but is no longer baked into the metalist.
+/// resolution.
 pub fn initialize_extra_account_meta_list(
     ctx: Context<InitializeExtraAccountMetaList>,
-    deployer: Pubkey,
 ) -> Result<()> {
-    // The deployer pubkey used to be baked into the metalist for the hook's
-    // clearing-mode signer check; that check now lives in
-    // `transfer::verify_transfer`, so the param is intentionally unused.
-    let _ = deployer;
-
     let metas = vec![
         // 5: snapshot program
         ExtraAccountMeta::new_with_pubkey(&SNAPSHOT_PROGRAM_ID, false, false)?,
@@ -85,15 +80,15 @@ pub fn initialize_extra_account_meta_list(
             false,
             true,
         )?,
-        // 10: deploy program — needed to resolve mint_owner_pda (external PDA @11)
+        // 10: deploy program — needed to resolve asset_configuration_pda (external PDA @11)
         ExtraAccountMeta::new_with_pubkey(&DEPLOY_PROGRAM_ID, false, false)?,
-        // 11: mint_owner_pda — seeds ["mint_owner", mint@1], program@10. Read to
+        // 11: asset_configuration_pda — seeds ["asset_configuration", mint@1], program@10. Read to
         // supply asset_class_config_id / asset_class_version_id for seed 13.
         ExtraAccountMeta::new_external_pda_with_seeds(
             10,
             &[
                 Seed::Literal {
-                    bytes: pda_seeds::MINT_OWNER.to_vec(),
+                    bytes: pda_seeds::ASSET_CONFIGURATION.to_vec(),
                 },
                 Seed::AccountKey { index: 1 },
             ],
@@ -103,7 +98,7 @@ pub fn initialize_extra_account_meta_list(
         // 12: factory program — needed to resolve asset_class_version_pda (external PDA @13)
         ExtraAccountMeta::new_with_pubkey(&FACTORY_PROGRAM_ID, false, false)?,
         // 13: asset_class_version_pda — seeds ["asset_class_version",
-        // mint_owner_pda@11.asset_class_config_id, mint_owner_pda@11.asset_class_version_id],
+        // asset_configuration_pda@11.asset_class_config_id, asset_configuration_pda@11.asset_class_version_id],
         // program@12.
         ExtraAccountMeta::new_external_pda_with_seeds(
             12,
@@ -145,18 +140,18 @@ pub struct InitializeExtraAccountMetaList<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// The mint owner PDA created by deploy for this mint.
+    /// The asset configuration PDA created by deploy for this mint.
     /// deploy passes this as a signer via invoke_signed to prove the call
     /// originates from deploy_mint — no external wallet can produce this signature.
     ///
     /// CHECK: Signer flag proves origin; seeds verify this is the canonical PDA for this mint.
     #[account(
         signer,
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = DEPLOY_PROGRAM_ID,
         bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub asset_configuration_pda: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList PDA — created and initialised by this instruction.
     /// Seeds match the SPL transfer-hook-interface convention so that Token-2022

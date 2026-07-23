@@ -6,7 +6,7 @@ Issues coupons for a bond mint. Every coupon is anchored to a snapshot taken at 
 
 `create_coupon` is the **sole entry point** that triggers a snapshot in this workspace — `snapshot::take_snapshot` is now an auxiliary instruction, callable only by the `coupon_authority` PDA owned by this program.
 
-Both instructions are role- and functionality-gated: the `authority` signer must hold `ROLE_CORPORATE_ACTION` on this mint (checked against its `access-control` `Roles` PDA via `require_role`), and the mint's finalized asset-class version must enable the relevant functionality bit (`COUPON_CREATE_COUPON` / `COUPON_SET_COUPON_RATE`, checked via `require_functionality`). The deployer signature is no longer verified — `authority` need not be the recorded mint owner, only a role holder.
+Both instructions are role- and functionality-gated: the `authority` signer must hold `ROLE_CORPORATE_ACTION` on this mint (checked against its `access-control` `Roles` PDA via `require_role`), and the mint's finalized asset-class version must enable the relevant functionality bit (`COUPON_CREATE_COUPON` / `COUPON_SET_COUPON_RATE`, checked via `require_functionality`). The deployer signature is no longer verified — `authority` need not be the recorded asset configuration, only a role holder.
 
 ---
 
@@ -117,7 +117,7 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 |---------------------------|-----|--------|-------------------------------|--------------------------------------------------------------------------------------------------------|
 | `payer`                   | yes | yes    | Signer                        | Funds `coupon_counter` (first call), `coupon` (always), and `snapshot_counter` (on the first snapshot); distinct from `authority` so any wallet can pay |
 | `authority`               | no  | yes    | Signer                        | The caller; must hold `ROLE_CORPORATE_ACTION` on this mint                                             |
-| `mint_owner_pda`          | no  | no     | `Account<MintOwner>`          | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`                                     |
+| `asset_configuration_pda`          | no  | no     | `Account<AssetConfiguration>`          | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`                                     |
 | `deactivate_pda`          | no  | no     | UncheckedAccount              | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty                  |
 | `mint`                    | no  | no     | UncheckedAccount              | Read-only; pause state checked by `require_not_paused`                                                 |
 | `coupon_authority`        | no  | no     | UncheckedAccount              | seeds `["coupon_authority", mint]`; signs the `take_snapshot` CPI via `invoke_signed`                  |
@@ -175,7 +175,7 @@ interest_rate_decimals:  Option<u8>   // exponent: actual rate = interest_rate /
 | Account                   | Mut | Signer | Type                             | Notes                                                                                 |
 |---------------------------|-----|--------|----------------------------------|---------------------------------------------------------------------------------------|
 | `authority`               | no  | yes    | Signer                           | The caller; must hold `ROLE_CORPORATE_ACTION` on this mint                            |
-| `mint_owner_pda`          | no  | no     | `Account<MintOwner>`             | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`                    |
+| `asset_configuration_pda`          | no  | no     | `Account<AssetConfiguration>`             | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`                    |
 | `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read-only; pause state checked by `require_not_paused`                                |
 | `coupon`                  | yes | no     | `Account<Coupon>`                | seeds `["coupon", mint, coupon_id.to_le_bytes()]`; must already exist                 |

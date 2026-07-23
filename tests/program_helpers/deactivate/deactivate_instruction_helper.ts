@@ -6,7 +6,7 @@ import { Deactivate } from "../../../target/types/deactivate";
 import { MintWriteContext } from "../base_helper";
 import { PublicKey } from "@solana/web3.js";
 import { getEvent } from "../event_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { deactivatePda, deactivateEventAuthorityPda } from "./deactivate_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
@@ -19,7 +19,7 @@ export function getDeactivateProgram(): Program<Deactivate> {
 
 export async function deactivateMint(callContext: MintWriteContext): Promise<{ signature: string }> {
   const program = getDeactivateProgram();
-  const mintOwner = await getMintOwner(callContext.mint);
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await getDeactivateProgram()
@@ -28,12 +28,15 @@ export async function deactivateMint(callContext: MintWriteContext): Promise<{ s
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      mintOwnerPda: pdaUtils.mintOwnerPda(callContext.mint),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: deactivateEventAuthorityPda(),
       program: DEACTIVATE_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });

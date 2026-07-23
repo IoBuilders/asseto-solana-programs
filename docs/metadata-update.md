@@ -15,7 +15,7 @@ as the metadata update authority during `deploy_mint`. Only an account holding `
 | `authority` | no | yes | Signer | Must hold `ROLE_CUSTOM_DATA_MANAGER` (verified via `authority_roles_pda`) |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint whose metadata is being modified |
-| `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
+| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `metadata_update_authority` | no | no | UncheckedAccount | seeds `["metadata_update_authority", mint]` (owned) |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |

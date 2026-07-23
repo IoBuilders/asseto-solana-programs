@@ -30,14 +30,14 @@ describe.skip("snapshot", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const deployer = provider.wallet.publicKey;
+  const authority = provider.wallet.payer;
 
   describe("take_snapshot", async () => {
     it("take_snapshot: rejects direct invocation with Unauthorized (auxiliary, only callable via coupon CPI)", async () => {
       const mint = Keypair.generate().publicKey;
 
       try {
-        await takeSnapshot({ deployer, mint });
+        await takeSnapshot({ authority, mint });
         assert.fail("Expected Unauthorized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -47,7 +47,7 @@ describe.skip("snapshot", () => {
     });
 
     it("take_snapshot: fails with SnapshotCounterOverflow when the counter is at u64::MAX", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON],
       });
@@ -78,7 +78,7 @@ describe.skip("snapshot", () => {
       assert.equal(planted.count.toString(), U64_MAX.toString(), "snapshot_counter should be planted at u64::MAX");
 
       try {
-        await createCoupon({ deployer, mint });
+        await createCoupon({ authority, mint });
         assert.fail("Expected SnapshotCounterOverflow error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -87,7 +87,7 @@ describe.skip("snapshot", () => {
     });
 
     it("take_snapshot: stores the provided merkle root in a per-snapshot PDA", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON],
       });
@@ -95,14 +95,14 @@ describe.skip("snapshot", () => {
       const merkleRoot = Array.from({ length: 32 }, (_, i) => (i + 1) & 0xff);
       // take_snapshot is CPI-only; drive it through create_coupon. The counter
       // stores the next id, so the first snapshot has id 0.
-      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot });
+      await createCoupon({ authority, mint }, { couponId: new anchor.BN(1), merkleRoot });
 
       const record = await getSnapshotMerkleRoot(mint, new anchor.BN(0));
       assert.deepEqual(Array.from(record.merkleRoot), merkleRoot, "stored root should match the provided root");
     });
 
     it("take_snapshot: each snapshot gets its own immutable root PDA (prior roots untouched)", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON],
       });
@@ -110,8 +110,8 @@ describe.skip("snapshot", () => {
       const rootA = Array.from({ length: 32 }, (_, i) => (i + 1) & 0xff);
       const rootB = Array.from({ length: 32 }, (_, i) => (0xff - i) & 0xff);
 
-      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot: rootA });
-      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(2), merkleRoot: rootB });
+      await createCoupon({ authority, mint }, { couponId: new anchor.BN(1), merkleRoot: rootA });
+      await createCoupon({ authority, mint }, { couponId: new anchor.BN(2), merkleRoot: rootB });
 
       // Snapshot ids are 0-based (counter stores the next id): coupon 1 → id 0,
       // coupon 2 → id 1.
@@ -125,7 +125,7 @@ describe.skip("snapshot", () => {
     });
 
     it("take_snapshot: succeeds even if the merkle-root PDA was pre-funded by a griefer (create-or-adopt)", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON],
       });
@@ -145,7 +145,7 @@ describe.skip("snapshot", () => {
 
       const merkleRoot = Array.from({ length: 32 }, (_, i) => (i + 7) & 0xff);
       // Must still succeed thanks to create-or-adopt (top-up + allocate + assign).
-      await createCoupon({ deployer, mint }, { couponId: new anchor.BN(1), merkleRoot });
+      await createCoupon({ authority, mint }, { couponId: new anchor.BN(1), merkleRoot });
 
       const record = await getSnapshotMerkleRoot(mint, snapshotId);
       assert.deepEqual(
@@ -161,7 +161,7 @@ describe.skip("snapshot", () => {
       const mint = Keypair.generate().publicKey;
 
       try {
-        await updateTotalSupplySnapshot({ deployer, mint });
+        await updateTotalSupplySnapshot({ authority, mint });
         assert.fail("Expected Unauthorized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -175,7 +175,7 @@ describe.skip("snapshot", () => {
       const mint = Keypair.generate().publicKey;
 
       try {
-        await updateHolderBalanceSnapshot({ deployer, mint });
+        await updateHolderBalanceSnapshot({ authority, mint });
         assert.fail("Expected Unauthorized error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
@@ -186,11 +186,11 @@ describe.skip("snapshot", () => {
 
   describe("get_totalsupply_snapshot_at", async () => {
     it("get_totalsupply_snapshot_at: returns live supply when no snapshot PDA exists (no coupon ever taken)", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [MINT_MINT],
       });
-      const destination = await createTokenAccount({ mint, owner: deployer });
+      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
       // Mint without a prior coupon / snapshot — so that the mint has a specific supply
       const supply = new anchor.BN(1_000);
       await mintTokensViaSurfpool(mint, destination, supply);
@@ -201,11 +201,11 @@ describe.skip("snapshot", () => {
     });
 
     it("get_totalsupply_snapshot_at: returns live supply when queried snapshot_id exceeds all recorded entries", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON, MINT_MINT],
       });
-      const destination = await createTokenAccount({ mint, owner: deployer });
+      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
       const initialAmount = new anchor.BN(1_000);
       await mintTokensViaSurfpool(mint, destination, initialAmount);
 
@@ -222,24 +222,24 @@ describe.skip("snapshot", () => {
     });
 
     it.skip("get_totalsupply_snapshot_at: returns value of next recorded entry when queried snapshot_id has no exact match", async () => {
-      const { mint } = await deployMint({ deployer });
-      const destination = await createTokenAccount({ mint, owner: deployer });
+      const { mint } = await deployMint();
+      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
       const initialAmount = new anchor.BN(1_000);
       await mintTokensViaSurfpool(mint, destination, initialAmount);
 
       // Take snapshot 1, entry key=1 written with value=initialAmount (pre-mint supply)
       const couponId1 = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId: couponId1 });
+      await createCoupon({ authority, mint }, { couponId: couponId1 });
       const secondAmount = new anchor.BN(500);
       await mintTokensViaSurfpool(mint, destination, secondAmount);
 
       // Take snapshots 2, no entry added
       const couponId2 = new anchor.BN(2);
-      await createCoupon({ deployer, mint }, { couponId: couponId2 });
+      await createCoupon({ authority, mint }, { couponId: couponId2 });
 
       // Take snapshot 3, entry key=2 written with value=initialAmount+secondAmount
       const couponId3 = new anchor.BN(3);
-      await createCoupon({ deployer, mint }, { couponId: couponId3 });
+      await createCoupon({ authority, mint }, { couponId: couponId3 });
       await mintTokensViaSurfpool(mint, destination, new anchor.BN(1));
 
       // History: [{key=1, value=initialAmount}, {key=3, value=initialAmount+secondAmount}].
@@ -252,7 +252,7 @@ describe.skip("snapshot", () => {
 
   describe("get_holderbalance_snapshot_at", async () => {
     it("get_holderbalance_snapshot_at: returns 0 when token account does not exist", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       const nonExistentTokenAccount = Keypair.generate().publicKey;
 
       const result = await getHolderBalanceSnapshotAt(
@@ -263,8 +263,8 @@ describe.skip("snapshot", () => {
     });
 
     it("get_holderbalance_snapshot_at: returns live balance when no snapshot PDA exists (no coupon ever taken)", async () => {
-      const { mint } = await deployMint({ deployer });
-      const destination = await createTokenAccount({ mint, owner: deployer });
+      const { mint } = await deployMint();
+      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
       const mintAmount = new anchor.BN(1_000);
       // Mint without a prior coupon — snapshot CPIs exit silently, no PDA is created
       await mintTokensViaSurfpool(mint, destination, mintAmount);
@@ -277,11 +277,11 @@ describe.skip("snapshot", () => {
     });
 
     it("get_holderbalance_snapshot_at: returns live balance when queried snapshot_id exceeds all recorded entries", async () => {
-      const { mint } = await deployMint({ deployer });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [COUPON_CREATE_COUPON, MINT_MINT],
       });
-      const destination = await createTokenAccount({ mint, owner: deployer });
+      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
       const initialAmount = new anchor.BN(1_000);
       await mintTokensViaSurfpool(mint, destination, initialAmount);
 
@@ -301,24 +301,24 @@ describe.skip("snapshot", () => {
     });
 
     it.skip("get_holderbalance_snapshot_at: returns value of next recorded entry when queried snapshot_id has no exact match", async () => {
-      const { mint } = await deployMint({ deployer });
-      const destination = await createTokenAccount({ mint, owner: deployer });
+      const { mint } = await deployMint();
+      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
       const initialAmount = new anchor.BN(1_000);
       await mintTokensViaSurfpool(mint, destination, initialAmount);
 
       // Take snapshot 1, entry key=1 written with value=initialAmount (pre-mint balance)
       const couponId1 = new anchor.BN(1);
-      await createCoupon({ deployer, mint }, { couponId: couponId1 });
+      await createCoupon({ authority, mint }, { couponId: couponId1 });
       const secondAmount = new anchor.BN(500);
       await mintTokensViaSurfpool(mint, destination, secondAmount);
 
       // Take snapshot 2, no entry added
       const couponId2 = new anchor.BN(2);
-      await createCoupon({ deployer, mint }, { couponId: couponId2 });
+      await createCoupon({ authority, mint }, { couponId: couponId2 });
 
       // Take snapshot 3, entry key=3 written with value=initialAmount+secondAmount
       const couponId3 = new anchor.BN(3);
-      await createCoupon({ deployer, mint }, { couponId: couponId3 });
+      await createCoupon({ authority, mint }, { couponId: couponId3 });
       await mintTokensViaSurfpool(mint, destination, new anchor.BN(1));
 
       // History: [{key=1, value=initialAmount}, {key=3, value=initialAmount+secondAmount}].

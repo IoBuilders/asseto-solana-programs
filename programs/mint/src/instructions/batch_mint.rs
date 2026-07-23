@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::pda_utils;
-use common::state::Roles as RolesCommon;
+use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{
     pda_seeds, require_active, require_functionality, require_role, roles, verify_whitelist_pda,
 };
@@ -13,7 +13,6 @@ use transfer_control::verify_whitelist;
 use crate::errors::MintError;
 use crate::events::Issued;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner};
 
 pub fn batch_mint<'info>(
     ctx: Context<'info, BatchMintTokens<'info>>,
@@ -121,11 +120,11 @@ pub struct BatchMintTokens<'info> {
     pub authority: Signer<'info>,
 
     #[account(
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump = mint_owner_pda.bump,
+        bump = asset_configuration_pda.bump,
     )]
-    pub mint_owner_pda: Account<'info, MintOwner>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
@@ -167,7 +166,11 @@ pub struct BatchMintTokens<'info> {
     pub freeze_program: UncheckedAccount<'info>,
 
     #[account(
-        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
         seeds::program = constants::FACTORY_PROGRAM_ID,
         bump = asset_class_version_pda.load()?.bump,
     )]

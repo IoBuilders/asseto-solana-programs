@@ -23,10 +23,6 @@ pub mod coupon {
     /// `coupon_id` must equal `coupon_counter.count + 1` (or `1` on the first
     /// call) — the client computes it from the current counter, the program
     /// re-checks it before committing.
-    ///
-    /// Management instruction — gated by `verify_deployer`, `require_not_paused`,
-    /// and `require_active`. The CPI'd `take_snapshot` itself runs no extra
-    /// checks; this is the sole entry point that triggers a snapshot.
     pub fn create_coupon(
         ctx: Context<CreateCoupon>,
         period_start_date: i64,
@@ -58,9 +54,6 @@ pub mod coupon {
     /// `BondTerms`: actual rate = `interest_rate / 10^interest_rate_decimals`.
     ///
     /// Calling this instruction again replaces the previous values.
-    ///
-    /// Management instruction — gated by `verify_deployer`, `require_not_paused`,
-    /// and `require_active`.
     pub fn set_coupon_rate(
         ctx: Context<SetCouponRate>,
         coupon_id: u64,

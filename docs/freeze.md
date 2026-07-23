@@ -139,7 +139,7 @@ Creates the `frozen_account_pda` marker. After this call `require_unfrozen_accou
 |---|---|---|---|---|
 | `authority` | yes | yes | Signer | Must hold `ROLE_FREEZE_MANAGER`; funds the PDA creation |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
+| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | The token account to freeze; used only as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
@@ -174,7 +174,7 @@ Closes the `frozen_account_pda` marker and returns rent to `authority`.
 |---|---|---|---|---|
 | `authority` | yes | yes | Signer | Must hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
+| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | The token account to unfreeze; used only as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
@@ -212,7 +212,7 @@ Creates the `frozen_balance_pda` on first call; overwrites `balance` on subseque
 |---|---|---|---|---|
 | `authority` | yes | yes | Signer | Must hold `ROLE_FREEZE_MANAGER`; funds PDA creation if needed |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
+| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | The token account to partially freeze; used only as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
@@ -247,7 +247,7 @@ Closes the `frozen_balance_pda` marker and returns rent to `authority`, lifting 
 |---|---|---|---|---|
 | `authority` | yes | yes | Signer | Must hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
+| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | The token account whose partial freeze is removed; used only as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |

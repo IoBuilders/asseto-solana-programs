@@ -28,13 +28,12 @@ import { ROLE_CUSTOM_DATA_MANAGER } from "./utils/roles";
 describe("metadata-update", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  // The wallet is both payer and authority in these tests.
   const authority = provider.wallet.payer;
 
   describe("update_metadata_field", async () => {
     let mint: PublicKey;
     beforeEach(async () => {
-      ({ mint } = await deployMint({ deployer: authority.publicKey }));
+      ({ mint } = await deployMint());
       await setAssetClassVersionForMint(mint, {
         functionalities: [PAUSE_PAUSE, DEACTIVATE_DEACTIVATE, METADATA_UPDATE_UPDATE_METADATA_FIELD],
       });
@@ -187,7 +186,7 @@ describe("metadata-update", () => {
       const CAT_VALUE = "equity";
 
       const { mint } = await deployMint(
-        { deployer: authority.publicKey },
+        {},
         {
           additionalMetadata: [
             { key: ISIN_KEY, value: ISIN_VALUE },
@@ -245,10 +244,7 @@ describe("metadata-update", () => {
       const ISIN_VALUE = "CH0012221716";
 
       // Deploy with a custom field present so there is something to remove
-      const { mint } = await deployMint(
-        { deployer: authority.publicKey },
-        { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
-      );
+      const { mint } = await deployMint({}, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
       await setAssetClassVersionForMint(mint, {
         functionalities: [METADATA_UPDATE_REMOVE_METADATA_FIELD],
       });
@@ -268,7 +264,7 @@ describe("metadata-update", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("remove_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
       // ── Deploy a fresh mint ────────────────────────────────────────────────
-      const { mint } = await deployMint({ deployer: authority.publicKey });
+      const { mint } = await deployMint();
       await setAssetClassVersionForMint(mint, {
         functionalities: [DEACTIVATE_DEACTIVATE, METADATA_UPDATE_REMOVE_METADATA_FIELD],
       });
@@ -292,10 +288,7 @@ describe("metadata-update", () => {
       const ISIN_VALUE = "CH0012221716";
 
       // Deploy with a custom field present so there is something to remove.
-      const { mint } = await deployMint(
-        { deployer: authority.publicKey },
-        { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
-      );
+      const { mint } = await deployMint({}, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
       await setAssetClassVersionForMint(mint, { functionalities: [METADATA_UPDATE_UPDATE_METADATA_FIELD] });
       await setRoles(mint, authority.publicKey, []);
 
@@ -314,10 +307,7 @@ describe("metadata-update", () => {
       const ISIN_KEY = "isin";
       const ISIN_VALUE = "CH0012221716";
 
-      const { mint } = await deployMint(
-        { deployer: authority.publicKey },
-        { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
-      );
+      const { mint } = await deployMint({}, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
 
       // Re-seed the asset-class version WITHOUT the remove_metadata_field functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
@@ -342,10 +332,7 @@ describe("metadata-update", () => {
       const ISIN_KEY = "isin";
       const ISIN_VALUE = "CH0012221716";
 
-      const { mint } = await deployMint(
-        { deployer: authority.publicKey },
-        { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] }
-      );
+      const { mint } = await deployMint({}, { additionalMetadata: [{ key: ISIN_KEY, value: ISIN_VALUE }] });
 
       // Re-seed the asset-class version WITHOUT finalizing it.
       await setAssetClassVersionForMint(mint, {
@@ -372,7 +359,7 @@ describe("metadata-update", () => {
   describe("update_metadata_field", async () => {
     let mint: PublicKey;
     beforeEach(async () => {
-      ({ mint } = await deployMint({ deployer: authority.publicKey }));
+      ({ mint } = await deployMint());
       await setAssetClassVersionForMint(mint, {
         functionalities: [PAUSE_PAUSE, METADATA_UPDATE_UPDATE_METADATA_FIELD],
       });

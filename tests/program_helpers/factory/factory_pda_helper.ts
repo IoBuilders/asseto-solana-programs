@@ -4,7 +4,7 @@ import BN from "bn.js";
 import { getFactoryProgram } from "./factory_instruction_helper";
 import * as anchor from "@anchor-lang/core";
 import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
-import { getMintOwner } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy_helper";
 
 // ── factory PDA ───────────────────────────────────────────────────────────────────
 
@@ -198,8 +198,8 @@ export async function setAssetClassVersionForMint(
   mint: PublicKey,
   args: { state?: number; functionalities?: number[] } = {}
 ): Promise<void> {
-  const mintOwner = await getMintOwner(mint);
-  return setAssetClassVersion(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId, args);
+  const assetConfiguration = await getAssetConfiguration(mint);
+  return setAssetClassVersion(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId, args);
 }
 
 export async function setAssetClassVersion(
@@ -228,10 +228,10 @@ export async function setAssetClassVersion(
   });
 }
 
-/** Derives the asset-class version PDA a mint is hooked to, from its `mint_owner`. */
+/** Derives the asset-class version PDA a mint is hooked to, from its `asset_configuration`. */
 export async function assetClassVersionPdaForMint(mint: PublicKey): Promise<PublicKey> {
-  const mintOwner = await getMintOwner(mint);
-  return assetClassVersionPda(mintOwner.assetClassConfigId, mintOwner.assetClassVersionId);
+  const assetConfiguration = await getAssetConfiguration(mint);
+  return assetClassVersionPda(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId);
 }
 
 async function encodeAssetClassVersion(

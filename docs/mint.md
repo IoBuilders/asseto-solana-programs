@@ -2,7 +2,7 @@
 
 Program ID: `BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ`
 
-Controls token minting. Owns the `["mint_authority", mint]` PDA that was set as the Token-2022 mint authority during `deploy_mint`. Minting is role-gated: the `authority` signer must hold `ROLE_ISSUER` on this mint (checked against its `access-control` `Roles` PDA via `require_role`). The `deployer` still signs and pays for snapshot-PDA creation but is no longer verified as the recorded mint owner.
+Controls token minting. Owns the `["mint_authority", mint]` PDA that was set as the Token-2022 mint authority during `deploy_mint`. Minting is role-gated: the `authority` signer must hold `ROLE_ISSUER` on this mint (checked against its `access-control` `Roles` PDA via `require_role`). The `deployer` still signs and pays for snapshot-PDA creation but is no longer verified as the recorded asset configuration.
 
 The `mint_authority` PDA also serves as one of the three accepted callers for `freeze`'s block/unblock instructions.
 
@@ -22,7 +22,7 @@ amount: u64  // raw token units (accounting for decimals)
 |---|---|---|---|---|
 | `deployer` | yes | yes | Signer | Signs and pays for snapshot PDA creation |
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ISSUER` on this mint |
-| `mint_owner_pda` | no | no | Account<MintOwner> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs block/unblock and mint_to CPIs |

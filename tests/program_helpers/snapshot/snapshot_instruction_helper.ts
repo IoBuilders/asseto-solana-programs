@@ -32,8 +32,8 @@ export async function takeSnapshot(
   await getSnapshotProgram()
     .methods.takeSnapshot(merkleRoot)
     .accountsStrict({
-      callingAuthority: callContext.deployer,
-      payer: callContext.payer ?? callContext.deployer,
+      callingAuthority: callContext.authority.publicKey,
+      payer: callContext.payer ?? callContext.authority.publicKey,
       mint: callContext.mint,
       snapshotCounter: snapshotCounterPda(callContext.mint),
       snapshotMerkleRoot: snapshotMerkleRootPda(callContext.mint, snapshotId),
@@ -41,6 +41,7 @@ export async function takeSnapshot(
       eventAuthority: snapshotTriggeredEventAuthorityPda(),
       program: getSnapshotProgram().programId,
     })
+    .signers(callContext.signers ?? [callContext.authority])
     .rpc({ commitment: "confirmed" });
 }
 
@@ -105,18 +106,17 @@ export async function getHolderBalanceSnapshotAt(
 // ── update_totalsupply_snapshot ────────────────────────────────────────────────
 
 export async function updateTotalSupplySnapshot(ctx: MintWriteWithPayerContext): Promise<void> {
-  const callingAuthority = ctx.deployer;
-
   await getSnapshotProgram()
     .methods.updateTotalsupplySnapshot()
     .accountsStrict({
-      callingAuthority: callingAuthority,
-      payer: ctx.payer ?? ctx.deployer,
+      callingAuthority: ctx.authority.publicKey,
+      payer: ctx.payer ?? ctx.authority.publicKey,
       mint: ctx.mint,
       snapshotCounter: snapshotCounterPda(ctx.mint),
       totalSupplySnapshot: snapshotTotalSupplyPda(ctx.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
     })
+    .signers(ctx.signers ?? [ctx.authority])
     .rpc({ commitment: "confirmed" });
 }
 
@@ -143,19 +143,19 @@ export async function updateHolderBalanceSnapshot(
     ...args,
   };
 
-  const callingAuthority = ctx.deployer;
   const holderTokenAccount = Keypair.generate().publicKey;
 
   await getSnapshotProgram()
     .methods.updateHolderbalanceSnapshot(effectiveArgs.delta, effectiveArgs.increase)
     .accountsStrict({
-      callingAuthority: callingAuthority,
-      payer: ctx.payer ?? ctx.deployer,
+      callingAuthority: ctx.authority.publicKey,
+      payer: ctx.payer ?? ctx.authority.publicKey,
       mint: ctx.mint,
       snapshotCounter: snapshotCounterPda(ctx.mint),
       holderBalanceSnapshot: snapshotHolderBalancePda(ctx.mint, holderTokenAccount),
       holderTokenAccount: holderTokenAccount,
       systemProgram: SYSTEM_PROGRAM_ID,
     })
+    .signers(ctx.signers ?? [ctx.authority])
     .rpc({ commitment: "confirmed" });
 }

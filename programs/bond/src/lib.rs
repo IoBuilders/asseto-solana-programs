@@ -16,9 +16,6 @@ pub mod bond {
     /// Creates the `bond_terms_pda` for the mint on the first call, then
     /// overwrites every field with `args` on each subsequent call.
     ///
-    /// Management instruction — only the deployer recorded in `mint_owner_pda`
-    /// may call this, and only while the mint is neither paused nor deactivated.
-    ///
     /// Other on-chain programs read the stored terms by loading the PDA
     /// themselves via `Account<'info, BondTerms>` constrained by
     /// `seeds::program = bond::ID` — no CPI getter is exposed.

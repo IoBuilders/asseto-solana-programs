@@ -24,18 +24,17 @@ import { setMintPaused } from "./program_helpers/spl_token_helper";
 describe("bond", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const deployer = provider.wallet.publicKey;
   const authority = provider.wallet.payer;
   let mint: PublicKey;
 
-  // `deployMint` records config 0 / version 0 on the mint_owner, so every test's
+  // `deployMint` records config 0 / version 0 on the asset_configuration, so every test's
   // update_bond_terms derives the asset-class version PDA at (0, 0). Seed it here
   // — Ready and with the bond functionality enabled — so the require_functionality
   // gate passes. The account must also exist for the precondition-error tests, as
   // Anchor loads it (via the `bump = ...load()?.bump` constraint) before the
   // handler body's checks run. Tests that need it disabled re-seed it themselves.
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer }));
+    ({ mint } = await deployMint());
     await setAssetClassVersionForMint(mint, {
       functionalities: [PAUSE_PAUSE, BOND_UPDATE_BOND_TERMS, DEACTIVATE_DEACTIVATE],
     });

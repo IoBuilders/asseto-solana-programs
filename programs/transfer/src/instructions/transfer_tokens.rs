@@ -112,7 +112,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         false,
     ));
     transfer_ix.accounts.push(AccountMeta::new_readonly(
-        ctx.accounts.mint_owner_pda.key(),
+        ctx.accounts.asset_configuration_pda.key(),
         false,
     ));
     transfer_ix.accounts.push(AccountMeta::new_readonly(
@@ -147,7 +147,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
             ctx.accounts.receiver_snapshot.to_account_info(),
             ctx.accounts.transfer_hook_authority.to_account_info(),
             ctx.accounts.deploy_program.to_account_info(),
-            ctx.accounts.mint_owner_pda.to_account_info(),
+            ctx.accounts.asset_configuration_pda.to_account_info(),
             ctx.accounts.factory_program.to_account_info(),
             ctx.accounts.asset_class_version_pda.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
@@ -294,24 +294,24 @@ pub struct TransferTokens<'info> {
     #[account(mut)]
     pub receiver_snapshot: UncheckedAccount<'info>,
 
-    /// deploy program — forwarded to the hook so it can resolve `mint_owner_pda`
+    /// deploy program — forwarded to the hook so it can resolve `asset_configuration_pda`
     /// as an external PDA per its ExtraAccountMetaList.
     ///
     /// CHECK: Address verified by constraint.
     #[account(address = constants::DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// Mint owner PDA created by deploy for this mint — forwarded to the hook,
+    /// PDA that contains configuration for this mint — forwarded to the hook,
     /// which reads the asset class config/version ids off it to derive
     /// `asset_class_version_pda`.
     ///
     /// CHECK: Address verified by seeds/bump constraint.
     #[account(
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
         bump,
     )]
-    pub mint_owner_pda: UncheckedAccount<'info>,
+    pub asset_configuration_pda: UncheckedAccount<'info>,
 
     /// factory program — forwarded to the hook so it can resolve
     /// `asset_class_version_pda` as an external PDA per its ExtraAccountMetaList.
@@ -323,7 +323,7 @@ pub struct TransferTokens<'info> {
     /// Asset class version PDA for this mint's asset class — forwarded to the hook.
     ///
     /// CHECK: No address constraint here; the hook's metalist pins the canonical
-    /// derivation (seeded from `mint_owner_pda`'s asset class config/version ids),
+    /// derivation (seeded from `asset_configuration_pda`'s asset class config/version ids),
     /// and Token-2022 verifies our forwarded extras against it.
     pub asset_class_version_pda: UncheckedAccount<'info>,
 

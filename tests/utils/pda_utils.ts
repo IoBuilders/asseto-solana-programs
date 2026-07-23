@@ -3,12 +3,12 @@ import { DEPLOY_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, TRANSFER_PROGRAM_ID } from
 
 // ── deploy ─────────────────────────────────────────────────────────────────────
 
-export function mintOwnerPda(mint: PublicKey): PublicKey {
-  return mintOwnerPdaWithBump(mint)[0];
+export function assetConfigurationPda(mint: PublicKey): PublicKey {
+  return assetConfigurationPdaWithBump(mint)[0];
 }
 
-export function mintOwnerPdaWithBump(mint: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("mint_owner"), mint.toBuffer()], DEPLOY_PROGRAM_ID);
+export function assetConfigurationPdaWithBump(mint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("asset_configuration"), mint.toBuffer()], DEPLOY_PROGRAM_ID);
 }
 
 export function tempMintAuthorityPda(mint: PublicKey): PublicKey {

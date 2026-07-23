@@ -6,7 +6,7 @@ use common::{
 
 use crate::state::FrozenAccountStatus;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, MintOwner, Roles};
+use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
 /// Unfreezes a specific token account at the management level by closing
 /// the frozen account marker PDA previously created by `freeze_account`.
@@ -57,13 +57,13 @@ pub struct UnfreezeAccount<'info> {
     )]
     pub authority_roles_pda: AccountLoader<'info, Roles>,
 
-    /// PDA created by deploy that records the deployer for this mint.
+    /// PDA that contains the configuration for this mint.
     #[account(
-        seeds = [pda_seeds::MINT_OWNER, mint.key().as_ref()],
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump = mint_owner_pda.bump,
+        bump = asset_configuration_pda.bump,
     )]
-    pub mint_owner_pda: Account<'info, MintOwner>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
     /// The Token-2022 mint.
     ///
@@ -98,7 +98,11 @@ pub struct UnfreezeAccount<'info> {
 
     /// Asset-class version PDA this mint is hooked to.
     #[account(
-        seeds = [pda_seeds::ASSET_CLASS_VERSION, &mint_owner_pda.asset_class_config_id.to_le_bytes(), &mint_owner_pda.asset_class_version_id.to_le_bytes()],
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
         seeds::program = constants::FACTORY_PROGRAM_ID,
         bump = asset_class_version_pda.load()?.bump,
     )]

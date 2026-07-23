@@ -81,7 +81,7 @@ Creates the `bond_terms` PDA on the first call (`init_if_needed`) and overwrites
 | `payer` | yes | yes | Signer | Funds the `bond_terms` PDA on the first call. Distinct from `authority` so a wallet can pay rent without holding the role-holder's signature. |
 | `authority` | yes | yes | Signer | Must hold `ROLE_CORPORATE_ACTION`; also funds the PDA creation |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
+| `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `require_not_paused` |
 | `bond_terms` | yes | no | `Account<BondTerms>` | `init_if_needed`; seeds `["bond_terms", mint]`, `payer = payer`, `space = BondTerms::LEN` |

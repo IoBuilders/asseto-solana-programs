@@ -4,6 +4,6 @@ use anchor_lang::prelude::*;
 pub enum AccessControlError {
     #[msg("Role id is past the mask capacity")]
     RoleOutOfBounds,
-    #[msg("Only the deployer can authorize this instruction")]
+    #[msg("Only the mint authority can execute this instruction")]
     Unauthorized,
 }

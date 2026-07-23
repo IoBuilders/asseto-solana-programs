@@ -13,7 +13,6 @@ pub mod operations {
     use super::*;
 
     /// Burns tokens from any token account.
-    /// Management instruction — called by the deployer.
     pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         burn_tokens::burn(ctx, amount)
     }
