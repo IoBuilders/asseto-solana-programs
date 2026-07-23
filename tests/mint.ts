@@ -229,13 +229,12 @@ describe("mint", () => {
 describe("batch_mint", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const deployer = provider.wallet.publicKey;
   const authority = provider.wallet.payer;
   const MINT_DECIMALS = 6;
   let mint: PublicKey;
 
   beforeEach(async () => {
-    ({ mint } = await deployMint({ deployer }));
+    ({ mint } = await deployMint());
     await setAssetClassVersionForMint(mint, {
       functionalities: [
         PAUSE_PAUSE,
@@ -249,8 +248,8 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: mints the corresponding amount to each destination and updates balances correctly", async () => {
-    const destinationA = await createTokenAccount({ mint, owner: deployer });
-    const destinationB = await createTokenAccount({ mint, owner: deployer });
+    const destinationA = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const destinationB = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const destinations = [destinationA, destinationB];
     const amounts = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
 
@@ -296,8 +295,8 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: succeeds when whitelist mode is active and every destination is whitelisted", async () => {
-    const destinationA = await createTokenAccount({ mint, owner: deployer });
-    const destinationB = await createTokenAccount({ mint, owner: deployer });
+    const destinationA = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const destinationB = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const amounts = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
     const destinations = [destinationA, destinationB];
     await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
@@ -318,7 +317,7 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: fails with MintPaused when mint is paused", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     await setMintPaused(mint, true);
 
     try {
@@ -335,7 +334,7 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: fails with Deactivated when mint has been deactivated", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     await setDeactivateMarker(mint);
 
     try {
@@ -349,7 +348,7 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: fails with MissingRole when authority does not have the issuer role", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const rogueKeypair = Keypair.generate();
     await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not issuer role
 
@@ -369,8 +368,8 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: fails with NotWhitelisted when whitelist mode is active and a destination is not whitelisted", async () => {
-    const whitelisted = await createTokenAccount({ mint, owner: deployer });
-    const notWhitelisted = await createTokenAccount({ mint, owner: deployer });
+    const whitelisted = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const notWhitelisted = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
     await setWhitelistMarker(mint, whitelisted); // only the first destination is whitelisted
 
@@ -385,7 +384,7 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: fails with FunctionalityNotSupportedError when the mint functionality is not enabled", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
     // Re-seed the asset-class version WITHOUT the mint functionality.
     await setAssetClassVersionForMint(mint, { functionalities: [] });
@@ -405,7 +404,7 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
     // Re-seed the asset-class version WITHOUT finalizing it.
     await setAssetClassVersionForMint(mint, {
@@ -439,7 +438,7 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: fails with InvalidRemainingAccounts when the wrong number of remaining accounts is passed", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
     try {
       await batchMintTokens(
@@ -458,8 +457,8 @@ describe("batch_mint", () => {
   });
 
   it("batch_mint: fails with WhitelistPdaMismatch when a remaining whitelist PDA is not the derived one", async () => {
-    const destination = await createTokenAccount({ mint, owner: deployer });
-    const other = await createTokenAccount({ mint, owner: deployer });
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const other = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     // The whitelist PDA is only checked when whitelist mode is active.
     await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
