@@ -60,7 +60,7 @@ pub fn batch_burn<'info>(
             &[permanent_delegate_signer_seeds.as_slice()],
         ))?;
 
-        // ── 2. Mint tokens (CPI to Token-2022) ────────────────────────────────
+        // ── 2. Burn tokens (CPI to Token-2022) ────────────────────────────────
         invoke_signed(
             &spl_burn(
                 &token_program_id,
