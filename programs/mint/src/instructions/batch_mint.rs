@@ -8,7 +8,7 @@ use common::{
 };
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use spl_token_2022::instruction::mint_to;
-use transfer_control::{verify_whitelist};
+use transfer_control::verify_whitelist;
 
 use crate::errors::MintError;
 use crate::events::Issued;
