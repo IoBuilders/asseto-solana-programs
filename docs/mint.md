@@ -97,6 +97,7 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 - `require_role(authority_roles_pda, ROLE_ISSUER)`
 - `require_active(&deactivate_pda)`
 - `require_functionality(asset_class_version_pda, MINT_MINT)` — same functionality bit as `mint`, not a separate one
+- When whitelist mode is active, **every** destination's whitelist PDA is verified (`WhitelistPdaMismatch` if the passed PDA isn't the one derived for that destination; `NotWhitelisted` if it is empty).
 
 ### Accounts
 
@@ -137,11 +138,14 @@ The role/active/functionality checks (see Preconditions) run once before the loo
 
 ### Errors
 
-```rust
-pub enum MintError {
-    EmptyBatch,               // amounts is empty
-    InvalidRemainingAccounts, // remaining_accounts.len() != amounts.len() * 2
-}
+| Code                       | Cause                                              |
+|----------------------------|----------------------------------------------------|
+| `EmptyBatch`               | `amounts` is empty                                 |
+| `InvalidRemainingAccounts` | `remaining_accounts.len() != amounts.len() * 2`    |
+| `WhitelistPdaMismatch`     | `the passed whitelist PDA isn't correctly derived` |
+| `NotWhitelisted`           | `remaining_accounts.len() != amounts.len() * 2`    |
+
+---
 ```
 
 Plus `common::CommonError::WhitelistPdaMismatch` (from `verify_whitelist_pda`) and `transfer_control::TransferControlError::NotWhitelisted` (from `verify_whitelist`) when whitelist mode is active.

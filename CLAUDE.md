@@ -44,7 +44,7 @@ asseto-solana-programs/
 │   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated)
 │   ├── metadata-update/      — controls metadata updates
 │   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
-│   ├── operations/           — burn via permanent delegate
+│   ├── operations/           — burn via permanent delegate (`burn` + `batch_burn`)
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers

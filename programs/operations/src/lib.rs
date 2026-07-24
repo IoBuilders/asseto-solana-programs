@@ -15,4 +15,11 @@ pub mod operations {
     pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         burn_tokens::burn(ctx, amount)
     }
+
+    pub fn batch_burn<'info>(
+        ctx: Context<'info, BatchBurnTokens<'info>>,
+        amounts: Vec<u64>,
+    ) -> Result<()> {
+        batch_burn::batch_burn(ctx, amounts)
+    }
 }
