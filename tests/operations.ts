@@ -11,10 +11,7 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { burnTokens, getControllerRedemptionEvent } from "./program_helpers/burn/burn_instruction_helper";
-import {
-  getHolderBalanceSnapshotAt,
-  getTotalSupplySnapshotAt,
-} from "./program_helpers/snapshot/snapshot_instruction_helper";
+import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import { setSnapshotCounter } from "./program_helpers/snapshot/snapshot_pda_helper";
 import { setFrozenBalance } from "./program_helpers/freeze/freeze_pda_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
@@ -97,20 +94,12 @@ describe("operations", () => {
       await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
 
       const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
-      const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
 
-      // (1) Snapshot recorded the FULL balance — not adjusted by frozen_balance_pda.
+      // Snapshot recorded the FULL balance — not adjusted by frozen_balance_pda.
       assert.equal(
         holderValue.toString(),
         mintAmount.toString(),
         "holder snapshot at coupon-1 must record the full Token-2022 balance (frozen + unfrozen)"
-      );
-
-      // (2) Total supply snapshot is independent of partial-freeze PDAs by definition.
-      assert.equal(
-        totalSupplyValue.toString(),
-        mintAmount.toString(),
-        "total supply snapshot must record the full minted supply, unaffected by partial-freeze PDAs"
       );
     });
 
@@ -133,18 +122,12 @@ describe("operations", () => {
       // Second burn in the same snapshot period — snapshot CPIs must be no-ops
       await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
 
-      // ── Assert snapshot values via get_*_snapshot_at ──────────────────────────
+      // ── Assert snapshot value via get_holderbalance_snapshot_at ───────────────
       const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
-      const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
       assert.equal(
         holderValue.toString(),
         balanceBeforeSnapshot.toString(),
         "holder snapshot should reflect the balance before burning"
-      );
-      assert.equal(
-        totalSupplyValue.toString(),
-        balanceBeforeSnapshot.toString(),
-        "total supply snapshot should v the total supply before burning"
       );
     });
 

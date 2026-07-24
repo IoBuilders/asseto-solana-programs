@@ -59,7 +59,7 @@ All shared test logic lives here. Import from the relevant helper rather than re
 | `freeze_helper.ts` | `freezeAccount`, `unfreezeAccount`, `partiallyFreezeAccount`, `removePartialFreeze` |
 | `pause_helper.ts` | `pauseMint`, `unpauseMint` |
 | `deactivate_helper.ts` | `deactivateMint` |
-| `snapshot_helper.ts` | `getHolderBalanceSnapshotAt`, `getTotalSupplySnapshotAt` |
+| `snapshot_helper.ts` | `getHolderBalanceSnapshotAt` |
 | `coupon_helper.ts` | `createCoupon` |
 | `bond_helper.ts` | `updateBondTerms` |
 | `account_helper.ts` | `requestAirdrop`, `getAccountInfo`, `getBalanceForRentExeption` |
@@ -170,18 +170,10 @@ const snapshotCounterPda     = pdaUtils.snapshotCounterPda(mint);
 For querying snapshot values after a `createCoupon` CPI chain:
 
 ```ts
-import {
-  getHolderBalanceSnapshotAt,
-  getTotalSupplySnapshotAt,
-} from "./program_helpers/snapshot_helper";
+import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
 
 const balance = await getHolderBalanceSnapshotAt(
   { mint, holderTokenAccount: source },
-  { snapshotId: new anchor.BN(1) }
-);
-
-const supply = await getTotalSupplySnapshotAt(
-  { mint },
   { snapshotId: new anchor.BN(1) }
 );
 ```

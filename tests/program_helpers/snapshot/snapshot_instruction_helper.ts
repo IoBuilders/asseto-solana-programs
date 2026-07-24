@@ -60,25 +60,6 @@ export async function getSnapshotTriggeredEvent(signature: string) {
   return getEvent<SnapshotTriggeredEvent>(getSnapshotProgram(), signature, "snapshotTriggered");
 }
 
-// ── get_totalsupply_snapshot_at ────────────────────────────────────────────────
-
-export type GetTotalSupplySnapshotAtArgs = {
-  snapshotId: anchor.BN;
-};
-
-export async function getTotalSupplySnapshotAt(
-  callContext: MintContext,
-  args: GetTotalSupplySnapshotAtArgs
-): Promise<anchor.BN> {
-  return await getSnapshotProgram()
-    .methods.getTotalsupplySnapshotAt(args.snapshotId)
-    .accountsStrict({
-      mint: callContext.mint,
-      totalSupplySnapshot: snapshotTotalSupplyPda(callContext.mint),
-    })
-    .view();
-}
-
 // ── get_holderbalance_snapshot_at ──────────────────────────────────────────────
 
 export type GetHolderBalanceSnapshotAtContext = MintContext & {

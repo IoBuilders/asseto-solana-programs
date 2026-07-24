@@ -9,7 +9,6 @@ import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 import { createTokenAccount, mintTokensViaSurfpool } from "./program_helpers/spl_token_helper";
 import {
   getHolderBalanceSnapshotAt,
-  getTotalSupplySnapshotAt,
   takeSnapshot,
   updateHolderBalanceSnapshot,
   updateTotalSupplySnapshot,
@@ -181,72 +180,6 @@ describe.skip("snapshot", () => {
         assert.instanceOf(err, AnchorError);
         assert.equal((err as AnchorError).error.errorCode.code, "Unauthorized");
       }
-    });
-  });
-
-  describe("get_totalsupply_snapshot_at", async () => {
-    it("get_totalsupply_snapshot_at: returns live supply when no snapshot PDA exists (no coupon ever taken)", async () => {
-      const { mint } = await deployMint();
-      await setAssetClassVersionForMint(mint, {
-        functionalities: [MINT_MINT],
-      });
-      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
-      // Mint without a prior coupon / snapshot — so that the mint has a specific supply
-      const supply = new anchor.BN(1_000);
-      await mintTokensViaSurfpool(mint, destination, supply);
-
-      const result = await getTotalSupplySnapshotAt({ mint }, { snapshotId: new anchor.BN(1) });
-
-      assert.equal(result.toString(), supply.toString());
-    });
-
-    it("get_totalsupply_snapshot_at: returns live supply when queried snapshot_id exceeds all recorded entries", async () => {
-      const { mint } = await deployMint();
-      await setAssetClassVersionForMint(mint, {
-        functionalities: [COUPON_CREATE_COUPON, MINT_MINT],
-      });
-      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
-      const initialAmount = new anchor.BN(1_000);
-      await mintTokensViaSurfpool(mint, destination, initialAmount);
-
-      // Take snapshot 0 → next mint records pre-mint supply (= initialAmount) at key=0
-      const couponId = new anchor.BN(1);
-      await setCoupon(mint, couponId);
-      const additionalAmount = new anchor.BN(500);
-      await mintTokensViaSurfpool(mint, destination, additionalAmount);
-      // History: [{key=0, value=initialAmount}]. Live supply = initialAmount + additionalAmount.
-
-      // Query a snapshot_id beyond every recorded entry → lookup_at_or_above returns None → live fallback
-      const result = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId.add(new anchor.BN(1)) });
-      assert.equal(result.toString(), initialAmount.add(additionalAmount).toString());
-    });
-
-    it.skip("get_totalsupply_snapshot_at: returns value of next recorded entry when queried snapshot_id has no exact match", async () => {
-      const { mint } = await deployMint();
-      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
-      const initialAmount = new anchor.BN(1_000);
-      await mintTokensViaSurfpool(mint, destination, initialAmount);
-
-      // Take snapshot 1, entry key=1 written with value=initialAmount (pre-mint supply)
-      const couponId1 = new anchor.BN(1);
-      await createCoupon({ authority, mint }, { couponId: couponId1 });
-      const secondAmount = new anchor.BN(500);
-      await mintTokensViaSurfpool(mint, destination, secondAmount);
-
-      // Take snapshots 2, no entry added
-      const couponId2 = new anchor.BN(2);
-      await createCoupon({ authority, mint }, { couponId: couponId2 });
-
-      // Take snapshot 3, entry key=2 written with value=initialAmount+secondAmount
-      const couponId3 = new anchor.BN(3);
-      await createCoupon({ authority, mint }, { couponId: couponId3 });
-      await mintTokensViaSurfpool(mint, destination, new anchor.BN(1));
-
-      // History: [{key=1, value=initialAmount}, {key=3, value=initialAmount+secondAmount}].
-      // Query snapshot_id=2 → no exact match → returns value from key=3 entry
-      const result = await getTotalSupplySnapshotAt({ mint }, { snapshotId: couponId2 });
-      const expectedAmount = initialAmount.add(secondAmount);
-      assert.equal(result.toString(), expectedAmount.toString());
     });
   });
 

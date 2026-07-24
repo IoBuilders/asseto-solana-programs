@@ -187,7 +187,7 @@ Same "silent no-op when no snapshot is active" semantics as the total-supply var
 
 ---
 
-## Instructions: `get_totalsupply_snapshot_at`, `get_holderbalance_snapshot_at` (View)
+## Instructions: `get_holderbalance_snapshot_at` (View)
 
 ### Parameters
 
@@ -195,19 +195,18 @@ Same "silent no-op when no snapshot is active" semantics as the total-supply var
 snapshot_id: u64
 ```
 
-Return `u64`. Both are called via `.view()` from the client — they only read state.
+Return `u64`. Called via `.view()` from the client — it only reads state.
 
 For a requested `snapshot_id`, the handler does `lookup_at_or_above(snapshot_id)` on the history:
 - If an entry at that id exists, returns its value.
-- Otherwise returns the next-higher recorded value (the holder or mint didn't move between that snapshot and the next one — the later value still reflects the requested id's state).
-- If no entry has been recorded at or above the id, falls back to the current on-chain value (mint supply / token-account balance). For a holder whose token account does not exist yet, returns `0`.
+- Otherwise returns the next-higher recorded value (the holder didn't move between that snapshot and the next one — the later value still reflects the requested id's state).
+- If no entry has been recorded at or above the id, falls back to the current on-chain token-account balance. For a holder whose token account does not exist yet, returns `0`.
 
 ### Accounts
 
-`get_totalsupply_snapshot_at`: `mint`, `total_supply_snapshot`.
-`get_holderbalance_snapshot_at`: `mint`, `holder_balance_snapshot`, `holder_token_account`.
+`mint`, `holder_balance_snapshot`, `holder_token_account`.
 
-Both PDAs are seed-checked; either may be empty (triggering the current-value fallback).
+The `holder_balance_snapshot` PDA is seed-checked; it may be empty (triggering the current-value fallback).
 
 ---
 

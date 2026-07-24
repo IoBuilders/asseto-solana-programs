@@ -13,10 +13,7 @@ import {
   batchMintTokens,
   getIssuedEvents,
 } from "./program_helpers/mint/mint_instruction_helper";
-import {
-  getHolderBalanceSnapshotAt,
-  getTotalSupplySnapshotAt,
-} from "./program_helpers/snapshot/snapshot_instruction_helper";
+import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { beforeEach } from "mocha";
 import {
@@ -106,13 +103,7 @@ describe("mint", () => {
     // ── Assert snapshot values ──────────────────────────
     // snapshot id is 0-based: coupon N triggers snapshot N-1.
     const snapshotId = couponId.sub(new anchor.BN(1));
-    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
     const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: destination }, { snapshotId });
-    assert.equal(
-      totalSupplyValue.toString(),
-      balanceBeforeSnapshot.toString(),
-      "total supply snapshot should reflect the pre-first-mint value"
-    );
     assert.equal(
       holderValue.toString(),
       balanceBeforeSnapshot.toString(),
