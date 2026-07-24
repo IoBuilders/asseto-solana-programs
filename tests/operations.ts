@@ -182,7 +182,6 @@ describe("operations", () => {
 
   describe("batch_burn", async () => {
     let mint: PublicKey;
-    let mintOwnerPda: PublicKey;
     const MINT_DECIMALS = 6;
 
     // A fresh mint per test (unpaused + active out of the box) plus a fresh
@@ -191,15 +190,14 @@ describe("operations", () => {
     // precondition are planted in isolation via surfpool cheatcodes, so
     // `batch_burn` is the only instruction each test runs.
     beforeEach(async () => {
-      ({ mint } = await deployMint({ deployer }, { decimals: MINT_DECIMALS }));
-      mintOwnerPda = pdaUtils.mintOwnerPda(mint);
+      ({ mint } = await deployMint({}, { decimals: MINT_DECIMALS }));
       await setAssetClassVersionForMint(mint, { functionalities: [OPERATIONS_BURN] });
       await setRoles(mint, authority!.publicKey, [ROLE_CONTROLLER]);
     });
 
     it("batch_burn: burns the corresponding amount from each source and updates balances correctly", async () => {
-      const sourceA = await createTokenAccount({ mint, owner: mintOwnerPda });
-      const sourceB = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const sourceA = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+      const sourceB = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
       const sources = [sourceA, sourceB];
       const initialBalances = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
       const amounts = [new anchor.BN(100 * 10 ** MINT_DECIMALS), new anchor.BN(500 * 10 ** MINT_DECIMALS)];
@@ -250,7 +248,7 @@ describe("operations", () => {
     });
 
     it("batch_burn: fails when mint is paused", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
       await mintTokensViaSurfpool(mint, source, new anchor.BN(1));
       await setMintPaused(mint, true);
 
@@ -271,7 +269,7 @@ describe("operations", () => {
     });
 
     it("batch_burn: fails with Deactivated when mint has been deactivated", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
       await setDeactivateMarker(mint);
 
       try {
@@ -285,7 +283,7 @@ describe("operations", () => {
     });
 
     it("batch_burn: fails with MissingRole when authority does not have the controller role", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
       const rogueKeypair = Keypair.generate();
       await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not controller role
 
@@ -305,7 +303,7 @@ describe("operations", () => {
     });
 
     it("batch_burn: fails with FunctionalityNotSupportedError when the burn functionality is not enabled", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
       // Re-seed the asset-class version WITHOUT the burn functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
@@ -325,7 +323,7 @@ describe("operations", () => {
     });
 
     it("batch_burn: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
       // Re-seed the asset-class version WITHOUT finalizing it.
       await setAssetClassVersionForMint(mint, {
@@ -359,7 +357,7 @@ describe("operations", () => {
     });
 
     it("batch_burn: fails with InvalidRemainingAccounts when the wrong number of remaining accounts is passed", async () => {
-      const source = await createTokenAccount({ mint, owner: mintOwnerPda });
+      const source = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
       try {
         await batchBurnTokens(

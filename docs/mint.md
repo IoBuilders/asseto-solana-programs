@@ -138,11 +138,14 @@ The role/active/functionality checks (see Preconditions) run once before the loo
 
 ### Errors
 
-```rust
-pub enum MintError {
-    EmptyBatch,               // amounts is empty
-    InvalidRemainingAccounts, // remaining_accounts.len() != amounts.len() * 2
-}
+| Code                       | Cause                                              |
+|----------------------------|----------------------------------------------------|
+| `EmptyBatch`               | `amounts` is empty                                 |
+| `InvalidRemainingAccounts` | `remaining_accounts.len() != amounts.len() * 2`    |
+| `WhitelistPdaMismatch`     | `the passed whitelist PDA isn't correctly derived` |
+| `NotWhitelisted`           | `remaining_accounts.len() != amounts.len() * 2`    |
+
+---
 ```
 
 Plus `common::CommonError::WhitelistPdaMismatch` (from `verify_whitelist_pda`) and `transfer_control::TransferControlError::NotWhitelisted` (from `verify_whitelist`) when whitelist mode is active.

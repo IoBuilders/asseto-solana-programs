@@ -88,12 +88,12 @@ One account per source, in order, appended as `remaining_accounts`:
 
 ### Accounts
 
-The fixed accounts (the per-source token accounts are passed via `remaining_accounts`, see above). Note there is **no** `deployer` and **no** snapshot accounts — snapshots are skipped.
+The fixed accounts (the per-source token accounts are passed via `remaining_accounts`, see above).
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_CONTROLLER` on this mint |
-| `mint_owner_pda` | no | no | Account\<MintOwner\> | seeds `["mint_owner", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
+| `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to burn from |
 | `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs unblock, burn, and re-block CPIs |

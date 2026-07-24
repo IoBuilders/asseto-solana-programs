@@ -132,7 +132,7 @@ export async function batchBurnTokens(
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   return await getOperationsProgram()
-    .batchBurn(amounts)
+    .methods.batchBurn(amounts)
     .accountsStrict({
       authority: callContext.authority.publicKey,
       assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
