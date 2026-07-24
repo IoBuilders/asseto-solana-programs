@@ -62,11 +62,4 @@ impl SnapshotHistory {
     fn has_entry_for(&self, key: u64) -> bool {
         self.entries.last().map(|e| e.key) == Some(key)
     }
-
-    pub fn lookup_at_or_above(&self, key: u64) -> Option<u64> {
-        match self.entries.binary_search_by_key(&key, |e| e.key) {
-            Ok(i) => Some(self.entries[i].value),
-            Err(i) => self.entries.get(i).map(|e| e.value),
-        }
-    }
 }

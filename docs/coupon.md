@@ -44,7 +44,7 @@ pub struct Coupon {
 ```
 
 One per `(mint, coupon_id)`. Stores:
-- `snapshot_id` — the snapshot index returned by the `take_snapshot` CPI run during this `create_coupon`. Use it with `snapshot`'s `get_holderbalance_snapshot_at` to reconstruct who held what at the coupon's record date.
+- `snapshot_id` — the snapshot index returned by the `take_snapshot` CPI run during this `create_coupon`, anchoring who held what at the coupon's record date.
 - `period_start_date` / `period_end_date` — the accrual window for *this* coupon. `treasury::pay_coupon` computes the payout from `period_end_date − period_start_date` so successive coupons accrue independently rather than cumulatively from issuance. The handler validates `period_end_date > period_start_date`; the program does **not** enforce that consecutive coupons chain (i.e. that coupon N's `period_start_date == coupon (N−1)'s period_end_date`) — the deployer is trusted to set consistent windows.
 - `payment_date` — Unix timestamp (seconds) when the treasury is allowed to pay this coupon (typically `period_end_date` plus a settlement lag). Strictly greater than `period_end_date`; that's the only invariant enforced here. `treasury`'s maturity check then gates `pay_coupon` on `now ≥ payment_date`.
 - `interest_rate_override` / `interest_rate_override_decimals` — optional per-coupon interest rate. Both are `None` on creation. When set via `set_coupon_rate`, `treasury::pay_coupon` uses them instead of the asset-level rate from `bond_terms`. Same scaling convention: actual rate = `interest_rate_override / 10^interest_rate_override_decimals`. If only one of the two is `Some`, the override is ignored and the fallback applies.

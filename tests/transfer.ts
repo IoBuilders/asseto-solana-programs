@@ -21,7 +21,6 @@ import {
   mintTokensViaSurfpool,
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
-import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { buildVerifyTransferInstruction, transfer, verifyTransfer } from "./program_helpers/transfer_helper";
 import { beforeEach } from "mocha";
@@ -43,7 +42,6 @@ import {
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
-import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 import {
   setTransferControlModeMarker,
   setWhitelistMarker,
@@ -135,187 +133,6 @@ describe("transfer", () => {
         supplyAfter.toString(),
         supplyBefore.toString(),
         "total supply should be unchanged after a transfer"
-      );
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: snapshot captures pre-transfer balances (source = minted - transferred, destination = transferred)", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      const couponId = new anchor.BN(1);
-
-      // ── Take snapshot via create_coupon (counter: 0 → 1) ─────────────────────
-      await setCoupon(mint, couponId);
-
-      // ── Fund and transfer ─────────────────────────────────────────────────────
-      await fundTransferHookAuthority(mint);
-      await transfer(
-        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: TRANSFER_AMOUNT }
-      );
-
-      // ── Assert snapshot values via get_holderbalance_snapshot_at ─────────────
-      // snapshot id is 0-based: coupon N triggers snapshot N-1.
-      const snapshotId = couponId.sub(new anchor.BN(1));
-      const senderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
-      const receiverValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: destination }, { snapshotId });
-
-      assert.equal(
-        senderValue.toString(),
-        MINT_AMOUNT.toNumber().toString(),
-        "sender snapshot should equal pre-transfer balance"
-      );
-      assert.equal(receiverValue.toString(), "0", "receiver snapshot should equal pre-transfer balance");
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: multiple sequential post-snapshot transfers do not corrupt snapshot data", async () => {
-      const FIRST_TRANSFER = new anchor.BN(300 * 10 ** MINT_DECIMALS);
-      const SECOND_TRANSFER = new anchor.BN(200 * 10 ** MINT_DECIMALS);
-      const THIRD_TRANSFER = new anchor.BN(100 * 10 ** MINT_DECIMALS);
-
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      const couponId1 = new anchor.BN(1);
-
-      // ── Take snapshot 1 (counter: 0 → 1) ─────────────────────────────────────
-      await setCoupon(mint, couponId1);
-
-      await fundTransferHookAuthority(mint);
-
-      // ── First transfer in snapshot period 1 (300 tokens) ──────────────────────
-      // Hook writes: sender (key=1, value=MINT_AMOUNT), receiver (key=1, value=0).
-      await transfer(
-        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: FIRST_TRANSFER }
-      );
-
-      // ── Second transfer in snapshot period 1 (200 tokens) ─────────────────────
-      // Counter still at 1: the hook must not overwrite the existing key=1 entries.
-      await transfer(
-        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: SECOND_TRANSFER }
-      );
-
-      // ── Live balances after both period-1 transfers ───────────────────────────
-      const sourceAfterTwo = (await getTokenAccount(source)).amount;
-      const destAfterTwo = (await getTokenAccount(destination)).amount;
-
-      assert.equal(
-        sourceAfterTwo.toString(),
-        (MINT_AMOUNT.toNumber() - FIRST_TRANSFER.toNumber() - SECOND_TRANSFER.toNumber()).toString(),
-        "source balance should be MINT_AMOUNT - 300 - 200 after two transfers"
-      );
-      assert.equal(
-        destAfterTwo.toString(),
-        (FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber()).toString(),
-        "destination balance should be 300 + 200 after two transfers"
-      );
-
-      // ── Snapshot 1 must reflect the pre-first-transfer state ──────────────────
-      const senderAt1_afterTwo = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId1.sub(new anchor.BN(1)) }
-      );
-      const receiverAt1_afterTwo = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId1.sub(new anchor.BN(1)) }
-      );
-
-      assert.equal(
-        senderAt1_afterTwo.toString(),
-        MINT_AMOUNT.toString(),
-        "sender snapshot at key=1 should be MINT_AMOUNT after two period-1 transfers"
-      );
-      assert.equal(
-        receiverAt1_afterTwo.toString(),
-        "0",
-        "receiver snapshot at key=1 should be 0 after two period-1 transfers"
-      );
-
-      // ── Take snapshot 2 (counter: 1 → 2) ─────────────────────────────────────
-      const couponId2 = new anchor.BN(2);
-      await setCoupon(mint, couponId2);
-
-      // ── Third transfer in snapshot period 2 (100 tokens) ──────────────────────
-      // Hook appends: sender (key=2, value=MINT_AMOUNT-300-200), receiver (key=2, value=300+200).
-      await transfer(
-        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: THIRD_TRANSFER }
-      );
-
-      // ── Live balances after all three transfers ───────────────────────────────
-      const sourceAfterThree = (await getTokenAccount(source)).amount;
-      const destAfterThree = (await getTokenAccount(destination)).amount;
-
-      assert.equal(
-        sourceAfterThree.toString(),
-        (
-          MINT_AMOUNT.toNumber() -
-          FIRST_TRANSFER.toNumber() -
-          SECOND_TRANSFER.toNumber() -
-          THIRD_TRANSFER.toNumber()
-        ).toString(),
-        "source balance should be MINT_AMOUNT - 300 - 200 - 100 after three transfers"
-      );
-      assert.equal(
-        destAfterThree.toString(),
-        (FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber() + THIRD_TRANSFER.toNumber()).toString(),
-        "destination balance should be 300 + 200 + 100 after three transfers"
-      );
-
-      // ── Snapshot 1 must still be intact after the period-2 transfer ───────────
-      const senderAt1_final = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId1.sub(new anchor.BN(1)) }
-      );
-      const receiverAt1_final = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId1.sub(new anchor.BN(1)) }
-      );
-
-      assert.equal(
-        senderAt1_final.toString(),
-        MINT_AMOUNT.toString(),
-        "snapshot 1 sender must be unchanged after the period-2 transfer"
-      );
-      assert.equal(
-        receiverAt1_final.toString(),
-        "0",
-        "snapshot 1 receiver must be unchanged after the period-2 transfer"
-      );
-
-      // ── Snapshot 2 must capture the state at the start of period 2 ───────────
-      // When the 3rd transfer's hook ran, Token-2022 had already settled balances:
-      // source = MINT_AMOUNT-300-200-100, destination = 300+200+100.
-      // The hook adjusts by the delta to recover the pre-transfer balances:
-      // sender:   (MINT_AMOUNT-600) + 100 = MINT_AMOUNT-500   = 500 tokens
-      // receiver: (300+200+100)     - 100 = 300+200           = 500 tokens
-      const expectedSenderAt2 = MINT_AMOUNT.toNumber() - FIRST_TRANSFER.toNumber() - SECOND_TRANSFER.toNumber();
-      const expectedReceiverAt2 = FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber();
-
-      const senderAt2 = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId2.sub(new anchor.BN(1)) }
-      );
-      const receiverAt2 = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId2.sub(new anchor.BN(1)) }
-      );
-
-      assert.equal(
-        senderAt2.toString(),
-        expectedSenderAt2.toString(),
-        "snapshot 2 sender should equal the pre-third-transfer source balance (500 tokens)"
-      );
-      assert.equal(
-        receiverAt2.toString(),
-        expectedReceiverAt2.toString(),
-        "snapshot 2 receiver should equal the pre-third-transfer destination balance (500 tokens)"
       );
     });
 

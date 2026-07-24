@@ -1,6 +1,6 @@
 ---
 name: write-tests
-description: Use when writing tests in the asseto-solana-programs workspace — either adding a new test case to an existing `tests/<name>.ts` file or (rarer) scaffolding a new test file for a program. Triggers on "add a test for X", "write a test for the Y instruction", "cover Z with a test", "create the test file for W". Covers: the helper shape in program_helpers/, how program clients are typed and accessed, the `AnchorError` vs `SendTransactionError` decision (the subtle part), snapshot helpers, transfer pre-instructions, and running a single suite or single test.
+description: Use when writing tests in the asseto-solana-programs workspace — either adding a new test case to an existing `tests/<name>.ts` file or (rarer) scaffolding a new test file for a program. Triggers on "add a test for X", "write a test for the Y instruction", "cover Z with a test", "create the test file for W". Covers: the helper shape in program_helpers/, how program clients are typed and accessed, the `AnchorError` vs `SendTransactionError` decision (the subtle part), transfer pre-instructions, and running a single suite or single test.
 ---
 
 # Writing Tests
@@ -59,7 +59,7 @@ All shared test logic lives here. Import from the relevant helper rather than re
 | `freeze_helper.ts` | `freezeAccount`, `unfreezeAccount`, `partiallyFreezeAccount`, `removePartialFreeze` |
 | `pause_helper.ts` | `pauseMint`, `unpauseMint` |
 | `deactivate_helper.ts` | `deactivateMint` |
-| `snapshot_helper.ts` | `getHolderBalanceSnapshotAt` |
+| `snapshot_helper.ts` | `takeSnapshot`, `updateHolderBalanceSnapshot`, `updateTotalSupplySnapshot` |
 | `coupon_helper.ts` | `createCoupon` |
 | `bond_helper.ts` | `updateBondTerms` |
 | `account_helper.ts` | `requestAirdrop`, `getAccountInfo`, `getBalanceForRentExeption` |
@@ -165,22 +165,7 @@ const snapshotCounterPda     = pdaUtils.snapshotCounterPda(mint);
 // etc.
 ```
 
-## 9. Snapshot helpers
-
-For querying snapshot values after a `createCoupon` CPI chain:
-
-```ts
-import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot_helper";
-
-const balance = await getHolderBalanceSnapshotAt(
-  { mint, holderTokenAccount: source },
-  { snapshotId: new anchor.BN(1) }
-);
-```
-
-These query the on-chain snapshot PDAs via `.view()` — no transaction sent.
-
-## 10. Role setup for Management-instruction tests
+## 9. Role setup for Management-instruction tests
 
 Every Management instruction is role-gated (`require_role`), so its happy-path test must grant the caller the right role first, and its error cases must include a `MissingRole` case:
 
@@ -207,7 +192,7 @@ it("pause: fails with MissingRole when authority doesn't have required role", as
 
 `tests/utils/roles.ts` mirrors `common::roles` — check there for the exact constant name before hardcoding a role id. If the instruction is also functionality-gated (see `docs/<program>.md`'s Preconditions section), also cover the `FunctionalityNotSupportedError` case by not enabling the relevant `functionalities` bit on the asset-class version.
 
-## 11. Transfer-specific patterns
+## 10. Transfer-specific patterns
 
 ### Fund the transfer-hook authority
 
@@ -256,7 +241,7 @@ If you build the transfer instruction manually (instead of using the `transfer()
 
 The CU limit covers the hook CPI chain; the heap frame is required because the metalist resolution path needs more than the default 32 KiB.
 
-## 12. Assertion style — `AnchorError` vs `SendTransactionError`
+## 11. Assertion style — `AnchorError` vs `SendTransactionError`
 
 This is the part that most often breaks a test. Pick based on **where the error is raised**:
 
@@ -290,7 +275,7 @@ try {
 }
 ```
 
-## 13. `it()` shape
+## 12. `it()` shape
 
 One happy-path `it()` per instruction, then one `it()` per precondition error. Every test starts with a fresh `deployMint()` so tests don't share state.
 
@@ -303,6 +288,6 @@ it("<instruction>: <expected behaviour>", async () => {
 });
 ```
 
-## 14. Silence noise
+## 13. Silence noise
 
 `tests/setup.ts` suppresses `console.log` by default. Mocha picks it up via `--require tests/setup.ts` in `Anchor.toml`. Use `console.log` freely in tests; flip `VERBOSE = true` in `setup.ts` when debugging.

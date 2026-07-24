@@ -11,9 +11,6 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { burnTokens, getControllerRedemptionEvent } from "./program_helpers/burn/burn_instruction_helper";
-import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
-import { setSnapshotCounter } from "./program_helpers/snapshot/snapshot_pda_helper";
-import { setFrozenBalance } from "./program_helpers/freeze/freeze_pda_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -71,64 +68,6 @@ describe("operations", () => {
       assert.equal(event!.controller.toBase58(), authority!.publicKey.toBase58(), "controller should be the deployer");
       assert.equal(event!.from.toBase58(), source.toBase58(), "from should be the burned token account");
       assert.equal(event!.value.toString(), burnAmount.toString(), "value should match the burn amount");
-    });
-
-    it("burn: holder balance snapshot records full Token-2022 balance (ignoring partial-freeze PDA)", async () => {
-      const mintAmount = new anchor.BN(10 ** MINT_DECIMALS);
-      const burnAmount = new anchor.BN(3 ** MINT_DECIMALS);
-      const partialFrozenAmount = new anchor.BN(5 ** MINT_DECIMALS);
-
-      // ── Plant the holder balance and total supply ────────────────────────────
-      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
-      await mintTokensViaSurfpool(mint, source, mintAmount);
-
-      // ── Plant a partial-freeze marker for 5^6 tokens on source ───────────────
-      await setFrozenBalance(mint, source, partialFrozenAmount);
-
-      // ── Simulate one snapshot already taken: counter (the next id) = 1, so the
-      //    active (last-taken) snapshot id is 0 ──────────────────────────────────
-      await setSnapshotCounter(mint, new anchor.BN(1));
-      const snapshotId = new anchor.BN(0);
-
-      // ── Burn — snapshot CPI fires and records the pre-burn balance at snapshot 1 ──
-      await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
-
-      const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
-
-      // Snapshot recorded the FULL balance — not adjusted by frozen_balance_pda.
-      assert.equal(
-        holderValue.toString(),
-        mintAmount.toString(),
-        "holder snapshot at coupon-1 must record the full Token-2022 balance (frozen + unfrozen)"
-      );
-    });
-
-    it("burn: snapshot taken before burn records holder balance at time of snapshot and is never overwritten", async () => {
-      const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
-      const burnAmount = new anchor.BN(1 ** MINT_DECIMALS);
-
-      // Plant tokens on the source account
-      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
-      await mintTokensViaSurfpool(mint, source, balanceBeforeSnapshot);
-
-      // Simulate one snapshot already taken: counter (the next id) = 1, so the
-      // active (last-taken) snapshot id is 0; subsequent ops record pre-op balances.
-      await setSnapshotCounter(mint, new anchor.BN(1));
-      const snapshotId = new anchor.BN(0);
-
-      // First burn — snapshot CPIs fire and record pre-burn balance (= balanceBeforeSnapshot)
-      await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
-
-      // Second burn in the same snapshot period — snapshot CPIs must be no-ops
-      await burnTokens({ mint, tokenAccount: source, authority }, { amount: burnAmount });
-
-      // ── Assert snapshot value via get_holderbalance_snapshot_at ───────────────
-      const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
-      assert.equal(
-        holderValue.toString(),
-        balanceBeforeSnapshot.toString(),
-        "holder snapshot should reflect the balance before burning"
-      );
     });
 
     it("burn: fails with MissingRole when authority does not have the controller role", async () => {

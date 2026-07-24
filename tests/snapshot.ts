@@ -5,10 +5,7 @@ import { assert } from "chai";
 import { SNAPSHOT_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
-import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
-import { createTokenAccount, mintTokensViaSurfpool } from "./program_helpers/spl_token_helper";
 import {
-  getHolderBalanceSnapshotAt,
   takeSnapshot,
   updateHolderBalanceSnapshot,
   updateTotalSupplySnapshot,
@@ -23,7 +20,7 @@ import {
 import { getBalanceForRentExeption, surfnetSetAccount } from "./program_helpers/account_helper";
 import { U64_MAX } from "./constants";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
-import { COUPON_CREATE_COUPON, MINT_MINT } from "./utils/functionalities";
+import { COUPON_CREATE_COUPON } from "./utils/functionalities";
 
 describe.skip("snapshot", () => {
   const provider = anchor.AnchorProvider.env();
@@ -180,88 +177,6 @@ describe.skip("snapshot", () => {
         assert.instanceOf(err, AnchorError);
         assert.equal((err as AnchorError).error.errorCode.code, "Unauthorized");
       }
-    });
-  });
-
-  describe("get_holderbalance_snapshot_at", async () => {
-    it("get_holderbalance_snapshot_at: returns 0 when token account does not exist", async () => {
-      const { mint } = await deployMint();
-      const nonExistentTokenAccount = Keypair.generate().publicKey;
-
-      const result = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: nonExistentTokenAccount },
-        { snapshotId: new anchor.BN(1) }
-      );
-      assert.equal(result.toString(), "0");
-    });
-
-    it("get_holderbalance_snapshot_at: returns live balance when no snapshot PDA exists (no coupon ever taken)", async () => {
-      const { mint } = await deployMint();
-      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
-      const mintAmount = new anchor.BN(1_000);
-      // Mint without a prior coupon — snapshot CPIs exit silently, no PDA is created
-      await mintTokensViaSurfpool(mint, destination, mintAmount);
-
-      const result = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: new anchor.BN(1) }
-      );
-      assert.equal(result.toString(), mintAmount.toString());
-    });
-
-    it("get_holderbalance_snapshot_at: returns live balance when queried snapshot_id exceeds all recorded entries", async () => {
-      const { mint } = await deployMint();
-      await setAssetClassVersionForMint(mint, {
-        functionalities: [COUPON_CREATE_COUPON, MINT_MINT],
-      });
-      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
-      const initialAmount = new anchor.BN(1_000);
-      await mintTokensViaSurfpool(mint, destination, initialAmount);
-
-      // Take snapshot 0 → next mint records pre-mint balance (= initialAmount) at key=0
-      await setCoupon(mint, new anchor.BN(1));
-      const additionalAmount = new anchor.BN(500);
-      await mintTokensViaSurfpool(mint, destination, additionalAmount);
-
-      // History: [{key=0, value=initialAmount}]. Live balance = initialAmount + additionalAmount.
-
-      // Query a snapshot_id beyond every recorded entry → lookup_at_or_above returns None → live fallback
-      const result = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: new anchor.BN(99) }
-      );
-      assert.equal(result.toString(), initialAmount.add(additionalAmount).toString());
-    });
-
-    it.skip("get_holderbalance_snapshot_at: returns value of next recorded entry when queried snapshot_id has no exact match", async () => {
-      const { mint } = await deployMint();
-      const destination = await createTokenAccount({ mint, owner: authority.publicKey });
-      const initialAmount = new anchor.BN(1_000);
-      await mintTokensViaSurfpool(mint, destination, initialAmount);
-
-      // Take snapshot 1, entry key=1 written with value=initialAmount (pre-mint balance)
-      const couponId1 = new anchor.BN(1);
-      await createCoupon({ authority, mint }, { couponId: couponId1 });
-      const secondAmount = new anchor.BN(500);
-      await mintTokensViaSurfpool(mint, destination, secondAmount);
-
-      // Take snapshot 2, no entry added
-      const couponId2 = new anchor.BN(2);
-      await createCoupon({ authority, mint }, { couponId: couponId2 });
-
-      // Take snapshot 3, entry key=3 written with value=initialAmount+secondAmount
-      const couponId3 = new anchor.BN(3);
-      await createCoupon({ authority, mint }, { couponId: couponId3 });
-      await mintTokensViaSurfpool(mint, destination, new anchor.BN(1));
-
-      // History: [{key=1, value=initialAmount}, {key=3, value=initialAmount+secondAmount}].
-      // Query snapshot_id=2 → no exact match → returns value from key=3 entry
-      const result = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId2 }
-      );
-      const expectedAmount = initialAmount.add(secondAmount);
-      assert.equal(result.toString(), expectedAmount.toString());
     });
   });
 });
