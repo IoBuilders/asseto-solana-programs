@@ -5,7 +5,6 @@ import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN, ROLE_ISSUER } from "./utils/roles";
-import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 import { createTokenAccount, getMint, getTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
 import {
   mintTokens,
@@ -13,10 +12,6 @@ import {
   batchMintTokens,
   getIssuedEvents,
 } from "./program_helpers/mint/mint_instruction_helper";
-import {
-  getHolderBalanceSnapshotAt,
-  getTotalSupplySnapshotAt,
-} from "./program_helpers/snapshot/snapshot_instruction_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { beforeEach } from "mocha";
 import {
@@ -85,39 +80,6 @@ describe("mint", () => {
     assert.equal(issued!.operator.toBase58(), authority!.publicKey.toBase58(), "event operator should be the deployer");
     assert.equal(issued!.to.toBase58(), destination.toBase58(), "event destination should match the token account");
     assert.equal(issued!.value.toString(), mintAmount.toString(), "event value should equal the minted amount");
-  });
-
-  it("mint: snapshot taken before mint records the destination balance previous to the mint and is never overwritten", async () => {
-    // ── Create destination token account + mint an initial balance ────────────────────────
-    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
-    const balanceBeforeSnapshot = new anchor.BN(5 ** MINT_DECIMALS);
-    await mintTokens({ mint, destination, authority }, { amount: balanceBeforeSnapshot });
-
-    // ── Take snapshot via a planted coupon (snapshot counter 0 → 1) ──────────
-    const couponId = new anchor.BN(1);
-    await setCoupon(mint, couponId);
-
-    // ── First mint under the snapshot period — snapshot CPIs fire and record pre-mint balance ──────────
-    await mintTokens({ mint, destination, authority });
-
-    // ── Second mint under the snapshot period — snapshot CPIs must be no-ops
-    await mintTokens({ mint, destination, authority });
-
-    // ── Assert snapshot values ──────────────────────────
-    // snapshot id is 0-based: coupon N triggers snapshot N-1.
-    const snapshotId = couponId.sub(new anchor.BN(1));
-    const totalSupplyValue = await getTotalSupplySnapshotAt({ mint }, { snapshotId });
-    const holderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: destination }, { snapshotId });
-    assert.equal(
-      totalSupplyValue.toString(),
-      balanceBeforeSnapshot.toString(),
-      "total supply snapshot should reflect the pre-first-mint value"
-    );
-    assert.equal(
-      holderValue.toString(),
-      balanceBeforeSnapshot.toString(),
-      "holder balance snapshot should reflect the pre-first-mint value"
-    );
   });
 
   it("mint: fails with MintPaused when mint is paused", async () => {

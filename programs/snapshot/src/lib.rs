@@ -33,20 +33,6 @@ pub mod snapshot {
         update_holderbalance_snapshot::update_holderbalance_snapshot(ctx, delta, increase)
     }
 
-    pub fn get_totalsupply_snapshot_at(
-        ctx: Context<GetTotalSupplySnapshotAt>,
-        snapshot_id: u64,
-    ) -> Result<u64> {
-        get_totalsupply_snapshot_at::get_totalsupply_snapshot_at(ctx, snapshot_id)
-    }
-
-    pub fn get_holderbalance_snapshot_at(
-        ctx: Context<GetHolderBalanceSnapshotAt>,
-        snapshot_id: u64,
-    ) -> Result<u64> {
-        get_holderbalance_snapshot_at::get_holderbalance_snapshot_at(ctx, snapshot_id)
-    }
-
     // Just to make SnapshotHistory part of the IDL
     pub fn __idl_expose_snapshot_history(_ctx: Context<__SnapshotHistoryIDL>) -> Result<()> {
         Ok(())

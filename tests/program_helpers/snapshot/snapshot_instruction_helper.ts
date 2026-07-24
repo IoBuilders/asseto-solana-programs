@@ -1,6 +1,6 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import * as anchor from "@anchor-lang/core";
-import { MintContext, MintWriteWithPayerContext } from "../base_helper";
+import { MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Snapshot } from "../../../target/types/snapshot";
 import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
@@ -58,49 +58,6 @@ type SnapshotTriggeredEvent = {
  */
 export async function getSnapshotTriggeredEvent(signature: string) {
   return getEvent<SnapshotTriggeredEvent>(getSnapshotProgram(), signature, "snapshotTriggered");
-}
-
-// ── get_totalsupply_snapshot_at ────────────────────────────────────────────────
-
-export type GetTotalSupplySnapshotAtArgs = {
-  snapshotId: anchor.BN;
-};
-
-export async function getTotalSupplySnapshotAt(
-  callContext: MintContext,
-  args: GetTotalSupplySnapshotAtArgs
-): Promise<anchor.BN> {
-  return await getSnapshotProgram()
-    .methods.getTotalsupplySnapshotAt(args.snapshotId)
-    .accountsStrict({
-      mint: callContext.mint,
-      totalSupplySnapshot: snapshotTotalSupplyPda(callContext.mint),
-    })
-    .view();
-}
-
-// ── get_holderbalance_snapshot_at ──────────────────────────────────────────────
-
-export type GetHolderBalanceSnapshotAtContext = MintContext & {
-  holderTokenAccount: PublicKey;
-};
-
-export type GetHolderBalanceSnapshotAtArgs = {
-  snapshotId: anchor.BN;
-};
-
-export async function getHolderBalanceSnapshotAt(
-  callContext: GetHolderBalanceSnapshotAtContext,
-  args: GetHolderBalanceSnapshotAtArgs
-): Promise<anchor.BN> {
-  return await getSnapshotProgram()
-    .methods.getHolderbalanceSnapshotAt(args.snapshotId)
-    .accountsStrict({
-      mint: callContext.mint,
-      holderTokenAccount: callContext.holderTokenAccount,
-      holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
-    })
-    .view();
 }
 
 // ── update_totalsupply_snapshot ────────────────────────────────────────────────
