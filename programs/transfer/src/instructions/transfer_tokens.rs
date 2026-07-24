@@ -71,26 +71,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         ctx.accounts.transfer_hook_program.key(),
         false,
     ));
-    // Extras from the ExtraAccountMetaList (hook indices 5..=15).
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
-        ctx.accounts.snapshot_program.key(),
-        false,
-    ));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
-        ctx.accounts.snapshot_counter_pda.key(),
-        false,
-    ));
-    transfer_ix
-        .accounts
-        .push(AccountMeta::new(ctx.accounts.sender_snapshot.key(), false));
-    transfer_ix.accounts.push(AccountMeta::new(
-        ctx.accounts.receiver_snapshot.key(),
-        false,
-    ));
-    transfer_ix.accounts.push(AccountMeta::new(
-        ctx.accounts.transfer_hook_authority.key(),
-        false,
-    ));
+    // Extras from the ExtraAccountMetaList (hook indices 5..=9).
     transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.deploy_program.key(),
         false,
@@ -108,10 +89,6 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         false,
     ));
     transfer_ix.accounts.push(AccountMeta::new_readonly(
-        ctx.accounts.system_program.key(),
-        false,
-    ));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.instructions_sysvar.key(),
         false,
     ));
@@ -125,16 +102,10 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
             ctx.accounts.source_owner.to_account_info(),
             ctx.accounts.extra_account_meta_list.to_account_info(),
             ctx.accounts.transfer_hook_program.to_account_info(),
-            ctx.accounts.snapshot_program.to_account_info(),
-            ctx.accounts.snapshot_counter_pda.to_account_info(),
-            ctx.accounts.sender_snapshot.to_account_info(),
-            ctx.accounts.receiver_snapshot.to_account_info(),
-            ctx.accounts.transfer_hook_authority.to_account_info(),
             ctx.accounts.deploy_program.to_account_info(),
             ctx.accounts.asset_configuration_pda.to_account_info(),
             ctx.accounts.factory_program.to_account_info(),
             ctx.accounts.asset_class_version_pda.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
             ctx.accounts.instructions_sysvar.to_account_info(),
         ],
     )?;
@@ -174,7 +145,7 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
 /// later cross-check both instructions describe the same transfer via
 /// `Instructions`-sysvar introspection. The remaining accounts are this
 /// instruction's own dependencies (freeze CPI signing) plus the accounts that
-/// must be forwarded to the hook (snapshot PDAs, etc.).
+/// must be forwarded to the hook (its ExtraAccountMetaList entries).
 #[derive(Accounts)]
 pub struct TransferTokens<'info> {
     /// 0 — Token holder authorising the transfer.
@@ -207,15 +178,6 @@ pub struct TransferTokens<'info> {
 
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        mut,
-        seeds = [pda_seeds::TRANSFER_HOOK_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
-        bump,
-    )]
-    pub transfer_hook_authority: UncheckedAccount<'info>,
-
-    /// CHECK: PDA address verified by seeds/bump constraint.
-    #[account(
         seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
         seeds::program = constants::FREEZE_PROGRAM_ID,
         bump,
@@ -237,21 +199,6 @@ pub struct TransferTokens<'info> {
     /// CHECK: Address verified by constraint.
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
-
-    /// CHECK: No address constraint here; the hook's metalist pins the canonical
-    /// snapshot program ID, and Token-2022 verifies our forwarded extras against it.
-    pub snapshot_program: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by Token-2022 against the metalist's seed-derived entry.
-    pub snapshot_counter_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Writable; address verified by Token-2022 against the metalist's seed-derived entry.
-    #[account(mut)]
-    pub sender_snapshot: UncheckedAccount<'info>,
-
-    /// CHECK: Writable; address verified by Token-2022 against the metalist's seed-derived entry.
-    #[account(mut)]
-    pub receiver_snapshot: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint.
     #[account(address = constants::DEPLOY_PROGRAM_ID)]
@@ -279,5 +226,4 @@ pub struct TransferTokens<'info> {
     pub instructions_sysvar: UncheckedAccount<'info>,
 
     pub token_2022_program: Program<'info, Token2022>,
-    pub system_program: Program<'info, System>,
 }

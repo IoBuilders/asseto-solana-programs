@@ -27,9 +27,6 @@ spl-token-2022 = { version = ">=10.0.0, <11", features = ["no-entrypoint"] }
 spl-transfer-hook-interface = { version = ">=2.0.0, <3" }
 spl-tlv-account-resolution = { version = ">=0.11.1, <0.12" }
 common = { path = "../common" }
-snapshot = { path = "../snapshot", features = ["cpi"] }
-freeze = { path = "../freeze", features = ["cpi"] }
-transfer-control = { path = "../transfer-control", features = ["cpi"] }
 solana-instructions-sysvar = ">=3.0.0"
 
 [lints.rust]

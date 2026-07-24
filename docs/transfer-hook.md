@@ -19,13 +19,16 @@ Two responsibilities:
    live in `transfer::verify_transfer` so the metalist stays small
    enough for Token-2022's 32 KiB heap to resolve it (see
    [`transfer-hook-heap-oom.md`](transfer-hook-heap-oom.md)).
-2. **Snapshots.** Calls `snapshot::update_holderbalance_snapshot`
-   twice — once for the sender, once for the receiver — recording
-   pre-transfer balances into whatever snapshot is currently active.
+2. **Functionality gate.** Reads the mint's `asset_configuration_pda` to
+   locate its `asset_class_version_pda` and requires the
+   `TRANSFER_HOOK_EXECUTE` bit to be enabled.
+
+The hook writes **no state at all** — it only reads and either passes or
+aborts the transfer.
 
 Owns two mint-scoped PDAs: `["transfer_hook_authority", mint]` (the Token-2022
-extension authority; also the payer + calling-authority for the snapshot CPIs)
-and `["extra-account-metas", mint]` (the SPL `ExtraAccountMetaList`).
+extension authority, set on the mint at deploy time) and
+`["extra-account-metas", mint]` (the SPL `ExtraAccountMetaList`).
 
 ---
 
@@ -33,14 +36,16 @@ and `["extra-account-metas", mint]` (the SPL `ExtraAccountMetaList`).
 
 | Seeds | Purpose |
 |---|---|
-| `["transfer_hook_authority", mint]` | Token-2022 TransferHook extension authority; payer for snapshot PDAs; signer for snapshot CPIs |
+| `["transfer_hook_authority", mint]` | Token-2022 TransferHook extension authority. Recorded on the mint by `deploy_mint`; not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | SPL `ExtraAccountMetaList` — declares which extra accounts Token-2022 forwards to `execute` |
 
 ---
 
 ## Instruction: `initialize_extra_account_meta_list` (Auxiliary)
 
-No parameters.
+### Parameters
+
+None.
 
 Creates and populates the `ExtraAccountMetaList` PDA. Called exclusively via
 CPI from `deploy::deploy_mint`, authorised by requiring `asset_configuration_pda`
@@ -52,40 +57,41 @@ as `Signer` — only `deploy` can produce that signature.
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds rent |
 | `asset_configuration_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 11) |
+| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 5) |
 | `mint` | no | no | UncheckedAccount | Seed component and PDA-precompute input |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
 
 ### Metalist contents
 
-The metalist now lists only the accounts the hook still needs after the move
-of compliance checks into `transfer::verify_transfer`, plus the accounts the
-hook needs to resolve `asset_class_version_pda` (added when `mint_owner_pda`
-was renamed to `asset_configuration_pda` and this program stopped hardcoding
-the asset-class PDA). Keeping it small is what lets Token-2022 fit metalist
-resolution into its 32 KiB heap.
+The metalist lists only what `execute` actually reads. Keeping it small is
+what lets Token-2022 fit metalist resolution into its 32 KiB heap.
 
 | Hook idx | Entry | Kind |
 |---|---|---|
-| 5 | `snapshot` program | literal pubkey |
-| 6 | `snapshot_counter_pda` | external PDA via @5 — seeds `["snapshot_counter", mint@1]` |
-| 7 | `sender_snapshot` (writable) | external PDA via @5 — seeds `["snapshot_holderbalance", mint@1, source@0]` |
-| 8 | `receiver_snapshot` (writable) | external PDA via @5 — seeds `["snapshot_holderbalance", mint@1, destination@2]` |
-| 9 | `transfer_hook_authority` (writable) | this-program PDA — seeds `["transfer_hook_authority", mint@1]` |
-| 10 | `deploy` program | literal pubkey — needed to resolve `asset_configuration_pda` (@11) as an external PDA |
-| 11 | `asset_configuration_pda` | external PDA via @10 — seeds `["asset_configuration", mint@1]`; read to supply the asset-class config/version ids for seed 13 |
-| 12 | `factory` program | literal pubkey — needed to resolve `asset_class_version_pda` (@13) as an external PDA |
-| 13 | `asset_class_version_pda` | external PDA via @12 — seeds `["asset_class_version", asset_configuration_pda@11.asset_class_config_id, asset_configuration_pda@11.asset_class_version_id]` |
-| 14 | system program | literal pubkey |
-| 15 | Instructions sysvar | literal pubkey (`Sysvar1nstructions...`) — required by the introspection check |
+| 5 | `deploy` program | literal pubkey — needed to resolve @6 as an external PDA |
+| 6 | `asset_configuration_pda` | external PDA via @5 — seeds `["asset_configuration", mint@1]` |
+| 7 | `factory` program | literal pubkey — needed to resolve @8 as an external PDA |
+| 8 | `asset_class_version_pda` | external PDA via @7 — seeds `["asset_class_version", @6.asset_class_config_id, @6.asset_class_version_id]`, read from @6's data at `ASSET_CLASS_CONFIG_ID_OFFSET` / `ASSET_CLASS_VERSION_ID_OFFSET` |
+| 9 | Instructions sysvar | literal pubkey (`Sysvar1nstructions...`) — required by the introspection check |
 
-The 10 compliance entries that lived here before commit `7d417c2`'s heap-OOM
-incident (`deactivate_pda`, `deployer`,
-`transfer_control_mode_pda`, `transfer-control` program, source/destination
-whitelist PDAs, `freeze` program, `source_frozen_pda`,
-`source_frozen_balance_pda`) are gone — `verify_transfer` consumes them
-directly at the top level instead.
+Every entry is read-only: the hook never writes.
+
+Two rounds of entries have been removed from this list:
+
+- The 10 compliance entries dropped before commit `7d417c2`'s heap-OOM
+  incident (`asset_configuration_pda`, `deactivate_pda`, `deployer`,
+  `transfer_control_mode_pda`, `transfer-control` program, source/destination
+  whitelist PDAs, `freeze` program, `source_frozen_pda`,
+  `source_frozen_balance_pda`) — `verify_transfer` consumes them directly at
+  the top level instead.
+- The 6 snapshot entries (`snapshot` program, `snapshot_counter_pda`,
+  `sender_snapshot`, `receiver_snapshot`, `transfer_hook_authority`, system
+  program) — holder balances are no longer accumulated per transfer; each
+  snapshot now commits every `(account, balance)` pair to a single on-chain
+  Merkle root (`["snapshot_merkle_root", mint, snapshot_id]`), and consumers
+  such as `treasury::pay_coupon` prove a balance against that root. See
+  [`snapshot.md`](snapshot.md) and [`treasury.md`](treasury.md).
 
 ---
 
@@ -116,17 +122,11 @@ metalist declares, in the order above.
 | 2 | `destination_token` |
 | 3 | `owner` |
 | 4 | `extra_account_meta_list` |
-| 5 | `snapshot_program` |
-| 6 | `snapshot_counter_pda` |
-| 7 | `sender_snapshot` |
-| 8 | `receiver_snapshot` |
-| 9 | `transfer_hook_authority` |
-| 10 | `deploy_program` |
-| 11 | `asset_configuration_pda` |
-| 12 | `factory_program` |
-| 13 | `asset_class_version_pda` |
-| 14 | `system_program` |
-| 15 | `instructions_sysvar` |
+| 5 | `deploy_program` |
+| 6 | `asset_configuration_pda` |
+| 7 | `factory_program` |
+| 8 | `asset_class_version_pda` |
+| 9 | `instructions_sysvar` |
 
 ### Execution
 
@@ -158,15 +158,12 @@ checks effectively gate the *outer* transaction shape.
      `CurrentInstructionNotTransferOrTransferChecked` for tag,
      `CurrentInstructionArgumentMismatch` for accounts/amount).
    - Else → `CurrentInstructionUnknownProgram`.
-6. CPI → `snapshot::update_holderbalance_snapshot(amount, /*increase=*/ true)`
-   signed with `["transfer_hook_authority", mint, bump]`, targeting
-   `sender_snapshot` + `source_token`. `amount` is added back so the recorded
-   value is the pre-transfer sender balance (Token-2022 has already debited
-   the source by this point).
-7. CPI → `snapshot::update_holderbalance_snapshot(amount, /*increase=*/ false)`
-   signed with the same seeds, targeting `receiver_snapshot` +
-   `destination_token`. `amount` is subtracted so the recorded value is the
-   pre-transfer receiver balance.
+6. `require_functionality(asset_class_version_pda, TRANSFER_HOOK_EXECUTE)` —
+   the asset-class version this mint is pinned to must have the hook's
+   execute bit enabled.
+
+Then it returns. The hook performs no CPI and mutates no account, so it adds
+nothing to the transfer's write set beyond what Token-2022 itself touches.
 
 Source ownership is intentionally **not** re-checked here: Token-2022's
 `transfer_checked` enforces `source.owner == authority` before invoking the

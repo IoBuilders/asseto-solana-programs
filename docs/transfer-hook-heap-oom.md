@@ -310,10 +310,22 @@ What landed:
   `source_frozen_balance_pda`) are gone — `verify_transfer` consumes them
   directly at the top level instead. With the metalist this small, Token-2022
   fits its resolution work in the 32 KiB heap and the OOM documented at the
-  top of this file no longer reproduces. (The metalist has since grown back
-  to 11 entries to let the hook resolve `asset_class_version_pda` for
-  `require_functionality`; see [`docs/transfer-hook.md`](transfer-hook.md#metalist-contents)
-  for the current list — it's still comfortably small enough to fit the heap.)
+  top of this file no longer reproduces.
+- The list then grew back to 11 entries to let the hook resolve
+  `asset_class_version_pda` for `require_functionality` (deploy program +
+  `asset_configuration_pda` + factory program + `asset_class_version_pda`
+  were re-added), still comfortably within the heap.
+- A later change shrank the list again, from 11 entries to 5. The hook no
+  longer CPIs `snapshot::update_holderbalance_snapshot`, so the snapshot
+  program, `snapshot_counter`, the sender/receiver snapshot PDAs, the
+  `transfer_hook_authority` payer and the system program all left the list.
+  Holder balances are now committed to one Merkle root per snapshot and
+  proven on demand by consumers such as `treasury::pay_coupon`. What remains
+  is the functionality gate (deploy program + `asset_configuration_pda` +
+  factory program + `asset_class_version_pda`) and the `Instructions` sysvar.
+  The hook now writes nothing at all. See
+  [`docs/transfer-hook.md`](transfer-hook.md#metalist-contents) for the
+  current list.
 
 What clients have to do:
 

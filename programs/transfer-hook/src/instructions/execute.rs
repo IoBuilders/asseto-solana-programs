@@ -1,14 +1,11 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::Instruction;
-use common::{pda_seeds, pda_utils, require_functionality};
-use snapshot::cpi::accounts::UpdateHolderBalanceSnapshot;
+use common::{pda_seeds, require_functionality};
 use solana_instructions_sysvar::{load_current_index_checked, load_instruction_at_checked};
 
 use crate::constants;
 use crate::errors::TransferHookError;
-use common::program_ids::{
-    DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, SNAPSHOT_PROGRAM_ID, TRANSFER_PROGRAM_ID,
-};
+use common::program_ids::{DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, TRANSFER_PROGRAM_ID};
 use common::state::{AssetClassVersion, AssetConfiguration};
 
 pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
@@ -67,49 +64,6 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
         common::functionalities::TRANSFER_HOOK_EXECUTE,
-    )?;
-
-    // ── Snapshot updates (CPI to snapshot) ─────────────────────────────
-    let mint_key = ctx.accounts.mint.key();
-    let transfer_hook_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
-        pda_seeds::transfer_hook_authority_seeds(&mint_key),
-        &ctx.bumps.transfer_hook_authority,
-    );
-
-    snapshot::cpi::update_holderbalance_snapshot(
-        CpiContext::new_with_signer(
-            SNAPSHOT_PROGRAM_ID,
-            UpdateHolderBalanceSnapshot {
-                calling_authority: ctx.accounts.transfer_hook_authority.to_account_info(),
-                payer: ctx.accounts.transfer_hook_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
-                holder_balance_snapshot: ctx.accounts.sender_snapshot.to_account_info(),
-                holder_token_account: ctx.accounts.source_token.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-            },
-            &[transfer_hook_authority_signer_seeds.as_slice()],
-        ),
-        amount,
-        true,
-    )?;
-
-    snapshot::cpi::update_holderbalance_snapshot(
-        CpiContext::new_with_signer(
-            SNAPSHOT_PROGRAM_ID,
-            UpdateHolderBalanceSnapshot {
-                calling_authority: ctx.accounts.transfer_hook_authority.to_account_info(),
-                payer: ctx.accounts.transfer_hook_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
-                holder_balance_snapshot: ctx.accounts.receiver_snapshot.to_account_info(),
-                holder_token_account: ctx.accounts.destination_token.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-            },
-            &[transfer_hook_authority_signer_seeds.as_slice()],
-        ),
-        amount,
-        false,
     )?;
 
     Ok(())
@@ -214,28 +168,13 @@ pub struct Execute<'info> {
     pub owner: UncheckedAccount<'info>,
     /// CHECK: ExtraAccountMetaList PDA (index 4).
     pub extra_account_meta_list: UncheckedAccount<'info>,
-    /// CHECK: snapshot program (index 5).
-    pub snapshot_program: UncheckedAccount<'info>,
-    /// CHECK: Snapshot counter PDA (index 6).
-    pub snapshot_counter_pda: UncheckedAccount<'info>,
-    /// CHECK: Sender holder balance snapshot PDA (index 7).
-    pub sender_snapshot: UncheckedAccount<'info>,
-    /// CHECK: Receiver holder balance snapshot PDA (index 8).
-    pub receiver_snapshot: UncheckedAccount<'info>,
-    /// CHECK: transfer hook authority (index 9). Mutable: pays for snapshot PDA creation.
-    #[account(
-        mut,
-        seeds = [pda_seeds::TRANSFER_HOOK_AUTHORITY, mint.key().as_ref()],
-        bump,
-    )]
-    pub transfer_hook_authority: UncheckedAccount<'info>,
 
-    /// CHECK: deploy program (index 10). Address verified by constraint;
+    /// CHECK: deploy program (index 5). Address verified by constraint;
     /// resolves `asset_configuration_pda`'s external PDA in the metalist.
     #[account(address = DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// PDA that contains the configuration for this mint (index 11).
+    /// PDA that contains the configuration for this mint (index 6).
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = DEPLOY_PROGRAM_ID,
@@ -243,12 +182,12 @@ pub struct Execute<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: factory program (index 12). Address verified by constraint;
+    /// CHECK: factory program (index 7). Address verified by constraint;
     /// resolves `asset_class_version_pda`'s external PDA in the metalist.
     #[account(address = FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
 
-    /// Asset-class version PDA this mint is hooked to (index 13).
+    /// Asset-class version PDA this mint is hooked to (index 8).
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,
@@ -260,9 +199,7 @@ pub struct Execute<'info> {
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
-    pub system_program: Program<'info, System>,
-
-    /// CHECK: Instructions sysvar (index 15); address verified by the metalist's literal-pubkey entry.
+    /// CHECK: Instructions sysvar (index 9); address verified by the metalist's literal-pubkey entry.
     #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
 }

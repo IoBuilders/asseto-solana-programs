@@ -102,7 +102,7 @@ Use `--skip-build` once you've already run a fresh `anchor build`.
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist / clearing mode
 │   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block)
-│   ├── transfer-hook/        — SPL Transfer Hook; double-introspection gate + snapshot updates
+│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double-introspection + functionality check
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot`
@@ -210,7 +210,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["transfer_control_mode", mint]` | `transfer-control` | Stores `is_clearing` flag |
 | `["whitelist", mint, account]` | `transfer-control` | Marker: account is whitelisted |
 | `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
-| `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority; also the payer + calling-authority for snapshot CPIs during a transfer |
+| `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority (set on the mint by `deploy_mint`); not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
 | `["snapshot_counter", mint]` | `snapshot` | Current snapshot index for the mint (created by `take_snapshot`) |
 | `["snapshot_totalsupply", mint]` | `snapshot` | `SnapshotHistory` of total supply (one entry per snapshot id) |
@@ -245,7 +245,7 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
 | `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` | All new accounts start frozen; thawed/re-frozen transiently during mint/burn/transfer |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer` or `Token-2022::transfer_checked`, both with matching args), then updates the sender/receiver snapshot entries. Compliance rules live in `transfer::verify_transfer`, not in the hook. |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer` or `Token-2022::transfer_checked`, both with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules live in `transfer::verify_transfer`, not in the hook. |
 
 ---
 

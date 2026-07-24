@@ -2,7 +2,6 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
-import * as pdaUtils from "./utils/pda_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_FREEZE_MANAGER } from "./utils/roles";
@@ -21,7 +20,6 @@ import {
   mintTokensViaSurfpool,
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
-import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { buildVerifyTransferInstruction, transfer, verifyTransfer } from "./program_helpers/transfer_helper";
 import { beforeEach } from "mocha";
@@ -30,7 +28,6 @@ import {
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
 import {
-  COUPON_CREATE_COUPON,
   DEACTIVATE_DEACTIVATE,
   FREEZE_FREEZE_ACCOUNT,
   FREEZE_PARTIALLY_FREEZE_ACCOUNT,
@@ -43,7 +40,6 @@ import {
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
-import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 import {
   setTransferControlModeMarker,
   setWhitelistMarker,
@@ -53,7 +49,6 @@ import {
 const MINT_DECIMALS = 6;
 const MINT_AMOUNT = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
 const TRANSFER_AMOUNT = new anchor.BN(400 * 10 ** MINT_DECIMALS);
-const FUND_AMOUNT_IN_LAMPORT = anchor.web3.LAMPORTS_PER_SOL * 0.01;
 
 describe("transfer", () => {
   const provider = anchor.AnchorProvider.env();
@@ -74,7 +69,6 @@ describe("transfer", () => {
         OPERATIONS_BURN,
         TRANSFER_CONTROL_INITIALIZE,
         TRANSFER_CONTROL_ADD_TO_WHITELIST,
-        COUPON_CREATE_COUPON,
         DEACTIVATE_DEACTIVATE,
         FREEZE_FREEZE_ACCOUNT,
         FREEZE_PARTIALLY_FREEZE_ACCOUNT,
@@ -84,18 +78,6 @@ describe("transfer", () => {
       ],
     });
   });
-
-  // ── Helper: fund the transfer hook authority PDA ────────────────────────────
-  async function fundTransferHookAuthority(mint: PublicKey): Promise<void> {
-    const tx = new anchor.web3.Transaction().add(
-      anchor.web3.SystemProgram.transfer({
-        fromPubkey: payerKeypair.publicKey,
-        toPubkey: pdaUtils.transferHookAuthorityPda(mint),
-        lamports: FUND_AMOUNT_IN_LAMPORT,
-      })
-    );
-    await anchor.web3.sendAndConfirmTransaction(provider.connection, tx, [payerKeypair], { commitment: "confirmed" });
-  }
 
   describe("transfer", () => {
     // ────────────────────────────────────────────────────────────────────────────
@@ -107,9 +89,6 @@ describe("transfer", () => {
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
       const supplyBefore = (await getMint(mint)).supply;
-
-      // Fund transferHookAuthority PDA so it can pay for accounts if needed
-      await fundTransferHookAuthority(mint);
 
       // ── Call transfer ──────────────────────────────────────────────────────
       await transfer(
@@ -139,187 +118,6 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: snapshot captures pre-transfer balances (source = minted - transferred, destination = transferred)", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      const couponId = new anchor.BN(1);
-
-      // ── Take snapshot via create_coupon (counter: 0 → 1) ─────────────────────
-      await setCoupon(mint, couponId);
-
-      // ── Fund and transfer ─────────────────────────────────────────────────────
-      await fundTransferHookAuthority(mint);
-      await transfer(
-        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: TRANSFER_AMOUNT }
-      );
-
-      // ── Assert snapshot values via get_holderbalance_snapshot_at ─────────────
-      // snapshot id is 0-based: coupon N triggers snapshot N-1.
-      const snapshotId = couponId.sub(new anchor.BN(1));
-      const senderValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: source }, { snapshotId });
-      const receiverValue = await getHolderBalanceSnapshotAt({ mint, holderTokenAccount: destination }, { snapshotId });
-
-      assert.equal(
-        senderValue.toString(),
-        MINT_AMOUNT.toNumber().toString(),
-        "sender snapshot should equal pre-transfer balance"
-      );
-      assert.equal(receiverValue.toString(), "0", "receiver snapshot should equal pre-transfer balance");
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: multiple sequential post-snapshot transfers do not corrupt snapshot data", async () => {
-      const FIRST_TRANSFER = new anchor.BN(300 * 10 ** MINT_DECIMALS);
-      const SECOND_TRANSFER = new anchor.BN(200 * 10 ** MINT_DECIMALS);
-      const THIRD_TRANSFER = new anchor.BN(100 * 10 ** MINT_DECIMALS);
-
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      const couponId1 = new anchor.BN(1);
-
-      // ── Take snapshot 1 (counter: 0 → 1) ─────────────────────────────────────
-      await setCoupon(mint, couponId1);
-
-      await fundTransferHookAuthority(mint);
-
-      // ── First transfer in snapshot period 1 (300 tokens) ──────────────────────
-      // Hook writes: sender (key=1, value=MINT_AMOUNT), receiver (key=1, value=0).
-      await transfer(
-        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: FIRST_TRANSFER }
-      );
-
-      // ── Second transfer in snapshot period 1 (200 tokens) ─────────────────────
-      // Counter still at 1: the hook must not overwrite the existing key=1 entries.
-      await transfer(
-        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: SECOND_TRANSFER }
-      );
-
-      // ── Live balances after both period-1 transfers ───────────────────────────
-      const sourceAfterTwo = (await getTokenAccount(source)).amount;
-      const destAfterTwo = (await getTokenAccount(destination)).amount;
-
-      assert.equal(
-        sourceAfterTwo.toString(),
-        (MINT_AMOUNT.toNumber() - FIRST_TRANSFER.toNumber() - SECOND_TRANSFER.toNumber()).toString(),
-        "source balance should be MINT_AMOUNT - 300 - 200 after two transfers"
-      );
-      assert.equal(
-        destAfterTwo.toString(),
-        (FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber()).toString(),
-        "destination balance should be 300 + 200 after two transfers"
-      );
-
-      // ── Snapshot 1 must reflect the pre-first-transfer state ──────────────────
-      const senderAt1_afterTwo = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId1.sub(new anchor.BN(1)) }
-      );
-      const receiverAt1_afterTwo = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId1.sub(new anchor.BN(1)) }
-      );
-
-      assert.equal(
-        senderAt1_afterTwo.toString(),
-        MINT_AMOUNT.toString(),
-        "sender snapshot at key=1 should be MINT_AMOUNT after two period-1 transfers"
-      );
-      assert.equal(
-        receiverAt1_afterTwo.toString(),
-        "0",
-        "receiver snapshot at key=1 should be 0 after two period-1 transfers"
-      );
-
-      // ── Take snapshot 2 (counter: 1 → 2) ─────────────────────────────────────
-      const couponId2 = new anchor.BN(2);
-      await setCoupon(mint, couponId2);
-
-      // ── Third transfer in snapshot period 2 (100 tokens) ──────────────────────
-      // Hook appends: sender (key=2, value=MINT_AMOUNT-300-200), receiver (key=2, value=300+200).
-      await transfer(
-        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-        { amount: THIRD_TRANSFER }
-      );
-
-      // ── Live balances after all three transfers ───────────────────────────────
-      const sourceAfterThree = (await getTokenAccount(source)).amount;
-      const destAfterThree = (await getTokenAccount(destination)).amount;
-
-      assert.equal(
-        sourceAfterThree.toString(),
-        (
-          MINT_AMOUNT.toNumber() -
-          FIRST_TRANSFER.toNumber() -
-          SECOND_TRANSFER.toNumber() -
-          THIRD_TRANSFER.toNumber()
-        ).toString(),
-        "source balance should be MINT_AMOUNT - 300 - 200 - 100 after three transfers"
-      );
-      assert.equal(
-        destAfterThree.toString(),
-        (FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber() + THIRD_TRANSFER.toNumber()).toString(),
-        "destination balance should be 300 + 200 + 100 after three transfers"
-      );
-
-      // ── Snapshot 1 must still be intact after the period-2 transfer ───────────
-      const senderAt1_final = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId1.sub(new anchor.BN(1)) }
-      );
-      const receiverAt1_final = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId1.sub(new anchor.BN(1)) }
-      );
-
-      assert.equal(
-        senderAt1_final.toString(),
-        MINT_AMOUNT.toString(),
-        "snapshot 1 sender must be unchanged after the period-2 transfer"
-      );
-      assert.equal(
-        receiverAt1_final.toString(),
-        "0",
-        "snapshot 1 receiver must be unchanged after the period-2 transfer"
-      );
-
-      // ── Snapshot 2 must capture the state at the start of period 2 ───────────
-      // When the 3rd transfer's hook ran, Token-2022 had already settled balances:
-      // source = MINT_AMOUNT-300-200-100, destination = 300+200+100.
-      // The hook adjusts by the delta to recover the pre-transfer balances:
-      // sender:   (MINT_AMOUNT-600) + 100 = MINT_AMOUNT-500   = 500 tokens
-      // receiver: (300+200+100)     - 100 = 300+200           = 500 tokens
-      const expectedSenderAt2 = MINT_AMOUNT.toNumber() - FIRST_TRANSFER.toNumber() - SECOND_TRANSFER.toNumber();
-      const expectedReceiverAt2 = FIRST_TRANSFER.toNumber() + SECOND_TRANSFER.toNumber();
-
-      const senderAt2 = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: source },
-        { snapshotId: couponId2.sub(new anchor.BN(1)) }
-      );
-      const receiverAt2 = await getHolderBalanceSnapshotAt(
-        { mint, holderTokenAccount: destination },
-        { snapshotId: couponId2.sub(new anchor.BN(1)) }
-      );
-
-      assert.equal(
-        senderAt2.toString(),
-        expectedSenderAt2.toString(),
-        "snapshot 2 sender should equal the pre-third-transfer source balance (500 tokens)"
-      );
-      assert.equal(
-        receiverAt2.toString(),
-        expectedReceiverAt2.toString(),
-        "snapshot 2 receiver should equal the pre-third-transfer destination balance (500 tokens)"
-      );
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
     it("transfer: fails when there is no previous instruction", async () => {
       // Mint 1 000 tokens to the source account (owned by sourceOwner).
       const source = await createTokenAccount({ mint, owner: sourceOwner });
@@ -327,9 +125,6 @@ describe("transfer", () => {
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Fund transferHookAuthority PDA so it can pay for accounts if needed
-      await fundTransferHookAuthority(mint);
 
       try {
         await transfer({
@@ -360,9 +155,6 @@ describe("transfer", () => {
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Fund transferHookAuthority PDA so it can pay for accounts if needed
-      await fundTransferHookAuthority(mint);
 
       // ── Call transfer ──────────────────────────────────────────────────────
       const verifyIx = await buildVerifyTransferInstruction(
@@ -395,9 +187,6 @@ describe("transfer", () => {
 
       // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Fund transferHookAuthority PDA so it can pay for accounts if needed
-      await fundTransferHookAuthority(mint);
 
       const verifyTransferAmount = TRANSFER_AMOUNT.sub(new anchor.BN(1));
       const verifyIx = await buildVerifyTransferInstruction(
@@ -436,7 +225,6 @@ describe("transfer", () => {
         functionalities: [TRANSFER_HOOK_EXECUTE],
       });
 
-      await fundTransferHookAuthority(mint);
       try {
         await transfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
@@ -465,7 +253,6 @@ describe("transfer", () => {
       // Re-seed the asset-class version WITHOUT the transfer_hook_execute functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
 
-      await fundTransferHookAuthority(mint);
       try {
         await transfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
@@ -494,7 +281,6 @@ describe("transfer", () => {
       // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
       const rogueKeypair = Keypair.generate();
 
-      await fundTransferHookAuthority(mint);
       try {
         await transfer(
           { mint, source, sourceOwner: rogueKeypair.publicKey, destination, signers: [rogueKeypair] },
@@ -525,7 +311,6 @@ describe("transfer", () => {
 
       await setMintPaused(mint, true);
 
-      await fundTransferHookAuthority(mint);
       try {
         await transfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected mint-is-paused error but instruction succeeded");
@@ -559,7 +344,6 @@ describe("transfer", () => {
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
       await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
 
-      await fundTransferHookAuthority(mint);
       try {
         await verifyTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
@@ -623,7 +407,6 @@ describe("transfer", () => {
       await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
 
       // ── Transfer 40 tokens — succeeds (available = 100 - 50 = 50 >= 40) ──────
-      await fundTransferHookAuthority(mint);
       await transfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: FIRST_TRANSFER }
@@ -697,7 +480,6 @@ describe("transfer", () => {
       );
 
       // (3) Any positive outbound transfer must fail — saturating_sub clamps available to 0.
-      await fundTransferHookAuthority(mint);
       try {
         await transfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
@@ -750,7 +532,6 @@ describe("transfer", () => {
       const sourceBefore = (await getTokenAccount(source)).amount;
       const destBefore = (await getTokenAccount(destination)).amount;
 
-      await fundTransferHookAuthority(mint);
       try {
         await verifyTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
@@ -796,7 +577,6 @@ describe("transfer", () => {
       const sourceBefore = (await getTokenAccount(source)).amount;
       const destBefore = (await getTokenAccount(destination)).amount;
 
-      await fundTransferHookAuthority(mint);
       try {
         await transfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
@@ -833,7 +613,6 @@ describe("transfer", () => {
       await freezeAccount({ authority, mint, account: source });
 
       // ── Transfer must now be rejected with AccountFrozen ──────────────────
-      await fundTransferHookAuthority(mint);
       try {
         await verifyTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected AccountFrozen error but instruction succeeded");
@@ -856,7 +635,6 @@ describe("transfer", () => {
       await setDeactivateMarker(mint);
 
       // ── Mint must now be rejected with Deactivated ─────────────────────────
-      await fundTransferHookAuthority(mint);
       try {
         await verifyTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected Deactivated error but instruction succeeded");
