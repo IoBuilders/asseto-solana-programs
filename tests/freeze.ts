@@ -10,10 +10,12 @@ import {
   removePartialFreeze,
   unfreezeAccount,
   batchFreeze,
+  batchPartiallyFreeze,
   getAccountFrozenEvent,
   getAccountFrozenEvents,
   getAccountUnfrozenEvent,
   getAccountPartiallyFrozenEvent,
+  getAccountPartiallyFrozenEvents,
   getAccountPartialFreezeRemovedEvent,
 } from "./program_helpers/freeze/freeze_instruction_helper";
 import { getFrozenAccountStatusByPda, getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
@@ -649,6 +651,203 @@ describe("freeze", () => {
           anchorErr.error.errorCode.code,
           "AssetClassVersionNotFinalized",
           "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
+  });
+
+  describe("batch_partially_freeze", () => {
+    // ── Happy-path: batch_partially_freeze ──────────────────────────────────────
+    it("batch_partially_freeze: creates a frozen_balance PDA with the given balance for every account", async () => {
+      const accountA = await createTokenAccount({ mint, owner: authority.publicKey });
+      const accountB = await createTokenAccount({ mint, owner: authority.publicKey });
+      const accounts = [accountA, accountB];
+      const balances = [new anchor.BN(500_000_000), new anchor.BN(300_000_000)];
+
+      const signature = await batchPartiallyFreeze({ authority, mint, accounts }, { balances });
+
+      for (let i = 0; i < accounts.length; i++) {
+        const status = await getFrozenBalanceByPda(freezePdaUtils.frozenBalancePda(mint, accounts[i]));
+        assert.isNotNull(status, `frozen_balance PDA should exist for account ${i}`);
+        assert.equal(status.balance.toString(), balances[i].toString(), `balance should match for account ${i}`);
+      }
+
+      const events = await getAccountPartiallyFrozenEvents(signature);
+      assert.equal(events.length, accounts.length, "one AccountPartiallyFrozen event should be emitted per account");
+      for (let i = 0; i < accounts.length; i++) {
+        const event = events.find((e) => e.account.toBase58() === accounts[i].toBase58());
+        assert.isDefined(event, `an AccountPartiallyFrozen event should be emitted for account ${i}`);
+        assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
+        assert.equal(
+          event!.frozenBalance.toString(),
+          balances[i].toString(),
+          `event frozenBalance should match for account ${i}`
+        );
+        assert.equal(event!.operator.toBase58(), authority.publicKey.toBase58(), "event operator should match authority");
+      }
+    });
+
+    // ── Happy-path: batch_partially_freeze overwrites without a prior remove ────
+    it("batch_partially_freeze: a second call on the same accounts overwrites the balance without remove_partial_freeze", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, account);
+      const FIRST_BALANCE = new anchor.BN(500_000_000);
+      const SECOND_BALANCE = new anchor.BN(300_000_000);
+
+      await batchPartiallyFreeze({ authority, mint, accounts: [account] }, { balances: [FIRST_BALANCE] });
+      const stateAfterFirst = await getFrozenBalanceByPda(frozenBalancePda);
+      assert.equal(stateAfterFirst.balance.toString(), FIRST_BALANCE.toString());
+
+      await batchPartiallyFreeze({ authority, mint, accounts: [account] }, { balances: [SECOND_BALANCE] });
+      const stateAfterSecond = await getFrozenBalanceByPda(frozenBalancePda);
+      assert.equal(
+        stateAfterSecond.balance.toString(),
+        SECOND_BALANCE.toString(),
+        "balance after second call should overwrite to SECOND_BALANCE"
+      );
+    });
+
+    // ── Happy-path: batch_partially_freeze — griefed PDA (create-or-adopt) ──────
+    it("batch_partially_freeze: succeeds even if a frozen_balance_pda was pre-funded by a griefer (create-or-adopt)", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      const pda = freezePdaUtils.frozenBalancePda(mint, account);
+
+      await surfnetSetAccount(pda, {
+        lamports: 1,
+        owner: SYSTEM_PROGRAM_ID.toBase58(),
+        data: "",
+        executable: false,
+        rentEpoch: 0,
+      });
+
+      const balance = new anchor.BN(500_000_000);
+      await batchPartiallyFreeze({ authority, mint, accounts: [account] }, { balances: [balance] });
+
+      const status = await getFrozenBalanceByPda(pda);
+      assert.isNotNull(status, "frozen_balance PDA should exist despite the pre-funding griefing attempt");
+      assert.equal(status.balance.toString(), balance.toString());
+    });
+
+    // ── Error case: batch_partially_freeze — EmptyBatch ─────────────────────────
+    it("batch_partially_freeze: fails with EmptyBatch when no accounts are passed", async () => {
+      try {
+        await batchPartiallyFreeze({ authority, mint, accounts: [] }, { balances: [] });
+        assert.fail("Expected EmptyBatch error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "EmptyBatch", "error code should be EmptyBatch");
+      }
+    });
+
+    // ── Error case: batch_partially_freeze — InvalidRemainingAccounts ───────────
+    it("batch_partially_freeze: fails with InvalidRemainingAccounts when the remaining accounts don't match the balances", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+
+      try {
+        await batchPartiallyFreeze(
+          { authority, mint, accounts: [account] },
+          { remainingAccounts: [{ pubkey: account, isWritable: false, isSigner: false }] }
+        );
+        assert.fail("Expected InvalidRemainingAccounts error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "InvalidRemainingAccounts",
+          "error code should be InvalidRemainingAccounts"
+        );
+      }
+    });
+
+    // ── Error case: batch_partially_freeze — FrozenBalancePdaMismatch ───────────
+    it("batch_partially_freeze: fails with FrozenBalancePdaMismatch when a supplied PDA does not match the derived one", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      const wrongPda = Keypair.generate().publicKey;
+
+      try {
+        await batchPartiallyFreeze(
+          { authority, mint, accounts: [account] },
+          {
+            remainingAccounts: [
+              { pubkey: account, isWritable: false, isSigner: false },
+              { pubkey: wrongPda, isWritable: true, isSigner: false },
+            ],
+          }
+        );
+        assert.fail("Expected FrozenBalancePdaMismatch error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FrozenBalancePdaMismatch",
+          "error code should be FrozenBalancePdaMismatch"
+        );
+      }
+    });
+
+    // ── Error case: batch_partially_freeze — MissingRole ────────────────────────
+    it("batch_partially_freeze: fails with MissingRole when authority doesn't have required role", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await setRoles(mint, authority.publicKey, []);
+
+      try {
+        await batchPartiallyFreeze({ authority, mint, accounts: [account] });
+        assert.fail("Expected MissingRole error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
+      }
+    });
+
+    // ── Error case: batch_partially_freeze — MintPaused ─────────────────────────
+    it("batch_partially_freeze: fails with MintPaused when mint is paused", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await setMintPaused(mint, true);
+
+      try {
+        await batchPartiallyFreeze({ authority, mint, accounts: [account] });
+        assert.fail("Expected MintPaused error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "MintPaused", "error code should be MintPaused");
+      }
+    });
+
+    // ── Error case: batch_partially_freeze — Deactivated ────────────────────────
+    it("batch_partially_freeze: fails with Deactivated when mint has been deactivated", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await setDeactivateMarker(mint);
+
+      try {
+        await batchPartiallyFreeze({ authority, mint, accounts: [account] });
+        assert.fail("Expected Deactivated error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+      }
+    });
+
+    // ── Error case: batch_partially_freeze — FunctionalityNotSupportedError ────
+    it("batch_partially_freeze: fails with FunctionalityNotSupportedError when the partially_freeze_account functionality is not enabled", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await setAssetClassVersionForMint(mint, { functionalities: [] });
+
+      try {
+        await batchPartiallyFreeze({ authority, mint, accounts: [account] });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
         );
       }
     });

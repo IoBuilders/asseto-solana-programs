@@ -42,6 +42,13 @@ pub mod freeze {
         partially_freeze_account::partially_freeze_account(ctx, balance)
     }
 
+    pub fn batch_partially_freeze<'info>(
+        ctx: Context<'info, BatchPartiallyFreezeAccounts<'info>>,
+        balances: Vec<u64>,
+    ) -> Result<()> {
+        batch_partially_freeze::batch_partially_freeze(ctx, balances)
+    }
+
     pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
         remove_partial_freeze::remove_partial_freeze(ctx)
     }

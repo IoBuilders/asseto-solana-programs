@@ -247,6 +247,67 @@ export async function getAccountPartiallyFrozenEvent(signature: string) {
   return getEvent<AccountPartiallyFrozenEvent>(getFreezeProgram(), signature, "accountPartiallyFrozen");
 }
 
+// ── batch_partially_freeze ──────────────────────────────────────────────────────
+
+export type BatchPartiallyFreezeAccountsContext = MintWriteContext & {
+  accounts: PublicKey[];
+};
+
+type BatchPartiallyFreezeAccountsArgs = {
+  // The `balances` instruction argument. Defaults to `1` per account.
+  balances?: anchor.BN[];
+  // Overrides the remaining accounts. Defaults to `[account, frozenBalancePda]` per
+  // account, in order. Provide this to exercise remaining-account error paths.
+  remainingAccounts?: AccountMeta[];
+};
+
+export async function batchPartiallyFreeze(
+  callContext: BatchPartiallyFreezeAccountsContext,
+  args?: BatchPartiallyFreezeAccountsArgs
+): Promise<string> {
+  const balances = args?.balances ?? callContext.accounts.map(() => new anchor.BN(1));
+
+  // Two remaining accounts per entry: the account being frozen (read-only) and
+  // its frozen_balance_pda — created on first call, overwritten thereafter,
+  // manually since Anchor's `init_if_needed` can't target a variable-length list.
+  const remainingAccounts: AccountMeta[] =
+    args?.remainingAccounts ??
+    callContext.accounts.flatMap((account) => [
+      { pubkey: account, isWritable: false, isSigner: false },
+      { pubkey: frozenBalancePda(callContext.mint, account), isWritable: true, isSigner: false },
+    ]);
+
+  const program = getFreezeProgram();
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
+
+  return await program.methods
+    .batchPartiallyFreeze(balances)
+    .accountsStrict({
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      mint: callContext.mint,
+      deactivatePda: deactivatePda(callContext.mint),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
+      systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: freezeEventAuthorityPda(),
+      program: FREEZE_PROGRAM_ID,
+    })
+    .remainingAccounts(remainingAccounts)
+    .signers(callContext?.signers ?? [authority])
+    .rpc({ commitment: "confirmed" });
+}
+
+export async function getAccountPartiallyFrozenEvents(signature: string): Promise<AccountPartiallyFrozenEvent[]> {
+  return (await getEvents(getFreezeProgram(), signature))
+    .filter((event) => event.name === "accountPartiallyFrozen")
+    .map((event) => event.data as AccountPartiallyFrozenEvent);
+}
+
 // ── remove_partial_freeze ──────────────────────────────────────────────────────
 
 export type PartiallyUnfreezeAccountContext = MintWriteContext & {

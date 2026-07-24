@@ -10,8 +10,10 @@ pub enum ErrorCode {
     InsufficientUnfrozenBalance,
     #[msg("The batch must contain at least one account")]
     EmptyBatch,
-    #[msg("Expected exactly two remaining accounts (account + frozen_account_pda) per entry")]
+    #[msg("Expected exactly two remaining accounts per entry")]
     InvalidRemainingAccounts,
     #[msg("Provided frozen_account_pda does not match the derived PDA for this account")]
     FrozenAccountPdaMismatch,
+    #[msg("Provided frozen_balance_pda does not match the derived PDA for this account")]
+    FrozenBalancePdaMismatch,
 }
