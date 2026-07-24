@@ -4,7 +4,7 @@ Program ID: `hgUtrpstViwxutrkoVXwQh3GQC18wHAmuAvYFTNiV2M`
 
 Records point-in-time values for a mint — its total supply and every holder's balance — indexed by a monotonically-increasing snapshot id. Enables reconstructing balances at past snapshots (e.g. coupon record dates) without storing per-transfer history.
 
-Snapshots are taken exclusively by `coupon::create_coupon`, which CPIs `take_snapshot` signed by its `coupon_authority` PDA. Three other callers append entries to the running histories whenever they move tokens (so long as a snapshot is active): `mint_authority` (mint), `permanent_delegate` (operations), and `transfer_hook_authority` (transfer-hook).
+Snapshots are taken exclusively by `coupon::create_coupon`, which CPIs `take_snapshot` signed by its `coupon_authority` PDA. Two other callers append entries to the running histories whenever they move tokens (so long as a snapshot is active): `mint_authority` (mint) and `permanent_delegate` (operations). `transfer_hook_authority` is still on the authorised-caller list but is now unreachable: `transfer-hook::execute` no longer signs anything, so transfers do not touch the holder-balance histories — a holder's balance at a snapshot is proven against that snapshot's Merkle root instead.
 
 ---
 
@@ -171,7 +171,7 @@ Same "silent no-op when no snapshot is active" semantics as the total-supply var
 `calling_authority` must be one of:
 - `["mint_authority", mint]` (mint)
 - `["permanent_delegate", mint]` (operations)
-- `["transfer_hook_authority", mint]` (transfer-hook)
+- `["transfer_hook_authority", mint]` (transfer-hook) — retained but unreachable; the hook no longer CPIs this instruction
 
 ### Accounts
 

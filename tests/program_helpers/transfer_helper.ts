@@ -4,9 +4,7 @@ import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import {
-  SYSTEM_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
-  SNAPSHOT_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
   FACTORY_PROGRAM_ID,
@@ -16,7 +14,6 @@ import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
 import { frozenAccountPda, frozenBalancePda, freezeAuthorityPda } from "./freeze/freeze_pda_helper";
-import { snapshotCounterPda, snapshotHolderBalancePda } from "./snapshot/snapshot_pda_helper";
 import { getAssetConfiguration } from "./deploy_helper";
 import { assetClassVersionPda } from "./factory/factory_pda_helper";
 
@@ -145,15 +142,10 @@ export async function getTransferAccounts(callContext: Omit<TransferContext, "de
     sourceOwner: callContext.sourceOwner,
     source: callContext.source,
     transferAuthority: pdaUtils.transferAuthorityPda(callContext.mint),
-    transferHookAuthority: pdaUtils.transferHookAuthorityPda(callContext.mint),
     freezeAuthority: freezeAuthorityPda(callContext.mint),
     extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
     transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
     freezeProgram: FREEZE_PROGRAM_ID,
-    snapshotProgram: SNAPSHOT_PROGRAM_ID,
-    snapshotCounterPda: snapshotCounterPda(callContext.mint),
-    senderSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.source),
-    receiverSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
     deployProgram: DEPLOY_PROGRAM_ID,
     assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
     factoryProgram: FACTORY_PROGRAM_ID,
@@ -163,6 +155,5 @@ export async function getTransferAccounts(callContext: Omit<TransferContext, "de
     ),
     instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
     token2022Program: TOKEN_2022_PROGRAM_ID,
-    systemProgram: SYSTEM_PROGRAM_ID,
   };
 }

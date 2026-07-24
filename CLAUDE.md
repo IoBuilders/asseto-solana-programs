@@ -49,7 +49,7 @@ asseto-solana-programs/
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers
 │   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block)
-│   ├── transfer-hook/        — SPL Transfer Hook; double-introspection gate (prev = verify_transfer, curr = transfer / transfer_checked) + snapshot updates
+│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double introspection (prev = verify_transfer, curr = transfer / transfer_checked) + `TRANSFER_HOOK_EXECUTE` functionality check. Writes nothing
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
@@ -158,7 +158,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["transfer_control_mode", mint]` | `transfer-control` | Stores the active `TransferMode` (currently only `Whitelist`) + bump; created once by `initialize` (no close/update path) |
 | `["whitelist", mint, account]` | `transfer-control` | Marker: account is whitelisted |
 | `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
-| `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority; also the payer + calling-authority for snapshot CPIs during a transfer |
+| `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority (set on the mint by `deploy_mint`); not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
 | `["snapshot_counter", mint]` | `snapshot` | Id of the **next** snapshot for the mint (0-based; after N snapshots `count == N`). Created by `take_snapshot` |
 | `["snapshot_totalsupply", mint]` | `snapshot` | `SnapshotHistory` of total supply (one entry per snapshot id) |
@@ -195,7 +195,7 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
 | `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` | All new accounts start frozen; thawed/re-frozen transiently during mint/burn/transfer |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer` or `Token-2022::transfer_checked`, both with matching args), then updates the sender/receiver snapshot entries. Compliance rules (deactivation, transfer-mode, whitelist, frozen account, frozen balance) live in `transfer::verify_transfer`, not in the hook — see [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) for why. |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer` or `Token-2022::transfer_checked`, both with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules (deactivation, transfer-mode, whitelist, frozen account, frozen balance) live in `transfer::verify_transfer`, not in the hook — see [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) for why. |
 
 ---
 
