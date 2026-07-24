@@ -2,11 +2,11 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
 use bond::state::{BondTerms, DayCountConvention};
 use common::{
-    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
-    roles,
+    pda_seeds, pda_utils, require_active, require_balance_proof, require_functionality,
+    require_not_paused, require_role, roles,
 };
 use coupon::state::Coupon;
-use snapshot::cpi::accounts::GetHolderBalanceSnapshotAt;
+use snapshot::state::SnapshotMerkleRoot;
 
 use crate::errors::ErrorCode;
 use crate::events::CouponPaid;
@@ -14,7 +14,13 @@ use crate::state::{CouponPaidMarker, TreasuryConfig};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
-pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
+pub fn pay_coupon(
+    ctx: Context<PayCoupon>,
+    coupon_id: u64,
+    account: Pubkey,
+    balance: u64,
+    merkle_proof: Vec<[u8; 32]>,
+) -> Result<()> {
     // ── Auth + state checks ──────────────────────────────────────────────────
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -27,25 +33,16 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
         common::functionalities::TREASURY_PAY_COUPON,
     )?;
 
-    // ── Maturity check: cluster clock must have reached payment_date ─────────
     let coupon = &ctx.accounts.coupon;
     let now = Clock::get()?.unix_timestamp;
     require!(now >= coupon.payment_date, ErrorCode::CouponNotMature);
 
-    // ── Read holder balance at coupon.snapshot_id via CPI ────────────────────
-    let snapshot_id = coupon.snapshot_id;
-    let holder_balance: u64 = snapshot::cpi::get_holderbalance_snapshot_at(
-        CpiContext::new(
-            constants::SNAPSHOT_PROGRAM_ID,
-            GetHolderBalanceSnapshotAt {
-                mint: ctx.accounts.mint.to_account_info(),
-                holder_balance_snapshot: ctx.accounts.holder_balance_snapshot.to_account_info(),
-                holder_token_account: ctx.accounts.holder_token_account.to_account_info(),
-            },
-        ),
-        snapshot_id,
-    )?
-    .get();
+    require_balance_proof(
+        &merkle_proof,
+        ctx.accounts.snapshot_merkle_root.merkle_root,
+        account,
+        balance,
+    )?;
 
     // ── Compute payout amount ────────────────────────────────────────────────
     let bond = &ctx.accounts.bond_terms;
@@ -79,7 +76,7 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
     let net_power: i32 = payment_mint_dec as i32 - positive_decs;
 
     let mut num: u128 = (effective_interest_rate as u128)
-        .checked_mul(holder_balance as u128)
+        .checked_mul(balance as u128)
         .and_then(|v| v.checked_mul(bond.par_value as u128))
         .and_then(|v| v.checked_mul(elapsed_seconds as u128))
         .ok_or(ErrorCode::AmountOverflow)?;
@@ -104,7 +101,6 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
         .try_into()
         .map_err(|_| ErrorCode::AmountOverflow)?;
 
-    // ── transfer_checked via the token interface, signed by treasury_authority ─
     let cfg = &ctx.accounts.treasury_config;
     let mint_key = ctx.accounts.mint.key();
     let treasury_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
@@ -130,7 +126,6 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
     // ── Lock the treasury config for this coupon ─────────────────────────────
     ctx.accounts.treasury_config.locked_for_coupon_id = coupon_id;
 
-    // ── Mark this (coupon, holder_token_account) as paid ─────────────────────
     let marker = &mut ctx.accounts.coupon_paid;
     marker.bump = ctx.bumps.coupon_paid;
     marker.amount = amount;
@@ -139,7 +134,7 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
     emit_cpi!(CouponPaid {
         mint: mint_key,
         coupon_id,
-        holder_token_account: ctx.accounts.holder_token_account.key(),
+        holder_token_account: account,
         payment_mint: ctx.accounts.payment_mint.key(),
         amount,
         payer: ctx.accounts.payer.key(),
@@ -150,7 +145,7 @@ pub fn pay_coupon(ctx: Context<PayCoupon>, coupon_id: u64) -> Result<()> {
 
 #[event_cpi]
 #[derive(Accounts)]
-#[instruction(coupon_id: u64)]
+#[instruction(coupon_id: u64, account: Pubkey)]
 pub struct PayCoupon<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -209,9 +204,6 @@ pub struct PayCoupon<'info> {
     )]
     pub holder_payment_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// CHECK: Forwarded to snapshot's get_holderbalance_snapshot_at.
-    pub holder_token_account: UncheckedAccount<'info>,
-
     #[account(
         seeds = [pda_seeds::BOND_TERMS, mint.key().as_ref()],
         seeds::program = constants::BOND_PROGRAM_ID,
@@ -226,13 +218,12 @@ pub struct PayCoupon<'info> {
     )]
     pub coupon: Box<Account<'info, Coupon>>,
 
-    /// CHECK: Address verified by seeds/bump; contents validated by snapshot CPI.
     #[account(
-        seeds = [pda_seeds::SNAPSHOT_HOLDERBALANCE, mint.key().as_ref(), holder_token_account.key().as_ref()],
+        seeds = [pda_seeds::SNAPSHOT_MERKLE_ROOT, mint.key().as_ref(), &coupon.snapshot_id.to_le_bytes()],
         seeds::program = constants::SNAPSHOT_PROGRAM_ID,
-        bump,
+        bump = snapshot_merkle_root.bump,
     )]
-    pub holder_balance_snapshot: UncheckedAccount<'info>,
+    pub snapshot_merkle_root: Box<Account<'info, SnapshotMerkleRoot>>,
 
     #[account(
         init,
@@ -242,7 +233,7 @@ pub struct PayCoupon<'info> {
             pda_seeds::COUPON_PAID,
             mint.key().as_ref(),
             &coupon_id.to_le_bytes(),
-            holder_token_account.key().as_ref(),
+            account.as_ref(),
         ],
         bump,
     )]
@@ -260,10 +251,6 @@ pub struct PayCoupon<'info> {
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub token_program: Interface<'info, TokenInterface>,
-
-    /// CHECK: Address verified by constraint.
-    #[account(address = constants::SNAPSHOT_PROGRAM_ID)]
-    pub snapshot_program: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 

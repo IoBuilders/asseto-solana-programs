@@ -14,7 +14,8 @@ import {
   mintTokensViaSurfpool,
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
-import { getHolderBalanceSnapshotAt } from "./program_helpers/snapshot/snapshot_instruction_helper";
+import { setSnapshotMerkleRoot } from "./program_helpers/snapshot/snapshot_pda_helper";
+import { leafHash, EMPTY_PROOF } from "./program_helpers/snapshot/merkle_helper";
 import {
   getCouponPaidEvent,
   getPaymentTokenSetEvent,
@@ -118,12 +119,15 @@ describe("treasury", () => {
     const bondArgs = opts?.bondArgs ?? DEFAULT_UPDATE_BOND_ARGS;
     await updateBondTerms({ authority, mint }, bondArgs);
 
-    // 3. create_coupon (also CPIs take_snapshot → snapshot_id = 0, 0-based).
+    // 3. Plant the coupon + its snapshot state (setCoupon defaults the coupon's
+    //    snapshot_id to couponId), then plant the snapshot's Merkle root as a
+    //    single-leaf tree over (holderTokenAccount, BOND_HOLDER_AMOUNT).
     const couponId = new anchor.BN(1);
     const periodStartDate = opts?.periodStartDate ?? PERIOD_START;
     const periodEndDate = opts?.periodEndDate ?? PERIOD_END;
     const paymentDate = opts?.paymentDate ?? PAYMENT_DATE;
     await setCoupon(mint, couponId, { periodStartDate, periodEndDate, paymentDate });
+    await setSnapshotMerkleRoot(mint, couponId, leafHash(holderTokenAccount, BOND_HOLDER_AMOUNT));
 
     // 4. Create the payment mint + the holder's payment-mint TA.
     const paymentMint = await createMint({ decimals: paymentMintDecimals });
@@ -169,7 +173,7 @@ describe("treasury", () => {
         holderTokenAccount: base.holderTokenAccount,
         signers: overrides?.signers,
       },
-      { couponId: base.couponId }
+      { couponId: base.couponId, balance: BOND_HOLDER_AMOUNT, merkleProof: EMPTY_PROOF }
     );
   }
 
@@ -349,7 +353,7 @@ describe("treasury", () => {
           holderPaymentAccount: ctx.holderPaymentAccount,
           holderTokenAccount: ctx.holderTokenAccount,
         },
-        { couponId: ctx.couponId }
+        { couponId: ctx.couponId, balance: BOND_HOLDER_AMOUNT, merkleProof: EMPTY_PROOF }
       );
 
       // Attempting to change the payment mint now must fail.
@@ -420,13 +424,9 @@ describe("treasury", () => {
       // (See snapshot::get_holderbalance_snapshot_at and the matching
       // assertion in mint.ts:579-591.)
       //
-      // For this happy-path test we don't pin the exact snapshot semantics; we
-      // recompute the expected amount from whatever balance the snapshot CPI
-      // returns, by reading it off-chain via the same view.
-      const holderBalance = await getHolderBalanceSnapshotAt(
-        { mint: ctx.mint, holderTokenAccount: ctx.holderTokenAccount },
-        { snapshotId: ctx.couponId.sub(new anchor.BN(1)) }
-      );
+      // The proof commits to (holderTokenAccount, BOND_HOLDER_AMOUNT); the payout
+      // is computed from that verified balance.
+      const holderBalance = BOND_HOLDER_AMOUNT;
 
       const expectedAmount = computeExpectedAmount({
         interestRate: DEFAULT_UPDATE_BOND_ARGS.interestRate,
@@ -445,11 +445,6 @@ describe("treasury", () => {
       // = $50.00 = 50_000_000 raw units at 6 dp. Catches a bug in
       // `computeExpectedAmount` that would otherwise be masked by a matching
       // bug in the Rust handler.
-      assert.equal(
-        holderBalance.toString(),
-        BOND_HOLDER_AMOUNT.toString(),
-        "snapshot view should fall back to live balance for this brand-new holder"
-      );
       assert.equal(
         expectedAmount.toString(),
         "50000000",
@@ -511,10 +506,7 @@ describe("treasury", () => {
         treasuryFunding: BigInt(100_000_000_000),
       });
 
-      const holderBalance = await getHolderBalanceSnapshotAt(
-        { mint: ctx.mint, holderTokenAccount: ctx.holderTokenAccount },
-        { snapshotId: ctx.couponId.sub(new anchor.BN(1)) }
-      );
+      const holderBalance = BOND_HOLDER_AMOUNT;
 
       const expectedAmount = computeExpectedAmount({
         interestRate: DEFAULT_UPDATE_BOND_ARGS.interestRate,

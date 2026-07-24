@@ -36,6 +36,8 @@ pub enum CommonError {
     MissingRole,
     #[msg("A whitelist PDA does not match the one derived for its destination")]
     WhitelistPdaMismatch,
+    #[msg("Merkle proof does not prove the given (account, balance) against the snapshot root")]
+    InvalidMerkleProof,
 }
 
 /// Checks whether a `deactivate_pda` exists for a given mint.
@@ -120,5 +122,18 @@ pub fn verify_whitelist_pda(
         CommonError::WhitelistPdaMismatch
     );
 
+    Ok(())
+}
+
+pub fn require_balance_proof(
+    proof: &[[u8; 32]],
+    root: [u8; 32],
+    account: Pubkey,
+    balance: u64,
+) -> Result<()> {
+    require!(
+        merkle::verify_balance_proof(proof, root, account, balance),
+        CommonError::InvalidMerkleProof
+    );
     Ok(())
 }

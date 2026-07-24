@@ -94,6 +94,27 @@ export async function getSnapshotMerkleRoot(mint: PublicKey, snapshotId: anchor.
 }
 
 /**
+ * Test-only: plants the `snapshot_merkle_root` PDA for `(mint, snapshotId)` with
+ * `merkleRoot` directly via surfpool — reproducing what a real `take_snapshot`
+ * would leave, without driving `create_coupon`.
+ */
+export async function setSnapshotMerkleRoot(
+  mint: PublicKey,
+  snapshotId: anchor.BN,
+  merkleRoot: number[]
+): Promise<void> {
+  const [pda, bump] = snapshotMerkleRootPdaWithBump(mint, snapshotId);
+  const data = await getSnapshotProgram().coder.accounts.encode("snapshotMerkleRoot", { bump, merkleRoot });
+  await surfnetSetAccount(pda, {
+    lamports: await getBalanceForRentExeption(data.length),
+    owner: SNAPSHOT_PROGRAM_ID.toBase58(),
+    data: data.toString("hex"),
+    executable: false,
+    rentEpoch: 0,
+  });
+}
+
+/**
  * Computes the snapshot id that the next `take_snapshot` call will allocate for
  * `mint`. The `snapshot_counter` stores the id of the *next* snapshot, so its
  * current value IS the next id (0 when the counter doesn't exist yet). Needed

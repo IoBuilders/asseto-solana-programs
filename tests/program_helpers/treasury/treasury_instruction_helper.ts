@@ -4,12 +4,12 @@ import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
-import { SYSTEM_PROGRAM_ID, SNAPSHOT_PROGRAM_ID, TREASURY_PROGRAM_ID } from "../../utils/address_utils";
+import { SYSTEM_PROGRAM_ID, TREASURY_PROGRAM_ID } from "../../utils/address_utils";
 import { MintWriteWithPayerContext } from "../base_helper";
 import { getEvent } from "../event_helper";
 import { Treasury } from "../../../target/types/treasury";
 import { bondTermsPda } from "../bond/bond_pda_helper";
-import { couponCounterPda, couponPda } from "../coupon/coupon_pda_helper";
+import { couponCounterPda, couponPda, getCoupon } from "../coupon/coupon_pda_helper";
 import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import {
@@ -18,7 +18,7 @@ import {
   couponPaidPda,
   treasuryEventAuthorityPda,
 } from "./treasury_pda_helper";
-import { snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
+import { snapshotMerkleRootPda } from "../snapshot/snapshot_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getTreasuryProgram(): Program<Treasury> {
@@ -90,6 +90,9 @@ export type PayCouponContext = MintWriteWithPayerContext & {
 
 type PayCouponArgs = {
   couponId: anchor.BN;
+  account?: PublicKey;
+  balance: anchor.BN;
+  merkleProof: number[][];
 };
 
 export async function payCoupon(callContext: PayCouponContext, args: PayCouponArgs): Promise<{ signature: string }> {
@@ -100,9 +103,12 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
   const program = getTreasuryProgram();
 
   const authority = callContext.authority ?? program.provider.wallet.payer;
+  const account = args.account ?? callContext.holderTokenAccount;
+
+  const coupon = await getCoupon(callContext.mint, args.couponId);
 
   const signature = await getTreasuryProgram()
-    .methods.payCoupon(args.couponId)
+    .methods.payCoupon(args.couponId, account, args.balance, args.merkleProof)
     .accountsStrict({
       payer: callContext.payer ?? callContext.authority?.publicKey,
       authority: authority.publicKey,
@@ -110,21 +116,19 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       paymentMint: callContext.paymentMint,
       treasuryTokenAccount: callContext.treasuryTokenAccount,
       holderPaymentAccount: callContext.holderPaymentAccount,
-      holderTokenAccount: callContext.holderTokenAccount,
       assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       treasuryConfig: treasuryConfigPda(callContext.mint),
       treasuryAuthority: treasuryAuthorityPda(callContext.mint),
       bondTerms: bondTermsPda(callContext.mint),
       coupon: couponPda(callContext.mint, args.couponId),
-      holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.holderTokenAccount),
-      couponPaid: couponPaidPda(callContext.mint, args.couponId, callContext.holderTokenAccount),
+      snapshotMerkleRoot: snapshotMerkleRootPda(callContext.mint, coupon.snapshotId),
+      couponPaid: couponPaidPda(callContext.mint, args.couponId, account),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
       tokenProgram: TOKEN_2022_PROGRAM_ID,
-      snapshotProgram: SNAPSHOT_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: treasuryEventAuthorityPda(),
       program: TREASURY_PROGRAM_ID,
