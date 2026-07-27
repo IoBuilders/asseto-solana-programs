@@ -6,11 +6,10 @@ import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_FREEZE_MANAGER } from "./utils/roles";
 import {
-  freezeAccount,
-  partiallyFreezeAccount,
-  removePartialFreeze,
-} from "./program_helpers/freeze/freeze_instruction_helper";
-import { getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
+  clearFrozenBalancePda,
+  getFrozenBalanceByPda,
+  setFrozenAccountPda,
+} from "./program_helpers/freeze/freeze_pda_helper";
 import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
 import {
   burnTokensViaSurfpool,
@@ -44,6 +43,7 @@ import {
   setTransferControlModeMarker,
   setWhitelistMarker,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
+import { setFrozenBalancePda } from "./program_helpers/freeze/freeze_pda_helper";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -58,7 +58,6 @@ describe("transfer", () => {
   const destinationOwnerKeypair = Keypair.generate();
   const destinationOwner = destinationOwnerKeypair.publicKey;
   const authority = provider.wallet.payer;
-  const payerKeypair = provider.wallet.payer!;
   let mint: PublicKey;
 
   beforeEach(async () => {
@@ -342,7 +341,7 @@ describe("transfer", () => {
 
       // ── Partially freeze 80 tokens (only 20 available) ───────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       try {
         await verifyTransfer(
@@ -362,7 +361,7 @@ describe("transfer", () => {
 
       // ── Update partial freeze to 40 tokens (60 now available) ────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: UPDATED_FROZEN_AMOUNT });
+      await setFrozenBalancePda(mint, source, UPDATED_FROZEN_AMOUNT);
 
       const frozenBalanceAfterUpdate = await getFrozenBalanceByPda(frozenBalancePda);
       assert.equal(
@@ -404,7 +403,7 @@ describe("transfer", () => {
 
       // ── Partially freeze 50 tokens ────────────────────────────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       // ── Transfer 40 tokens — succeeds (available = 100 - 50 = 50 >= 40) ──────
       await transfer(
@@ -457,7 +456,7 @@ describe("transfer", () => {
 
       // ── Partially freeze 40 tokens (available = 60 of 100) ────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       // ── Burn 80 via permanent-delegate (issuer redemption) ────────────────────
       //
@@ -496,9 +495,9 @@ describe("transfer", () => {
         );
       }
 
-      // (4) Recovery path — after remove_partial_freeze, the 20 remaining tokens transact normally.
+      // (4) Recovery path — after unfreeze_account_partial, the 20 remaining tokens transact normally.
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await removePartialFreeze({ mint, authority, account: source });
+      await clearFrozenBalancePda(mint, source);
       await transfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_ATTEMPT }
@@ -508,7 +507,7 @@ describe("transfer", () => {
       assert.equal(
         sourceAfterRecovery.toString(),
         EXPECTED_REMAINDER.sub(TRANSFER_ATTEMPT).toString(),
-        "after remove_partial_freeze the remaining tokens transact normally"
+        "after unfreeze_account_partial the remaining tokens transact normally"
       );
     });
   });
@@ -610,7 +609,7 @@ describe("transfer", () => {
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await freezeAccount({ authority, mint, account: source });
+      await setFrozenAccountPda(mint, source);
 
       // ── Transfer must now be rejected with AccountFrozen ──────────────────
       try {

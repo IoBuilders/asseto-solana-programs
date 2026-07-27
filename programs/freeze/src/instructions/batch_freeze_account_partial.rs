@@ -11,8 +11,8 @@ use crate::events::AccountPartiallyFrozen;
 use crate::state::FrozenBalance;
 use common::program_ids as constants;
 
-pub fn batch_partially_freeze<'info>(
-    ctx: Context<'info, BatchPartiallyFreezeAccounts<'info>>,
+pub fn batch_freeze_account_partial<'info>(
+    ctx: Context<'info, BatchFreezeAccountPartial<'info>>,
     balances: Vec<u64>,
 ) -> Result<()> {
     require!(!balances.is_empty(), ErrorCode::EmptyBatch);
@@ -97,7 +97,7 @@ pub fn batch_partially_freeze<'info>(
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct BatchPartiallyFreezeAccounts<'info> {
+pub struct BatchFreezeAccountPartial<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
