@@ -6,7 +6,7 @@ Controls the Token-2022 freeze authority and all programmatic freezing. Owns the
 
 Exposes two categories of instructions:
 - **Auxiliary** (`block_account`, `unblock_account`): called exclusively via CPI by `mint`, `operations`, and `transfer` as part of their token operation flows. These do not emit events.
-- **Management** (`freeze_account`, , `batch_freeze`, `unfreeze_account`, `partially_freeze_account`, `remove_partial_freeze`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
+- **Management** (`freeze_account`, `batch_freeze`, `unfreeze_account`, `partially_freeze_account`, `batch_partially_freeze`, `remove_partial_freeze`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
 
 Also exports two verification functions used by `transfer` to gate transfers.
 
@@ -288,6 +288,67 @@ Creates the `frozen_balance_pda` on first call; overwrites `balance` on subseque
 | Event                    | Fields                                                                       | Emitted                                                                                        |
 |--------------------------|------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | `AccountPartiallyFrozen` | `mint: Pubkey`, `account: Pubkey`, `frozen_balance: u64`, `operator: Pubkey` | After the `frozen_balance_pda` is set/updated (`frozen_balance` is the newly-locked `balance`) |
+
+---
+
+## Instruction: `batch_partially_freeze` (Management)
+
+Partially freezes, in a single instruction, every account passed in via `remaining_accounts`, locking `balances[i]` for the `i`-th account — the batched equivalent of calling `partially_freeze_account` once per account. Runs the same authorization checks as `partially_freeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartiallyFrozen` event per account. Like the singular instruction, a `frozen_balance_pda` that already exists has its balance overwritten rather than rejected. Unlike the singular instruction, there is no per-account `frozen_balance_pda` field in the typed accounts struct — Anchor's `init_if_needed` constraint can't target a variable number of accounts, so each `frozen_balance_pda` is created manually on first use via `common::pda_utils::create_or_adopt_pda` (signed by the PDA's own seeds), which tolerates a target pre-funded by a griefer — see [`docs/common.md`](common.md#function-create_or_adopt_pda).
+
+### Parameters
+
+```rust
+balances: Vec<u64>  // amount to lock per account; balances[i] applies to the i-th account
+```
+
+### Remaining accounts
+
+Two accounts per entry, in order, appended as `remaining_accounts`:
+
+| Offset (per entry `i`) | Account              | Mut | Notes                                                                                                                |
+|------------------------|----------------------|-----|-----------------------------------------------------------------------------------------------------------------------|
+| `i * 2`                | `account`            | no  | The token account to partially freeze; used only as a seed                                                            |
+| `i * 2 + 1`            | `frozen_balance_pda` | yes | Must equal the canonical `["frozen_balance", mint, account]` PDA — verified on-chain; may already exist (overwritten) |
+
+### Preconditions
+
+- `!balances.is_empty()` — errors `EmptyBatch` if the batch is empty.
+- `remaining_accounts.len() == balances.len() * 2` — errors `InvalidRemainingAccounts` otherwise (exactly one `frozen_balance_pda` per balance).
+- `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
+- `require_not_paused` — mint must not be paused.
+- `require_active` — mint must not be deactivated.
+- `require_functionality(FREEZE_PARTIALLY_FREEZE_ACCOUNT)` — the mint's asset-class version must be finalized and enable partial freezing (same functionality bit as `partially_freeze_account`; batching doesn't get its own bit).
+- Per entry: the supplied `frozen_balance_pda` must match the address `Pubkey::find_program_address(["frozen_balance", mint, account], freeze_program_id)` derives, else `FrozenBalancePdaMismatch`.
+
+### Accounts
+
+The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `frozen_balance_pda` field here — both are supplied per entry instead.
+
+| Account                   | Mut | Signer | Type                             | Notes                                                                                                                       |
+|---------------------------|-----|--------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; funds every `frozen_balance_pda` creation                                                  |
+| `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                      |
+| `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`       |
+| `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                |
+| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`                                                      |
+| `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
+| `system_program`          | no  | no     | Program<System>                  | Target of the `create_or_adopt_pda` CPI(s) per entry                                                                       |
+| `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`                                                           |
+| `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID                                                               |
+
+### Errors
+
+| Code                       | Cause                                                                               |
+|----------------------------|---------------------------------------------------------------------------------------|
+| `EmptyBatch`               | `balances` is empty                                                                   |
+| `InvalidRemainingAccounts` | `remaining_accounts.len() != balances.len() * 2`                                       |
+| `FrozenBalancePdaMismatch` | Supplied `frozen_balance_pda` does not match the canonical derived PDA for `account`   |
+
+### Events
+
+| Event                    | Fields                                                                       | Emitted                                                    |
+|--------------------------|--------------------------------------------------------------------------------|-------------------------------------------------------------|
+| `AccountPartiallyFrozen` | `mint: Pubkey`, `account: Pubkey`, `frozen_balance: u64`, `operator: Pubkey` | Once per entry, after the `frozen_balance_pda` is set/updated |
 
 ---
 
