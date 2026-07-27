@@ -5,7 +5,13 @@ import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN, ROLE_ISSUER } from "./utils/roles";
-import { createTokenAccount, getMint, getTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
+import {
+  createTokenAccount,
+  getMint,
+  getTokenAccount,
+  mintTokensViaSurfpool,
+  setMintPaused,
+} from "./program_helpers/spl_token_helper";
 import {
   mintTokens,
   getIssuedEvent,
@@ -31,6 +37,8 @@ import {
   setWhitelistMarker,
   whitelistPda,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
+import { setMaxSupplyPda } from "./program_helpers/cap/cap_pda_helper";
+import { U64_MAX } from "./constants";
 
 describe("mint", () => {
   const provider = anchor.AnchorProvider.env();
@@ -184,6 +192,57 @@ describe("mint", () => {
         "AssetClassVersionNotFinalized",
         "error code should be AssetClassVersionNotFinalized"
       );
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: mints tokens when a max supply is set and the resulting supply stays within it", async () => {
+    const destination = await createTokenAccount({ mint, owner: authority.publicKey });
+    const mintAmount = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
+    const maxSupply = new anchor.BN(5_000 * 10 ** MINT_DECIMALS);
+    await setMaxSupplyPda(mint, maxSupply);
+
+    await mintTokens({ mint, destination, authority }, { amount: mintAmount });
+
+    const account = await getTokenAccount(destination);
+    assert.equal(account.amount.toString(), mintAmount.toString(), "destination should receive the minted amount");
+    const mintInfo = await getMint(mint);
+    assert.equal(mintInfo.supply.toString(), mintAmount.toString(), "total supply should equal the minted amount");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: fails with MaxSupplyExceeded when the resulting supply would exceed the max supply", async () => {
+    const destination = await createTokenAccount({ mint, owner: authority.publicKey });
+    const maxSupply = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
+    await setMaxSupplyPda(mint, maxSupply);
+
+    try {
+      await mintTokens({ mint, destination, authority }, { amount: maxSupply.add(new anchor.BN(1)) });
+      assert.fail("Expected MaxSupplyExceeded error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "MaxSupplyExceeded", "error code should be MaxSupplyExceeded");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: fails with MaxSupplyExceeded when the resulting supply would overflow u64", async () => {
+    // Plant a supply just short of u64::MAX and set the cap to u64::MAX, so the
+    // cap comparison itself can't fire — only the overflow branch can.
+    const holder = await createTokenAccount({ mint, owner: authority.publicKey });
+    await mintTokensViaSurfpool(mint, holder, U64_MAX.sub(new anchor.BN(10)));
+    await setMaxSupplyPda(mint, U64_MAX);
+
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+
+    try {
+      await mintTokens({ mint, destination, authority }, { amount: new anchor.BN(100) });
+      assert.fail("Expected MaxSupplyExceeded error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "MaxSupplyExceeded", "error code should be MaxSupplyExceeded");
     }
   });
 });
@@ -440,6 +499,73 @@ describe("batch_mint", () => {
       assert.instanceOf(err, AnchorError);
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "WhitelistPdaMismatch");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("batch_mint: mints when a max supply is set and the batch total stays within it", async () => {
+    const destinationA = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const destinationB = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const destinations = [destinationA, destinationB];
+    const amounts = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
+    const maxSupply = new anchor.BN(5_000 * 10 ** MINT_DECIMALS);
+    await setMaxSupplyPda(mint, maxSupply);
+
+    await batchMintTokens({ mint, authority, destinations }, { amounts });
+
+    for (let i = 0; i < destinations.length; i++) {
+      const account = await getTokenAccount(destinations[i]);
+      assert.equal(account.amount.toString(), amounts[i].toString(), `destination ${i} should receive its amount`);
+    }
+    const mintInfo = await getMint(mint);
+    assert.equal(mintInfo.supply.toString(), "3500000000", "total supply should equal the sum of all amounts");
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("batch_mint: fails with MaxSupplyExceeded when the batch total would exceed the max supply", async () => {
+    const destinationA = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const destinationB = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const destinations = [destinationA, destinationB];
+    // Each amount fits under the cap on its own; only their sum breaches it.
+    const amounts = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
+    const maxSupply = new anchor.BN(3_000 * 10 ** MINT_DECIMALS);
+    await setMaxSupplyPda(mint, maxSupply);
+
+    try {
+      await batchMintTokens({ mint, authority, destinations }, { amounts });
+      assert.fail("Expected MaxSupplyExceeded error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "MaxSupplyExceeded", "error code should be MaxSupplyExceeded");
+    }
+
+    // Nothing may have landed — not even the destination whose amount fits.
+    const mintInfo = await getMint(mint);
+    assert.equal(mintInfo.supply.toString(), "0", "total supply should be unchanged after a rejected batch");
+    for (const destination of destinations) {
+      const account = await getTokenAccount(destination);
+      assert.equal(account.amount.toString(), "0", "no destination should have received tokens");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("batch_mint: fails with MaxSupplyExceeded when the resulting supply would overflow u64", async () => {
+    // Plant a supply just short of u64::MAX and set the cap to u64::MAX, so the
+    // cap comparison itself can't fire — only the overflow branch can.
+    const holder = await createTokenAccount({ mint, owner: authority.publicKey });
+    await mintTokensViaSurfpool(mint, holder, U64_MAX.sub(new anchor.BN(10)));
+    await setMaxSupplyPda(mint, U64_MAX);
+
+    const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+
+    try {
+      await batchMintTokens({ mint, authority, destinations: [destination] }, { amounts: [new anchor.BN(100)] });
+      assert.fail("Expected MaxSupplyExceeded error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "MaxSupplyExceeded", "error code should be MaxSupplyExceeded");
     }
   });
 });

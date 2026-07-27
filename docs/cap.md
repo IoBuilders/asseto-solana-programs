@@ -4,7 +4,7 @@ Program ID: `64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm`
 
 Records a maximum supply for a mint in a typed PDA, one per mint. The cap is stored as a plain on-chain value in raw mint units — the same unit as the Token-2022 mint's `supply` field, so no scaling is applied.
 
-`cap` only *stores* the cap; it does not enforce it. Enforcement belongs to whichever program moves supply (`mint`), which can read the PDA directly via an `Account<'info, MaxSupply>` constraint — no CPI needed.
+`cap` stores the cap and exposes the check that enforces it, but never enforces it itself — the programs that move supply do, by calling `require_within_max_supply` (see below). Today that is `mint::mint` and `mint::batch_mint`.
 
 ---
 
@@ -36,8 +36,11 @@ pub struct MaxSupply {
 pub enum ErrorCode {
     MaxSupplyTooLow,            // max_supply argument is 0
     MaxSupplyBelowTotalSupply,  // max_supply argument is below the mint's current supply
+    MaxSupplyExceeded,          // minting would push the total supply past the cap
 }
 ```
+
+`MaxSupplyExceeded` is raised by `require_within_max_supply` inside a *caller's* handler (e.g. `mint`), not by any `cap` instruction.
 
 ---
 
@@ -111,6 +114,47 @@ pub struct MaxSupplySet {
 ```
 
 `operator` is the `authority` that signed the instruction (must hold `ROLE_CAP`).
+
+---
+
+## Enforcing the cap: `require_within_max_supply`
+
+Exported from `cap`'s crate root (outside `#[program]`), so a program that mints can link it in and call it directly — no CPI, no compute cost beyond the account reads. Same pattern as `transfer_control::verify_transfer_control_mode`.
+
+```rust
+pub fn require_within_max_supply(
+    mint_account: &AccountInfo,
+    max_supply_pda: &AccountInfo,
+    amount_to_mint: u64,
+) -> Result<()>
+```
+
+| Case | Result |
+|---|---|
+| `max_supply_pda` is empty | `Ok(())` — no cap set, no restriction. The mint account isn't even unpacked |
+| `supply + amount_to_mint <= max_supply` | `Ok(())` |
+| `supply + amount_to_mint > max_supply` | `Err(MaxSupplyExceeded)` |
+| `supply + amount_to_mint` overflows `u64` | `Err(MaxSupplyExceeded)` — a sum that overflows `u64` necessarily exceeds a `u64` cap |
+
+There is no separate overflow error. Token-2022's `mint_to` already does `supply.checked_add(amount).ok_or(TokenError::Overflow)`, so an overflowing mint is rejected whether or not a cap is set; duplicating that here would only change which error surfaces, at the cost of unpacking the mint on every uncapped mint.
+
+The caller must pass the `max_supply_pda` under a seeds constraint pinned to `CAP_PROGRAM_ID`:
+
+```rust
+/// CHECK: Address verified by seeds/bump; absence means no cap is set, contents read by require_within_max_supply.
+#[account(
+    seeds = [pda_seeds::MAX_SUPPLY, mint.key().as_ref()],
+    seeds::program = constants::CAP_PROGRAM_ID,
+    bump,
+)]
+pub max_supply_pda: UncheckedAccount<'info>,
+```
+
+That constraint is what makes the check un-bypassable — without it a caller could substitute an unrelated empty account and read as "no cap set".
+
+### Why enforcement isn't functionality-gated
+
+`require_within_max_supply` deliberately does **not** consult the `CAP_MAX_SUPPLY` functionality bit. That bit gates *creating* the PDA via `set_max_supply`, so an asset class without it can never have a cap and the check is already a no-op. Gating enforcement too would mean an asset class that set a cap and then rolled to a version with the bit off would keep a `max_supply` PDA recording a cap that no longer binds — on-chain state that lies.
 
 ---
 

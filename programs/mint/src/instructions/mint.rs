@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
+use cap::require_within_max_supply;
 use common::pda_utils;
 use common::state::Roles as RolesCommon;
 use common::{pda_seeds, require_active, require_functionality, require_role, roles};
@@ -28,6 +29,14 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     verify_transfer_control_mode(
         &ctx.accounts.transfer_control_mode_pda.to_account_info(),
         &[&ctx.accounts.destination_whitelist_pda.to_account_info()],
+    )?;
+
+    // ── Supply cap check ─────────────────────────────────────────────────
+    // Runs before the snapshot CPIs so a rejected mint leaves no writes behind.
+    require_within_max_supply(
+        &ctx.accounts.mint.to_account_info(),
+        &ctx.accounts.max_supply_pda.to_account_info(),
+        amount,
     )?;
 
     let mint_key = ctx.accounts.mint.key();
@@ -187,6 +196,14 @@ pub struct MintTokens<'info> {
         bump,
     )]
     pub destination_whitelist_pda: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by seeds/bump; absence means no cap is set, contents read by require_within_max_supply.
+    #[account(
+        seeds = [pda_seeds::MAX_SUPPLY, mint.key().as_ref()],
+        seeds::program = constants::CAP_PROGRAM_ID,
+        bump,
+    )]
+    pub max_supply_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by seeds/bump; existence and contents checked by snapshot.
     #[account(

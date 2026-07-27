@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
+use cap::require_within_max_supply;
 use common::pda_utils;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{
@@ -31,6 +32,22 @@ pub fn batch_mint<'info>(
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
         common::functionalities::MINT_MINT,
+    )?;
+
+    // ── Supply cap check ─────────────────────────────────────────────────────
+    // Once on the batch total rather than per destination: `require_within_max_supply`
+    // unpacks the mint's TLV, so checking in the loop would pay that N times for an
+    // equivalent result (final supply = initial + sum, and intermediates only ever
+    // undershoot it).
+    let batch_total = amounts
+        .iter()
+        .try_fold(0u64, |acc, amount| acc.checked_add(*amount))
+        .ok_or(MintError::AmountOverflow)?;
+
+    require_within_max_supply(
+        &ctx.accounts.mint.to_account_info(),
+        &ctx.accounts.max_supply_pda.to_account_info(),
+        batch_total,
     )?;
 
     let whitelist_active = !ctx
@@ -152,6 +169,14 @@ pub struct BatchMintTokens<'info> {
         bump,
     )]
     pub freeze_authority: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by seeds/bump; absence means no cap is set, contents read by require_within_max_supply.
+    #[account(
+        seeds = [pda_seeds::MAX_SUPPLY, mint.key().as_ref()],
+        seeds::program = constants::CAP_PROGRAM_ID,
+        bump,
+    )]
+    pub max_supply_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by seeds/bump; contents read by get_transfer_mode.
     #[account(

@@ -6,4 +6,6 @@ pub enum ErrorCode {
     MaxSupplyTooLow,
     #[msg("Max supply cannot be lower than the mint's current total supply")]
     MaxSupplyBelowTotalSupply,
+    #[msg("Minting this amount would push the total supply past the max supply")]
+    MaxSupplyExceeded,
 }

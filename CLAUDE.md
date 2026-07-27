@@ -41,7 +41,7 @@ asseto-solana-programs/
 ├── programs/
 │   ├── common/               — shared library: no program ID, no entrypoint
 │   ├── deploy/               — deploys mints; records the asset-class config/version ids in `asset_configuration_pda`; bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
-│   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated)
+│   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated). Both enforce the `cap` supply cap before issuing
 │   ├── metadata-update/      — controls metadata updates
 │   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
 │   ├── operations/           — burn via permanent delegate (`burn` + `batch_burn`)
@@ -55,7 +55,7 @@ asseto-solana-programs/
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
 │   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (Merkle-proves the holder's snapshot balance, then transfer_checked from treasury TA, signed by `treasury_authority` PDA)
 │   ├── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`); multi-step asset-class version deploy (`init_asset_class_version` → `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` → `finalize_asset_class_version`) storing a large functionality bit-mask
-│   ├── cap/                  — supply cap: `set_max_supply` records a per-mint maximum supply PDA (storage only; enforcement lives with the program that moves supply)
+│   ├── cap/                  — supply cap: `set_max_supply` records a per-mint maximum supply PDA + exports `require_within_max_supply` (linked-in check, no CPI) that `mint`/`batch_mint` call before issuing
 │   └── access-control/       — per-mint role bit-mask: `initialize` (auxiliary, CPI-only from `deploy`) bootstraps the deployer's `Roles` PDA with `ROLE_ADMIN`; `grant_roles` / `revoke_roles` set/clear role bits for an `(mint, account)` pair; grant/revoke are admin-gated (signer must hold `ROLE_ADMIN`) + functionality-gated, only while not paused / not deactivated
 └── tests/                    — one .ts file per program
 ```
@@ -179,7 +179,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["asset_class_pending_owner", config_id]` | `factory` | Per-`config_id` `AssetClassPendingOwner` PDA (nominated owner); created/updated by `nominate_asset_class_owner`, removed by `accept_asset_class_ownership` / `cancel_asset_class_ownership` |
 | `["asset_class_version", config_id, version]` | `factory` | Per-version `AssetClassVersion` PDA — **zero-copy**, fixed-capacity `[u8; FUNCTIONALITIES_BYTES_MASK]` functionality bit-mask + state; created `Draft` by `init_asset_class_version` with an empty (all-zero) mask (each version is independent — nothing inherited from the previous one), bits freely turned on/off by `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` while `Draft`, sealed `Ready` (immutable) by `finalize_asset_class_version` |
 | `["roles", mint, account]` | `access-control` | Per-`(mint, account)` `Roles` PDA — **zero-copy**, fixed-capacity `[u8; ROLES_BYTES_MASK]` role bit-mask; bit `i` = role `i` granted. Bootstrapped for the deployer by `initialize` (CPI from `deploy_mint`, grants `ROLE_ADMIN`); created/updated by `grant_roles` (sets bits), cleared by `revoke_roles`. Seeds are the `"roles"` prefix (`pda_seeds::ROLES`) + the raw `mint` + `account` pubkeys. The same PDA at `["roles", mint, authority]` doubles as the role-check account, loaded as `AccountLoader<Roles>` and read by `require_role`. Mirrored by `common::state::Roles` so `common` can load it without depending on `access-control` |
-| `["max_supply", mint]` | `cap` | Typed `MaxSupply` PDA (maximum total supply in raw mint units) — created/overwritten by `set_max_supply` |
+| `["max_supply", mint]` | `cap` | Typed `MaxSupply` PDA (maximum total supply in raw mint units) — created/overwritten by `set_max_supply`; read by `mint`/`batch_mint` via `cap::require_within_max_supply`. Absent = no cap |
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
