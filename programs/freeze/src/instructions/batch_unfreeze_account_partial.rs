@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::Discriminator;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{
     pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
@@ -7,17 +6,15 @@ use common::{
 };
 
 use crate::errors::ErrorCode;
-use crate::events::AccountPartiallyFrozen;
-use crate::state::FrozenBalance;
+use crate::events::AccountPartialFreezeRemoved;
 use common::program_ids as constants;
 
-pub fn batch_partially_freeze<'info>(
-    ctx: Context<'info, BatchPartiallyFreezeAccounts<'info>>,
-    balances: Vec<u64>,
+pub fn batch_unfreeze_account_partial<'info>(
+    ctx: Context<'info, BatchUnfreezeAccountPartial<'info>>,
 ) -> Result<()> {
-    require!(!balances.is_empty(), ErrorCode::EmptyBatch);
+    require!(!ctx.remaining_accounts.is_empty(), ErrorCode::EmptyBatch);
     require!(
-        ctx.remaining_accounts.len() == balances.len() * 2,
+        ctx.remaining_accounts.len() % 2 == 0,
         ErrorCode::InvalidRemainingAccounts
     );
 
@@ -32,21 +29,20 @@ pub fn batch_partially_freeze<'info>(
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
-        common::functionalities::FREEZE_PARTIALLY_FREEZE_ACCOUNT,
+        common::functionalities::FREEZE_REMOVE_PARTIAL_FREEZE,
     )?;
 
     let mint_key = ctx.accounts.mint.key();
     let authority_key = ctx.accounts.authority.key();
-    let space = FrozenBalance::DISCRIMINATOR.len() + FrozenBalance::INIT_SPACE;
+    let authority_info = ctx.accounts.authority.to_account_info();
 
-    for i in 0..balances.len() {
-        let balance = balances[i];
+    for i in 0..ctx.remaining_accounts.len() / 2 {
         let account = &ctx.remaining_accounts[i * 2];
         let frozen_balance_pda = &ctx.remaining_accounts[i * 2 + 1];
         let account_key = account.key();
 
         // ── Verify the client supplied the canonical PDA for this account ────
-        let (expected_pda, bump) = Pubkey::find_program_address(
+        let (expected_pda, _bump) = Pubkey::find_program_address(
             &[
                 pda_seeds::FROZEN_BALANCE,
                 mint_key.as_ref(),
@@ -60,34 +56,16 @@ pub fn batch_partially_freeze<'info>(
             ErrorCode::FrozenBalancePdaMismatch
         );
 
-        // ── Create the PDA on the first call; overwrite on subsequent calls ──
-        if frozen_balance_pda.data_is_empty() {
-            let signer_seeds: &[&[u8]] = &[
-                pda_seeds::FROZEN_BALANCE,
-                mint_key.as_ref(),
-                account_key.as_ref(),
-                &[bump],
-            ];
+        require!(
+            !frozen_balance_pda.data_is_empty(),
+            ErrorCode::AccountNotPartiallyFrozen
+        );
 
-            pda_utils::create_or_adopt_pda(
-                &ctx.accounts.authority.to_account_info(),
-                &frozen_balance_pda.to_account_info(),
-                &ctx.accounts.system_program.to_account_info(),
-                ctx.program_id,
-                space,
-                signer_seeds,
-            )?;
-        }
+        pda_utils::close_pda(frozen_balance_pda, &authority_info)?;
 
-        let mut data = frozen_balance_pda.try_borrow_mut_data()?;
-        let mut cursor = std::io::Cursor::new(data.as_mut());
-        FrozenBalance { balance, bump }.try_serialize(&mut cursor)?;
-        drop(data);
-
-        emit_cpi!(AccountPartiallyFrozen {
+        emit_cpi!(AccountPartialFreezeRemoved {
             mint: mint_key,
             account: account_key,
-            frozen_balance: balance,
             operator: authority_key,
         });
     }
@@ -97,7 +75,7 @@ pub fn batch_partially_freeze<'info>(
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct BatchPartiallyFreezeAccounts<'info> {
+pub struct BatchUnfreezeAccountPartial<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -136,6 +114,4 @@ pub struct BatchPartiallyFreezeAccounts<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
-
-    pub system_program: Program<'info, System>,
 }

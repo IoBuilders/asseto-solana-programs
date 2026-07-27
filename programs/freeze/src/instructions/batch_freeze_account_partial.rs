@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::Discriminator;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{
     pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
@@ -6,13 +7,17 @@ use common::{
 };
 
 use crate::errors::ErrorCode;
-use crate::events::AccountUnfrozen;
+use crate::events::AccountPartiallyFrozen;
+use crate::state::FrozenBalance;
 use common::program_ids as constants;
 
-pub fn batch_unfreeze<'info>(ctx: Context<'info, BatchUnfreezeAccounts<'info>>) -> Result<()> {
-    require!(!ctx.remaining_accounts.is_empty(), ErrorCode::EmptyBatch);
+pub fn batch_freeze_account_partial<'info>(
+    ctx: Context<'info, BatchFreezeAccountPartial<'info>>,
+    balances: Vec<u64>,
+) -> Result<()> {
+    require!(!balances.is_empty(), ErrorCode::EmptyBatch);
     require!(
-        ctx.remaining_accounts.len() % 2 == 0,
+        ctx.remaining_accounts.len() == balances.len() * 2,
         ErrorCode::InvalidRemainingAccounts
     );
 
@@ -27,43 +32,62 @@ pub fn batch_unfreeze<'info>(ctx: Context<'info, BatchUnfreezeAccounts<'info>>) 
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
-        common::functionalities::FREEZE_UNFREEZE_ACCOUNT,
+        common::functionalities::FREEZE_PARTIALLY_FREEZE_ACCOUNT,
     )?;
 
     let mint_key = ctx.accounts.mint.key();
     let authority_key = ctx.accounts.authority.key();
-    let authority_info = ctx.accounts.authority.to_account_info();
+    let space = FrozenBalance::DISCRIMINATOR.len() + FrozenBalance::INIT_SPACE;
 
-    for i in 0..ctx.remaining_accounts.len() / 2 {
+    for i in 0..balances.len() {
+        let balance = balances[i];
         let account = &ctx.remaining_accounts[i * 2];
-        let frozen_account_pda = &ctx.remaining_accounts[i * 2 + 1];
+        let frozen_balance_pda = &ctx.remaining_accounts[i * 2 + 1];
         let account_key = account.key();
 
         // ── Verify the client supplied the canonical PDA for this account ────
-        let (expected_pda, _bump) = Pubkey::find_program_address(
+        let (expected_pda, bump) = Pubkey::find_program_address(
             &[
-                pda_seeds::FROZEN_ACCOUNT,
+                pda_seeds::FROZEN_BALANCE,
                 mint_key.as_ref(),
                 account_key.as_ref(),
             ],
             ctx.program_id,
         );
         require_keys_eq!(
-            frozen_account_pda.key(),
+            frozen_balance_pda.key(),
             expected_pda,
-            ErrorCode::FrozenAccountPdaMismatch
+            ErrorCode::FrozenBalancePdaMismatch
         );
 
-        require!(
-            !frozen_account_pda.data_is_empty(),
-            ErrorCode::AccountNotFrozen
-        );
+        // ── Create the PDA on the first call; overwrite on subsequent calls ──
+        if frozen_balance_pda.data_is_empty() {
+            let signer_seeds: &[&[u8]] = &[
+                pda_seeds::FROZEN_BALANCE,
+                mint_key.as_ref(),
+                account_key.as_ref(),
+                &[bump],
+            ];
 
-        pda_utils::close_pda(frozen_account_pda, &authority_info)?;
+            pda_utils::create_or_adopt_pda(
+                &ctx.accounts.authority.to_account_info(),
+                &frozen_balance_pda.to_account_info(),
+                &ctx.accounts.system_program.to_account_info(),
+                ctx.program_id,
+                space,
+                signer_seeds,
+            )?;
+        }
 
-        emit_cpi!(AccountUnfrozen {
+        let mut data = frozen_balance_pda.try_borrow_mut_data()?;
+        let mut cursor = std::io::Cursor::new(data.as_mut());
+        FrozenBalance { balance, bump }.try_serialize(&mut cursor)?;
+        drop(data);
+
+        emit_cpi!(AccountPartiallyFrozen {
             mint: mint_key,
             account: account_key,
+            frozen_balance: balance,
             operator: authority_key,
         });
     }
@@ -73,7 +97,7 @@ pub fn batch_unfreeze<'info>(ctx: Context<'info, BatchUnfreezeAccounts<'info>>) 
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct BatchUnfreezeAccounts<'info> {
+pub struct BatchFreezeAccountPartial<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -112,4 +136,6 @@ pub struct BatchUnfreezeAccounts<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+
+    pub system_program: Program<'info, System>,
 }

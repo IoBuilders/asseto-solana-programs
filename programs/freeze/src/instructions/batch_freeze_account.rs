@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::Discriminator;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{
     pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
@@ -6,12 +7,11 @@ use common::{
 };
 
 use crate::errors::ErrorCode;
-use crate::events::AccountPartialFreezeRemoved;
+use crate::events::AccountFrozen;
+use crate::state::FrozenAccountStatus;
 use common::program_ids as constants;
 
-pub fn batch_remove_partial_freeze<'info>(
-    ctx: Context<'info, BatchRemovePartialFreezeAccounts<'info>>,
-) -> Result<()> {
+pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>>) -> Result<()> {
     require!(!ctx.remaining_accounts.is_empty(), ErrorCode::EmptyBatch);
     require!(
         ctx.remaining_accounts.len() % 2 == 0,
@@ -29,41 +29,57 @@ pub fn batch_remove_partial_freeze<'info>(
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
-        common::functionalities::FREEZE_REMOVE_PARTIAL_FREEZE,
+        common::functionalities::FREEZE_FREEZE_ACCOUNT,
     )?;
 
     let mint_key = ctx.accounts.mint.key();
     let authority_key = ctx.accounts.authority.key();
-    let authority_info = ctx.accounts.authority.to_account_info();
+    let space = FrozenAccountStatus::DISCRIMINATOR.len() + FrozenAccountStatus::INIT_SPACE;
 
     for i in 0..ctx.remaining_accounts.len() / 2 {
         let account = &ctx.remaining_accounts[i * 2];
-        let frozen_balance_pda = &ctx.remaining_accounts[i * 2 + 1];
+        let frozen_account_pda = &ctx.remaining_accounts[i * 2 + 1];
         let account_key = account.key();
 
         // ── Verify the client supplied the canonical PDA for this account ────
-        let (expected_pda, _bump) = Pubkey::find_program_address(
+        let (expected_pda, bump) = Pubkey::find_program_address(
             &[
-                pda_seeds::FROZEN_BALANCE,
+                pda_seeds::FROZEN_ACCOUNT,
                 mint_key.as_ref(),
                 account_key.as_ref(),
             ],
             ctx.program_id,
         );
         require_keys_eq!(
-            frozen_balance_pda.key(),
+            frozen_account_pda.key(),
             expected_pda,
-            ErrorCode::FrozenBalancePdaMismatch
+            ErrorCode::FrozenAccountPdaMismatch
         );
 
-        require!(
-            !frozen_balance_pda.data_is_empty(),
-            ErrorCode::AccountNotPartiallyFrozen
-        );
+        require!(frozen_account_pda.data_is_empty(), ErrorCode::AccountFrozen);
 
-        pda_utils::close_pda(frozen_balance_pda, &authority_info)?;
+        let signer_seeds: &[&[u8]] = &[
+            pda_seeds::FROZEN_ACCOUNT,
+            mint_key.as_ref(),
+            account_key.as_ref(),
+            &[bump],
+        ];
 
-        emit_cpi!(AccountPartialFreezeRemoved {
+        pda_utils::create_or_adopt_pda(
+            &ctx.accounts.authority.to_account_info(),
+            &frozen_account_pda.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+            ctx.program_id,
+            space,
+            signer_seeds,
+        )?;
+
+        let mut data = frozen_account_pda.try_borrow_mut_data()?;
+        let mut cursor = std::io::Cursor::new(data.as_mut());
+        FrozenAccountStatus { bump }.try_serialize(&mut cursor)?;
+        drop(data);
+
+        emit_cpi!(AccountFrozen {
             mint: mint_key,
             account: account_key,
             operator: authority_key,
@@ -75,7 +91,7 @@ pub fn batch_remove_partial_freeze<'info>(
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct BatchRemovePartialFreezeAccounts<'info> {
+pub struct BatchFreezeAccount<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -114,4 +130,6 @@ pub struct BatchRemovePartialFreezeAccounts<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+
+    pub system_program: Program<'info, System>,
 }

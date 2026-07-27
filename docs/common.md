@@ -133,7 +133,7 @@ pub fn create_or_adopt_pda<'info>(
 
 Creates `pda` (owned by `program_id`, sized `space`) the same way Anchor's own `#[account(init, ...)]` constraint does under the hood, tolerating a PDA that already holds lamports. A plain `system_instruction::create_account` CPI unconditionally fails with `AccountAlreadyInUse` if the destination already has `lamports() > 0` — including a zero-data account that was merely sent lamports. Since a PDA's address is derivable by anyone, an attacker can grief any `create_account`-based initialization by pre-funding the target address with a single lamport before the legitimate transaction lands, permanently blocking that exact call.
 
-When `pda` has no lamports yet, this does a plain `create_account` (funds + allocates + assigns atomically). Otherwise it falls back to the same two-step sequence Anchor's `init` uses: top up to rent-exemption via `transfer` (only if needed), then `allocate` + `assign` separately — since `create_account` itself refuses to run against a non-empty-lamports account. Needed anywhere a PDA is created manually via `remaining_accounts` rather than through a typed Anchor account (Anchor's `init` can't target a variable-length account list) — e.g. `freeze::batch_freeze`, which creates one `frozen_account_pda` per entry.
+When `pda` has no lamports yet, this does a plain `create_account` (funds + allocates + assigns atomically). Otherwise it falls back to the same two-step sequence Anchor's `init` uses: top up to rent-exemption via `transfer` (only if needed), then `allocate` + `assign` separately — since `create_account` itself refuses to run against a non-empty-lamports account. Needed anywhere a PDA is created manually via `remaining_accounts` rather than through a typed Anchor account (Anchor's `init` can't target a variable-length account list) — e.g. `freeze::batch_freeze_account`, which creates one `frozen_account_pda` per entry.
 
 ### Function: `close_pda`
 
@@ -141,7 +141,7 @@ When `pda` has no lamports yet, this does a plain `create_account` (funds + allo
 pub fn close_pda(pda: &AccountInfo, authority: &AccountInfo) -> Result<()>
 ```
 
-The manual counterpart to Anchor's `#[account(close = authority)]` constraint: zeroes `pda`'s lamports (crediting them to `authority`) and clears its data. Needed anywhere a PDA is closed via `remaining_accounts` rather than through a typed Anchor account (Anchor's `close` constraint can't target a variable-length account list) — e.g. `freeze::batch_unfreeze` / `freeze::batch_remove_partial_freeze`, each of which closes one PDA per entry. Callers are expected to have already verified `pda` is the expected account and is non-empty; unlike `create_or_adopt_pda`, there's no griefing angle to closing an account, so this is a plain, unconditional operation.
+The manual counterpart to Anchor's `#[account(close = authority)]` constraint: zeroes `pda`'s lamports (crediting them to `authority`) and clears its data. Needed anywhere a PDA is closed via `remaining_accounts` rather than through a typed Anchor account (Anchor's `close` constraint can't target a variable-length account list) — e.g. `freeze::batch_unfreeze_account` / `freeze::batch_unfreeze_account_partial`, each of which closes one PDA per entry. Callers are expected to have already verified `pda` is the expected account and is non-empty; unlike `create_or_adopt_pda`, there's no griefing angle to closing an account, so this is a plain, unconditional operation.
 
 ---
 

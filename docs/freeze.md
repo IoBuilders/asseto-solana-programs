@@ -6,7 +6,7 @@ Controls the Token-2022 freeze authority and all programmatic freezing. Owns the
 
 Exposes two categories of instructions:
 - **Auxiliary** (`block_account`, `unblock_account`): called exclusively via CPI by `mint`, `operations`, and `transfer` as part of their token operation flows. These do not emit events.
-- **Management** (`freeze_account`, `batch_freeze`, `unfreeze_account`, `batch_unfreeze`, `partially_freeze_account`, `batch_partially_freeze`, `remove_partial_freeze`, `batch_remove_partial_freeze`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
+- **Management** (`freeze_account`, `batch_freeze_account`, `unfreeze_account`, `batch_unfreeze_account`, `freeze_account_partial`, `batch_freeze_account_partial`, `unfreeze_account_partial`, `batch_unfreeze_account_partial`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
 
 Also exports two verification functions used by `transfer` to gate transfers.
 
@@ -39,7 +39,7 @@ pub struct FrozenBalance {
 // Seeds: ["frozen_balance", mint, account]
 ```
 
-Records the amount of tokens locked in a partial freeze. Created or updated by `partially_freeze_account`. `require_unfrozen_balance` in `transfer` reads this to enforce that the unfrozen balance covers the transfer amount.
+Records the amount of tokens locked in a partial freeze. Created or updated by `freeze_account_partial`. `require_unfrozen_balance` in `transfer` reads this to enforce that the unfrozen balance covers the transfer amount.
 
 ---
 
@@ -157,7 +157,7 @@ Creates the `frozen_account_pda` marker. After this call `require_unfrozen_accou
 
 ---
 
-## Instruction: `batch_freeze` (Management)
+## Instruction: `batch_freeze_account` (Management)
 
 Freezes, in a single instruction, every account passed in via `remaining_accounts` — the batched equivalent of calling `freeze_account` once per account. Runs the same authorization checks as `freeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountFrozen` event per account. Unlike the singular instruction, there is no per-account `frozen_account_pda` field in the typed accounts struct — Anchor's `init` constraint can't create a variable number of accounts, so each `frozen_account_pda` is created manually inside the handler via `common::pda_utils::create_or_adopt_pda` (signed by the PDA's own seeds), followed by a manual discriminator + Borsh write. `create_or_adopt_pda` tolerates a target PDA that a griefer pre-funded with lamports before the transaction landed — see [`docs/common.md`](common.md#function-create_or_adopt_pda).
 
@@ -252,7 +252,7 @@ Closes the `frozen_account_pda` marker and returns rent to `authority`.
 
 ---
 
-## Instruction: `batch_unfreeze` (Management)
+## Instruction: `batch_unfreeze_account` (Management)
 
 Unfreezes, in a single instruction, every account passed in via `remaining_accounts` — the batched equivalent of calling `unfreeze_account` once per account. Runs the same authorization checks as `unfreeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountUnfrozen` event per account. Unlike the singular instruction, there is no per-account `frozen_account_pda` field in the typed accounts struct — Anchor's `close` constraint can't target a variable number of accounts, so each `frozen_account_pda` is closed manually inside the handler via `common::pda_utils::close_pda` (zeroing lamports and data, returning rent to `authority`) — see [`docs/common.md`](common.md#function-close_pda).
 
@@ -312,7 +312,7 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 
 ---
 
-## Instruction: `partially_freeze_account` (Management)
+## Instruction: `freeze_account_partial` (Management)
 
 ### Parameters
 
@@ -351,9 +351,9 @@ Creates the `frozen_balance_pda` on first call; overwrites `balance` on subseque
 
 ---
 
-## Instruction: `batch_partially_freeze` (Management)
+## Instruction: `batch_freeze_account_partial` (Management)
 
-Partially freezes, in a single instruction, every account passed in via `remaining_accounts`, locking `balances[i]` for the `i`-th account — the batched equivalent of calling `partially_freeze_account` once per account. Runs the same authorization checks as `partially_freeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartiallyFrozen` event per account. Like the singular instruction, a `frozen_balance_pda` that already exists has its balance overwritten rather than rejected. Unlike the singular instruction, there is no per-account `frozen_balance_pda` field in the typed accounts struct — Anchor's `init_if_needed` constraint can't target a variable number of accounts, so each `frozen_balance_pda` is created manually on first use via `common::pda_utils::create_or_adopt_pda` (signed by the PDA's own seeds), which tolerates a target pre-funded by a griefer — see [`docs/common.md`](common.md#function-create_or_adopt_pda).
+Partially freezes, in a single instruction, every account passed in via `remaining_accounts`, locking `balances[i]` for the `i`-th account — the batched equivalent of calling `freeze_account_partial` once per account. Runs the same authorization checks as `freeze_account_partial` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartiallyFrozen` event per account. Like the singular instruction, a `frozen_balance_pda` that already exists has its balance overwritten rather than rejected. Unlike the singular instruction, there is no per-account `frozen_balance_pda` field in the typed accounts struct — Anchor's `init_if_needed` constraint can't target a variable number of accounts, so each `frozen_balance_pda` is created manually on first use via `common::pda_utils::create_or_adopt_pda` (signed by the PDA's own seeds), which tolerates a target pre-funded by a griefer — see [`docs/common.md`](common.md#function-create_or_adopt_pda).
 
 ### Parameters
 
@@ -377,7 +377,7 @@ Two accounts per entry, in order, appended as `remaining_accounts`:
 - `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
 - `require_not_paused` — mint must not be paused.
 - `require_active` — mint must not be deactivated.
-- `require_functionality(FREEZE_PARTIALLY_FREEZE_ACCOUNT)` — the mint's asset-class version must be finalized and enable partial freezing (same functionality bit as `partially_freeze_account`; batching doesn't get its own bit).
+- `require_functionality(FREEZE_PARTIALLY_FREEZE_ACCOUNT)` — the mint's asset-class version must be finalized and enable partial freezing (same functionality bit as `freeze_account_partial`; batching doesn't get its own bit).
 - Per entry: the supplied `frozen_balance_pda` must match the address `Pubkey::find_program_address(["frozen_balance", mint, account], freeze_program_id)` derives, else `FrozenBalancePdaMismatch`.
 
 ### Accounts
@@ -412,7 +412,7 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 
 ---
 
-## Instruction: `remove_partial_freeze` (Management)
+## Instruction: `unfreeze_account_partial` (Management)
 
 No parameters.
 
@@ -447,9 +447,9 @@ Closes the `frozen_balance_pda` marker and returns rent to `authority`, lifting 
 
 ---
 
-## Instruction: `batch_remove_partial_freeze` (Management)
+## Instruction: `batch_unfreeze_account_partial` (Management)
 
-Removes the partial freeze, in a single instruction, from every account passed in via `remaining_accounts` — the batched equivalent of calling `remove_partial_freeze` once per account. Named after `remove_partial_freeze` rather than literally "batch unfreeze" for discoverability, matching every other `batch_*` instruction's `batch_<singular name>` pattern. Runs the same authorization checks as `remove_partial_freeze` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartialFreezeRemoved` event per account. Unlike the singular instruction, there is no per-account `frozen_balance_pda` field in the typed accounts struct — Anchor's `close` constraint can't target a variable number of accounts, so each `frozen_balance_pda` is closed manually inside the handler via `common::pda_utils::close_pda`.
+Removes the partial freeze, in a single instruction, from every account passed in via `remaining_accounts` — the batched equivalent of calling `unfreeze_account_partial` once per account. Runs the same authorization checks as `unfreeze_account_partial` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartialFreezeRemoved` event per account. Unlike the singular instruction, there is no per-account `frozen_balance_pda` field in the typed accounts struct — Anchor's `close` constraint can't target a variable number of accounts, so each `frozen_balance_pda` is closed manually inside the handler via `common::pda_utils::close_pda`.
 
 ### Parameters
 
@@ -471,9 +471,9 @@ Two accounts per entry, in order, appended as `remaining_accounts`:
 - `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
 - `require_not_paused` — mint must not be paused.
 - `require_active` — mint must not be deactivated.
-- `require_functionality(FREEZE_REMOVE_PARTIAL_FREEZE)` — the mint's asset-class version must be finalized and enable removing partial freezes (same functionality bit as `remove_partial_freeze`; batching doesn't get its own bit).
+- `require_functionality(FREEZE_REMOVE_PARTIAL_FREEZE)` — the mint's asset-class version must be finalized and enable removing partial freezes (same functionality bit as `unfreeze_account_partial`; batching doesn't get its own bit).
 - Per entry: the supplied `frozen_balance_pda` must match the address `Pubkey::find_program_address(["frozen_balance", mint, account], freeze_program_id)` derives, else `FrozenBalancePdaMismatch`.
-- Per entry: `frozen_balance_pda` must already exist, else `AccountNotPartiallyFrozen` (mirrors `remove_partial_freeze`'s behaviour of failing when the typed account can't be resolved).
+- Per entry: `frozen_balance_pda` must already exist, else `AccountNotPartiallyFrozen` (mirrors `unfreeze_account_partial`'s behaviour of failing when the typed account can't be resolved).
 
 ### Accounts
 

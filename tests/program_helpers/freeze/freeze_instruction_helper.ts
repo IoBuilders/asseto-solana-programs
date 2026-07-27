@@ -68,21 +68,21 @@ export async function getAccountFrozenEvent(signature: string) {
   return getEvent<AccountFrozenEvent>(getFreezeProgram(), signature, "accountFrozen");
 }
 
-// ── batch_freeze ───────────────────────────────────────────────────────────────
+// ── batch_freeze_account ─────────────────────────────────────────────────────────
 
-export type BatchFreezeAccountsContext = MintWriteContext & {
+export type BatchFreezeAccountContext = MintWriteContext & {
   accounts: PublicKey[];
 };
 
-type BatchFreezeAccountsArgs = {
+type BatchFreezeAccountArgs = {
   // Overrides the remaining accounts. Defaults to `[account, frozenAccountPda]` per
   // account, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
 
-export async function batchFreeze(
-  callContext: BatchFreezeAccountsContext,
-  args?: BatchFreezeAccountsArgs
+export async function batchFreezeAccount(
+  callContext: BatchFreezeAccountContext,
+  args?: BatchFreezeAccountArgs
 ): Promise<string> {
   // Two remaining accounts per entry: the account to freeze (read-only) and its
   // not-yet-created frozen_account_pda (writable) — the handler creates the
@@ -99,7 +99,7 @@ export async function batchFreeze(
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   return await program.methods
-    .batchFreeze()
+    .batchFreezeAccount()
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
@@ -176,21 +176,21 @@ export async function getAccountUnfrozenEvent(signature: string) {
   return getEvent<AccountUnfrozenEvent>(getFreezeProgram(), signature, "accountUnfrozen");
 }
 
-// ── batch_unfreeze ───────────────────────────────────────────────────────────────
+// ── batch_unfreeze_account ───────────────────────────────────────────────────────
 
-export type BatchUnfreezeAccountsContext = MintWriteContext & {
+export type BatchUnfreezeAccountContext = MintWriteContext & {
   accounts: PublicKey[];
 };
 
-type BatchUnfreezeAccountsArgs = {
+type BatchUnfreezeAccountArgs = {
   // Overrides the remaining accounts. Defaults to `[account, frozenAccountPda]` per
   // account, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
 
-export async function batchUnfreeze(
-  callContext: BatchUnfreezeAccountsContext,
-  args?: BatchUnfreezeAccountsArgs
+export async function batchUnfreezeAccount(
+  callContext: BatchUnfreezeAccountContext,
+  args?: BatchUnfreezeAccountArgs
 ): Promise<string> {
   // Two remaining accounts per entry: the account being unfrozen (read-only) and
   // its existing frozen_account_pda (writable) — closed manually since Anchor's
@@ -207,7 +207,7 @@ export async function batchUnfreeze(
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   return await program.methods
-    .batchUnfreeze()
+    .batchUnfreezeAccount()
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
@@ -232,28 +232,28 @@ export async function getAccountUnfrozenEvents(signature: string): Promise<Accou
     .map((event) => event.data as AccountUnfrozenEvent);
 }
 
-// ── partially_freeze_account ───────────────────────────────────────────────────
+// ── freeze_account_partial ──────────────────────────────────────────────────────
 
-export type PartiallyFreezeAccountContext = MintWriteContext & {
+export type FreezeAccountPartialContext = MintWriteContext & {
   account: PublicKey;
 };
 
-type PartiallyFreezeAccountArgs = {
+type FreezeAccountPartialArgs = {
   balance?: anchor.BN;
 };
 
-function getDefaultPartiallyFreezeAccountArgs(): Required<PartiallyFreezeAccountArgs> {
+function getDefaultFreezeAccountPartialArgs(): Required<FreezeAccountPartialArgs> {
   return {
     balance: new anchor.BN(1),
   };
 }
 
-export async function partiallyFreezeAccount(
-  callContext: PartiallyFreezeAccountContext,
-  args?: PartiallyFreezeAccountArgs
+export async function freezeAccountPartial(
+  callContext: FreezeAccountPartialContext,
+  args?: FreezeAccountPartialArgs
 ): Promise<{ signature: string }> {
-  const effectiveArgs: Required<PartiallyFreezeAccountArgs> = {
-    ...getDefaultPartiallyFreezeAccountArgs(),
+  const effectiveArgs: Required<FreezeAccountPartialArgs> = {
+    ...getDefaultFreezeAccountPartialArgs(),
     ...args,
   };
 
@@ -264,7 +264,7 @@ export async function partiallyFreezeAccount(
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
-    .partiallyFreezeAccount(effectiveArgs.balance)
+    .freezeAccountPartial(effectiveArgs.balance)
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
@@ -303,13 +303,13 @@ export async function getAccountPartiallyFrozenEvent(signature: string) {
   return getEvent<AccountPartiallyFrozenEvent>(getFreezeProgram(), signature, "accountPartiallyFrozen");
 }
 
-// ── batch_partially_freeze ──────────────────────────────────────────────────────
+// ── batch_freeze_account_partial ─────────────────────────────────────────────────
 
-export type BatchPartiallyFreezeAccountsContext = MintWriteContext & {
+export type BatchFreezeAccountPartialContext = MintWriteContext & {
   accounts: PublicKey[];
 };
 
-type BatchPartiallyFreezeAccountsArgs = {
+type BatchFreezeAccountPartialArgs = {
   // The `balances` instruction argument. Defaults to `1` per account.
   balances?: anchor.BN[];
   // Overrides the remaining accounts. Defaults to `[account, frozenBalancePda]` per
@@ -317,9 +317,9 @@ type BatchPartiallyFreezeAccountsArgs = {
   remainingAccounts?: AccountMeta[];
 };
 
-export async function batchPartiallyFreeze(
-  callContext: BatchPartiallyFreezeAccountsContext,
-  args?: BatchPartiallyFreezeAccountsArgs
+export async function batchFreezeAccountPartial(
+  callContext: BatchFreezeAccountPartialContext,
+  args?: BatchFreezeAccountPartialArgs
 ): Promise<string> {
   const balances = args?.balances ?? callContext.accounts.map(() => new anchor.BN(1));
 
@@ -338,7 +338,7 @@ export async function batchPartiallyFreeze(
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   return await program.methods
-    .batchPartiallyFreeze(balances)
+    .batchFreezeAccountPartial(balances)
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
@@ -364,14 +364,14 @@ export async function getAccountPartiallyFrozenEvents(signature: string): Promis
     .map((event) => event.data as AccountPartiallyFrozenEvent);
 }
 
-// ── remove_partial_freeze ──────────────────────────────────────────────────────
+// ── unfreeze_account_partial ────────────────────────────────────────────────────
 
-export type PartiallyUnfreezeAccountContext = MintWriteContext & {
+export type UnfreezeAccountPartialContext = MintWriteContext & {
   account: PublicKey;
 };
 
-export async function removePartialFreeze(
-  callContext: PartiallyUnfreezeAccountContext
+export async function unfreezeAccountPartial(
+  callContext: UnfreezeAccountPartialContext
 ): Promise<{ signature: string }> {
   const program = getFreezeProgram();
   // The asset-class version PDA is derived from the ids recorded in the mint's
@@ -380,7 +380,7 @@ export async function removePartialFreeze(
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
-    .removePartialFreeze()
+    .unfreezeAccountPartial()
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
@@ -418,21 +418,21 @@ export async function getAccountPartialFreezeRemovedEvent(signature: string) {
   return getEvent<AccountPartialFreezeRemovedEvent>(getFreezeProgram(), signature, "accountPartialFreezeRemoved");
 }
 
-// ── batch_remove_partial_freeze ─────────────────────────────────────────────────
+// ── batch_unfreeze_account_partial ──────────────────────────────────────────────
 
-export type BatchRemovePartialFreezeAccountsContext = MintWriteContext & {
+export type BatchUnfreezeAccountPartialContext = MintWriteContext & {
   accounts: PublicKey[];
 };
 
-type BatchRemovePartialFreezeAccountsArgs = {
+type BatchUnfreezeAccountPartialArgs = {
   // Overrides the remaining accounts. Defaults to `[account, frozenBalancePda]` per
   // account, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
 
-export async function batchRemovePartialFreeze(
-  callContext: BatchRemovePartialFreezeAccountsContext,
-  args?: BatchRemovePartialFreezeAccountsArgs
+export async function batchUnfreezeAccountPartial(
+  callContext: BatchUnfreezeAccountPartialContext,
+  args?: BatchUnfreezeAccountPartialArgs
 ): Promise<string> {
   // Two remaining accounts per entry: the account whose partial freeze is being
   // removed (read-only) and its existing frozen_balance_pda (writable) — closed
@@ -449,7 +449,7 @@ export async function batchRemovePartialFreeze(
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   return await program.methods
-    .batchRemovePartialFreeze()
+    .batchUnfreezeAccountPartial()
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
