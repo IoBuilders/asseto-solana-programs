@@ -683,7 +683,11 @@ describe("freeze", () => {
           balances[i].toString(),
           `event frozenBalance should match for account ${i}`
         );
-        assert.equal(event!.operator.toBase58(), authority.publicKey.toBase58(), "event operator should match authority");
+        assert.equal(
+          event!.operator.toBase58(),
+          authority.publicKey.toBase58(),
+          "event operator should match authority"
+        );
       }
     });
 
