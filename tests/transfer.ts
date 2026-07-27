@@ -20,7 +20,13 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
-import { buildVerifyTransferInstruction, transfer, verifyTransfer } from "./program_helpers/transfer_helper";
+import {
+  batchTransfer,
+  buildBatchVerifyTransferInstruction,
+  buildVerifyTransferInstruction,
+  transfer,
+  verifyTransfer,
+} from "./program_helpers/transfer_helper";
 import { beforeEach } from "mocha";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -641,6 +647,163 @@ describe("transfer", () => {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+      }
+    });
+  });
+
+  describe("batch_transfer", async () => {
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: fans tokens out from one source to many destinations", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+
+      const destinations: PublicKey[] = [];
+      for (let i = 0; i < 3; i++) {
+        destinations.push(await createTokenAccount({ mint, owner: Keypair.generate().publicKey }));
+      }
+      const amounts = [
+        new anchor.BN(100 * 10 ** MINT_DECIMALS),
+        new anchor.BN(50 * 10 ** MINT_DECIMALS),
+        new anchor.BN(30 * 10 ** MINT_DECIMALS),
+      ];
+      const total = amounts.reduce((acc, a) => acc.add(a), new anchor.BN(0));
+      const supplyBefore = (await getMint(mint)).supply;
+
+      await batchTransfer({ mint, source, sourceOwner, destinations, signers: [sourceOwnerKeypair] }, { amounts });
+
+      const sourceAfter = (await getTokenAccount(source)).amount;
+      assert.equal(
+        sourceAfter.toString(),
+        MINT_AMOUNT.sub(total).toString(),
+        "source balance should be reduced by the sum of the batch"
+      );
+      for (let i = 0; i < destinations.length; i++) {
+        const destAfter = (await getTokenAccount(destinations[i])).amount;
+        assert.equal(destAfter.toString(), amounts[i].toString(), `destination ${i} should receive amounts[${i}]`);
+      }
+      assert.equal(
+        (await getMint(mint)).supply.toString(),
+        supplyBefore.toString(),
+        "total supply should be unchanged after a batch transfer"
+      );
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: fails with EmptyBatch when amounts is empty", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+
+      try {
+        await batchTransfer(
+          { mint, source, sourceOwner, destinations: [], signers: [sourceOwnerKeypair] },
+          { amounts: [] }
+        );
+        assert.fail("Expected EmptyBatch error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "EmptyBatch", "error code should be EmptyBatch");
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: fails with InvalidRemainingAccounts when destination count doesn't match amounts", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const d1 = await createTokenAccount({ mint, owner: destinationOwner });
+      const d2 = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+      const amounts = [new anchor.BN(1), new anchor.BN(1)];
+
+      try {
+        // batch_verify passes (2 pairs), but batch_transfer is given only 1 destination for 2 amounts.
+        await batchTransfer(
+          { mint, source, sourceOwner, destinations: [d1, d2], signers: [sourceOwnerKeypair] },
+          { amounts, transferRemainingAccounts: [{ pubkey: d1, isWritable: true, isSigner: false }] }
+        );
+        assert.fail("Expected InvalidRemainingAccounts error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal(
+          (err as AnchorError).error.errorCode.code,
+          "InvalidRemainingAccounts",
+          "error code should be InvalidRemainingAccounts"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: fails when N-1 is a single verify_transfer instead of batch_verify_transfer", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const destination = await createTokenAccount({ mint, owner: destinationOwner });
+      const amount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
+
+      // Pair the batch with the SINGULAR verify_transfer — the hook must reject it
+      // because N-1 is not batch_verify_transfer.
+      const singleVerifyIx = await buildVerifyTransferInstruction(
+        { mint, source, sourceOwner, destination },
+        { amount }
+      );
+
+      try {
+        await batchTransfer(
+          {
+            mint,
+            source,
+            sourceOwner,
+            destinations: [destination],
+            preInstructions: [singleVerifyIx],
+            signers: [sourceOwnerKeypair],
+          },
+          { amounts: [amount] }
+        );
+        assert.fail("Expected PrevInstructionNotVerifyTransfer error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal(
+          (err as AnchorError).error.errorCode.code,
+          "PrevInstructionNotVerifyTransfer",
+          "error code should be PrevInstructionNotVerifyTransfer"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: rejects a transfer batch that duplicates a leg beyond what verify declared", async () => {
+      // Bypass attempt: verify a single (dest, amount) leg, but transfer it
+      // twice. Per-leg matching alone would let both transfers map onto the one
+      // verified leg — draining more than verify's summed balance check covered.
+      // The identical-batch guard must reject it.
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const destination = await createTokenAccount({ mint, owner: destinationOwner });
+      const amount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
+
+      // verify declares ONE leg; batch_transfer declares the SAME leg TWICE.
+      const verifyOneLegIx = await buildBatchVerifyTransferInstruction(
+        { mint, source, sourceOwner, destinations: [destination], signers: [sourceOwnerKeypair] },
+        { amounts: [amount] }
+      );
+
+      try {
+        await batchTransfer(
+          {
+            mint,
+            source,
+            sourceOwner,
+            destinations: [destination, destination],
+            preInstructions: [verifyOneLegIx],
+            signers: [sourceOwnerKeypair],
+          },
+          { amounts: [amount, amount] }
+        );
+        assert.fail("Expected CurrentInstructionArgumentMismatch error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal(
+          (err as AnchorError).error.errorCode.code,
+          "CurrentInstructionArgumentMismatch",
+          "the verify/transfer batches must be identical; a duplicated transfer leg must be rejected"
+        );
       }
     });
   });
