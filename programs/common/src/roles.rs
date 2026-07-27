@@ -14,6 +14,7 @@ pub const ROLE_PAUSER: u16 = 6;
 pub const ROLE_FREEZE_MANAGER: u16 = 7;
 pub const ROLE_DEACTIVATE: u16 = 8;
 pub const ROLE_CUSTOM_DATA_MANAGER: u16 = 9;
+pub const ROLE_CAP: u16 = 10;
 
 #[cfg(test)]
 mod tests {

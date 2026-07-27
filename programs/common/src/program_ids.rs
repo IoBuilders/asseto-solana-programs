@@ -22,6 +22,7 @@ pub const TREASURY_PROGRAM_ID: Pubkey = pubkey!("G71RRNtr2PLZ9Tbmp9CKnxghf3aMoas
 pub const FACTORY_PROGRAM_ID: Pubkey = pubkey!("FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5");
 pub const ACCESS_CONTROL_PROGRAM_ID: Pubkey =
     pubkey!("GpyjQqBWux3JYqxKCXFrDbWZmhFWBJWVaVivkBW2DL2w");
+pub const CAP_PROGRAM_ID: Pubkey = pubkey!("64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm");
 
 #[cfg(test)]
 mod tests {
@@ -45,5 +46,6 @@ mod tests {
         assert_eq!(TREASURY_PROGRAM_ID, treasury::ID);
         assert_eq!(FACTORY_PROGRAM_ID, factory::ID);
         assert_eq!(ACCESS_CONTROL_PROGRAM_ID, access_control::ID);
+        assert_eq!(CAP_PROGRAM_ID, cap::ID);
     }
 }

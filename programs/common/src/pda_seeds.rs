@@ -134,3 +134,6 @@ pub const ASSET_CLASS_VERSION: &[u8] = b"asset_class_version";
 
 /********************************* ACCESS CONTROL *********************************/
 pub const ROLES: &[u8] = b"roles";
+
+/*********************************** CAP ************************************/
+pub const MAX_SUPPLY: &[u8] = b"max_supply";

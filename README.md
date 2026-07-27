@@ -158,6 +158,7 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 | `treasury` | `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA` |
 | `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
 | `access-control` | `GpyjQqBWux3JYqxKCXFrDbWZmhFWBJWVaVivkBW2DL2w` |
+| `cap` | `64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm` |
 
 ### ID sharing pattern
 
