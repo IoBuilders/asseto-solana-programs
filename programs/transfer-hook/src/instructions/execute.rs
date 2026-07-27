@@ -31,20 +31,30 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
     let curr_ix = load_instruction_at_checked(current_idx as usize, &sysvar)
         .map_err(|_| error!(TransferHookError::InstructionsSysvarUnreadable))?;
 
-    // N-1 must be transfer::verify_transfer.
     require!(
         prev_ix.program_id == TRANSFER_PROGRAM_ID,
         TransferHookError::PrevInstructionWrongProgram
     );
-    assert_matches_transfer_ix(
-        &prev_ix,
-        &constants::VERIFY_TRANSFER_DISCRIMINATOR,
-        &expected,
-        IntrospectionTarget::PrevVerifyTransfer,
-    )?;
 
-    // N must be transfer::transfer OR Token-2022::transfer_checked.
-    if curr_ix.program_id == TRANSFER_PROGRAM_ID {
+    let curr_is_batch = curr_ix.program_id == TRANSFER_PROGRAM_ID
+        && curr_ix.data.len() >= 8
+        && curr_ix.data[0..8] == constants::BATCH_TRANSFER_DISCRIMINATOR;
+
+    if curr_is_batch {
+        assert_matches_batch_verify_transfer(&prev_ix, &expected)?;
+        assert_matches_batch_transfer(&curr_ix, &expected)?;
+        // verify (N-1) and transfer (N) must describe the IDENTICAL ordered
+        // batch. Per-leg existence alone lets several transfer legs collapse
+        // onto one verified leg, so verify's summed balance / partial-freeze
+        // check would cover less than what is actually moved.
+        assert_batch_pair_identical(&prev_ix, &curr_ix)?;
+    } else if curr_ix.program_id == TRANSFER_PROGRAM_ID {
+        assert_matches_transfer_ix(
+            &prev_ix,
+            &constants::VERIFY_TRANSFER_DISCRIMINATOR,
+            &expected,
+            IntrospectionTarget::PrevVerifyTransfer,
+        )?;
         assert_matches_transfer_ix(
             &curr_ix,
             &constants::TRANSFER_DISCRIMINATOR,
@@ -52,6 +62,12 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
             IntrospectionTarget::CurrentTransfer,
         )?;
     } else if curr_ix.program_id == anchor_spl::token_2022::ID {
+        assert_matches_transfer_ix(
+            &prev_ix,
+            &constants::VERIFY_TRANSFER_DISCRIMINATOR,
+            &expected,
+            IntrospectionTarget::PrevVerifyTransfer,
+        )?;
         assert_matches_token2022_transfer_checked(&curr_ix, &expected)?;
     } else {
         msg!(
@@ -153,6 +169,103 @@ fn require_account(
         ix.accounts.len() > idx && ix.accounts[idx].pubkey == *expected,
         target.err_args_mismatch()
     );
+    Ok(())
+}
+
+// Borsh layout of the `Vec<u64> amounts` arg: [disc(8)][len: u32 LE][len × u64].
+fn batch_len(data: &[u8]) -> Option<usize> {
+    if data.len() < 12 {
+        return None;
+    }
+    let n = u32::from_le_bytes(data[8..12].try_into().ok()?) as usize;
+    if data.len() != 12usize.checked_add(n.checked_mul(8)?)? {
+        return None;
+    }
+    Some(n)
+}
+
+fn batch_amount_at(data: &[u8], i: usize) -> u64 {
+    let off = 12 + i * 8;
+    u64::from_le_bytes(data[off..off + 8].try_into().unwrap())
+}
+
+fn assert_matches_batch_transfer(ix: &Instruction, expected: &ExpectedTransfer) -> Result<()> {
+    let n = batch_len(&ix.data)
+        .ok_or_else(|| error!(TransferHookError::CurrentInstructionArgumentMismatch))?;
+    require!(
+        n > 0 && ix.accounts.len() >= n + 3,
+        TransferHookError::CurrentInstructionArgumentMismatch
+    );
+    require!(
+        ix.accounts[1].pubkey == expected.source && ix.accounts[2].pubkey == expected.mint,
+        TransferHookError::CurrentInstructionArgumentMismatch
+    );
+
+    let dest_start = ix.accounts.len() - n;
+    for i in 0..n {
+        if ix.accounts[dest_start + i].pubkey == expected.destination
+            && batch_amount_at(&ix.data, i) == expected.amount
+        {
+            return Ok(());
+        }
+    }
+    err!(TransferHookError::CurrentInstructionArgumentMismatch)
+}
+
+fn assert_matches_batch_verify_transfer(
+    ix: &Instruction,
+    expected: &ExpectedTransfer,
+) -> Result<()> {
+    require!(
+        ix.data.len() >= 8 && ix.data[0..8] == constants::BATCH_VERIFY_TRANSFER_DISCRIMINATOR,
+        TransferHookError::PrevInstructionNotVerifyTransfer
+    );
+    let n = batch_len(&ix.data)
+        .ok_or_else(|| error!(TransferHookError::PrevInstructionArgumentMismatch))?;
+    require!(
+        n > 0 && ix.accounts.len() >= 2 * n + 3,
+        TransferHookError::PrevInstructionArgumentMismatch
+    );
+    require!(
+        ix.accounts[1].pubkey == expected.source && ix.accounts[2].pubkey == expected.mint,
+        TransferHookError::PrevInstructionArgumentMismatch
+    );
+
+    let dest_start = ix.accounts.len() - 2 * n;
+    for i in 0..n {
+        if ix.accounts[dest_start + 2 * i].pubkey == expected.destination
+            && batch_amount_at(&ix.data, i) == expected.amount
+        {
+            return Ok(());
+        }
+    }
+    err!(TransferHookError::PrevInstructionArgumentMismatch)
+}
+
+fn assert_batch_pair_identical(prev: &Instruction, curr: &Instruction) -> Result<()> {
+    // Identical `amounts` vectors (skip the 8-byte discriminator): same length,
+    // values, and order.
+    require!(
+        prev.data.len() >= 8 && curr.data.len() >= 8 && prev.data[8..] == curr.data[8..],
+        TransferHookError::CurrentInstructionArgumentMismatch
+    );
+    let n = batch_len(&curr.data)
+        .ok_or_else(|| error!(TransferHookError::CurrentInstructionArgumentMismatch))?;
+    require!(
+        curr.accounts.len() >= n + 3 && prev.accounts.len() >= 2 * n + 3,
+        TransferHookError::CurrentInstructionArgumentMismatch
+    );
+    // Identical destination order: transfer's trailing `n` vs verify's trailing
+    // `2n` (destinations at even offsets of the (destination, whitelist) pairs).
+    let curr_dest_start = curr.accounts.len() - n;
+    let prev_dest_start = prev.accounts.len() - 2 * n;
+    for i in 0..n {
+        require!(
+            curr.accounts[curr_dest_start + i].pubkey
+                == prev.accounts[prev_dest_start + 2 * i].pubkey,
+            TransferHookError::CurrentInstructionArgumentMismatch
+        );
+    }
     Ok(())
 }
 

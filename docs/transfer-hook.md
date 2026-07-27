@@ -147,16 +147,34 @@ checks effectively gate the *outer* transaction shape.
    - `prev_ix.data[8..16]` parsed as little-endian `u64` equals `expected.amount`,
      and `prev_ix.accounts[1..=3]` equal `expected.source / destination / mint`
      (any mismatch → `PrevInstructionArgumentMismatch`).
-5. **Current-instruction check (must be `transfer::transfer` OR
-   `Token-2022::TransferChecked`):**
-   - If `curr_ix.program_id == TRANSFER_PROGRAM_ID`: same Anchor layout
-     check as step 4 but against `TRANSFER_DISCRIMINATOR` and using the
-     `Current*` error variants.
-   - Else if `curr_ix.program_id == TOKEN_2022_PROGRAM_ID`: SPL layout —
-     1-byte tag (`12`), 8-byte amount, 1-byte decimals; accounts at
-     indices 0/1/2 = source / mint / destination (any mismatch →
-     `CurrentInstructionNotTransferOrTransferChecked` for tag,
-     `CurrentInstructionArgumentMismatch` for accounts/amount).
+5. **Dispatch on the current instruction's shape.** The current top-level
+   instruction determines which pair the hook is looking at:
+   - **Batch pair** — `curr_ix.program_id == TRANSFER_PROGRAM_ID` and
+     `curr_ix.data[0..8] == BATCH_TRANSFER_DISCRIMINATOR`: N-1 must be
+     `batch_verify_transfer` and N must be `batch_transfer`. Because one batch
+     fires the hook once per leg, neither instruction can be described by a
+     single fixed triple — so instead the hook parses the Borsh `Vec<u64>
+     amounts` (`[disc(8)][len: u32 LE][len × u64]`) and requires the hooked
+     `(source, destination, amount)` to appear as some leg `i` in **both**:
+     - `batch_transfer` (N): `source` @1, `mint` @2, destinations as the
+       trailing `n` accounts → match `accounts[len-n+i] == destination &&
+       amounts[i] == amount`.
+     - `batch_verify_transfer` (N-1): `source` @1, `mint` @2, `(destination,
+       whitelist)` pairs as the trailing `2n` accounts → match
+       `accounts[len-2n+2i] == destination && amounts[i] == amount`.
+
+     Every executed leg is checked independently (the hook runs `n` times), so
+     any leg not present in the verified batch reverts the whole transaction.
+     Failures surface as `Prev*` / `Current*ArgumentMismatch` (or
+     `PrevInstructionNotVerifyTransfer` if N-1 isn't `batch_verify_transfer`).
+   - **Single `transfer::transfer`** — `curr_ix.program_id ==
+     TRANSFER_PROGRAM_ID` (non-batch discriminator): N-1 must be
+     `verify_transfer`; same Anchor layout check as step 4 against
+     `TRANSFER_DISCRIMINATOR` with the `Current*` error variants.
+   - **Bare `Token-2022::TransferChecked`** — `curr_ix.program_id ==
+     TOKEN_2022_PROGRAM_ID`: N-1 must be `verify_transfer`; SPL layout —
+     1-byte tag (`12`), 8-byte amount, 1-byte decimals; accounts at indices
+     0/1/2 = source / mint / destination.
    - Else → `CurrentInstructionUnknownProgram`.
 6. `require_functionality(asset_class_version_pda, TRANSFER_HOOK_EXECUTE)` —
    the asset-class version this mint is pinned to must have the hook's
@@ -236,7 +254,9 @@ use common::program_ids as constants;
 // the data of the introspected instructions. Must be kept in sync with
 // transfer's #[program] (Anchor derives them from the Rust function
 // names sha256("global:<name>")[..8]).
-pub const VERIFY_TRANSFER_DISCRIMINATOR:    [u8; 8] = [...];
-pub const TRANSFER_DISCRIMINATOR:           [u8; 8] = [...];
-pub const TOKEN_2022_TRANSFER_CHECKED_TAG:  u8       = 12;
+pub const VERIFY_TRANSFER_DISCRIMINATOR:        [u8; 8] = [...];
+pub const TRANSFER_DISCRIMINATOR:               [u8; 8] = [...];
+pub const BATCH_VERIFY_TRANSFER_DISCRIMINATOR:  [u8; 8] = [...];
+pub const BATCH_TRANSFER_DISCRIMINATOR:         [u8; 8] = [...];
+pub const TOKEN_2022_TRANSFER_CHECKED_TAG:      u8       = 12;
 ```

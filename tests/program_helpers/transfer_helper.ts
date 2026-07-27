@@ -1,4 +1,4 @@
-import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
 import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
@@ -156,4 +156,98 @@ export async function getTransferAccounts(callContext: Omit<TransferContext, "de
     instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
     token2022Program: TOKEN_2022_PROGRAM_ID,
   };
+}
+
+// ── batch_verify_transfer / batch_transfer (one source → many destinations) ──
+
+export type BatchTransferContext = BaseWriteContext &
+  MintContext & {
+    sourceOwner: PublicKey;
+    source: PublicKey;
+    destinations: PublicKey[];
+    preInstructions?: TransactionInstruction[];
+  };
+
+export type BatchTransferArgs = {
+  // The `amounts` instruction argument. Defaults to `1` per destination.
+  amounts?: anchor.BN[];
+  // Overrides batch_verify_transfer's remaining accounts. Defaults to
+  // `[destination, whitelistPda]` per destination. Provide to exercise error paths.
+  verifyRemainingAccounts?: AccountMeta[];
+  // Overrides batch_transfer's remaining accounts. Defaults to `[destination (writable)]`
+  // per destination. Provide to exercise error paths.
+  transferRemainingAccounts?: AccountMeta[];
+};
+
+function defaultBatchAmounts(callContext: BatchTransferContext, args?: BatchTransferArgs): anchor.BN[] {
+  return args?.amounts ?? callContext.destinations.map(() => new anchor.BN(1));
+}
+
+export async function buildBatchVerifyTransferInstruction(
+  callContext: BatchTransferContext,
+  args?: BatchTransferArgs
+): Promise<TransactionInstruction> {
+  const amounts = defaultBatchAmounts(callContext, args);
+
+  const remainingAccounts: AccountMeta[] =
+    args?.verifyRemainingAccounts ??
+    callContext.destinations.flatMap((destination) => [
+      { pubkey: destination, isWritable: false, isSigner: false },
+      { pubkey: whitelistPda(callContext.mint, destination), isWritable: false, isSigner: false },
+    ]);
+
+  return await getTransferProgram()
+    .methods.batchVerifyTransfer(amounts)
+    .accountsStrict({
+      sourceOwner: callContext.sourceOwner,
+      source: callContext.source,
+      mint: callContext.mint,
+      deactivatePda: deactivatePda(callContext.mint),
+      transferControlModePda: transferControlModePda(callContext.mint),
+      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
+      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
+      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
+    })
+    .remainingAccounts(remainingAccounts)
+    .instruction();
+}
+
+export async function batchTransfer(callContext: BatchTransferContext, args?: BatchTransferArgs): Promise<void> {
+  const amounts = defaultBatchAmounts(callContext, args);
+
+  const preInstructions = callContext.preInstructions ?? [
+    await buildBatchVerifyTransferInstruction(callContext, { ...args, amounts }),
+  ];
+
+  const transferRemainingAccounts: AccountMeta[] =
+    args?.transferRemainingAccounts ??
+    callContext.destinations.map((destination) => ({ pubkey: destination, isWritable: true, isSigner: false }));
+
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
+
+  await getTransferProgram()
+    .methods.batchTransfer(amounts)
+    .accountsStrict({
+      sourceOwner: callContext.sourceOwner,
+      source: callContext.source,
+      mint: callContext.mint,
+      transferAuthority: pdaUtils.transferAuthorityPda(callContext.mint),
+      freezeAuthority: freezeAuthorityPda(callContext.mint),
+      extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
+      transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+      freezeProgram: FREEZE_PROGRAM_ID,
+      deployProgram: DEPLOY_PROGRAM_ID,
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      factoryProgram: FACTORY_PROGRAM_ID,
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
+      instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+    })
+    .remainingAccounts(transferRemainingAccounts)
+    .preInstructions(preInstructions)
+    .signers(callContext?.signers ?? [])
+    .rpc({ commitment: "confirmed" });
 }
