@@ -11,3 +11,4 @@ export const ROLE_PAUSER = 6;
 export const ROLE_FREEZE_MANAGER = 7;
 export const ROLE_DEACTIVATE = 8;
 export const ROLE_CUSTOM_DATA_MANAGER = 9;
+export const ROLE_CAP = 10;

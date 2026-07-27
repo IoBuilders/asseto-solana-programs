@@ -35,6 +35,7 @@ coupon           = { path = "../coupon",           features = ["cpi"] }
 treasury         = { path = "../treasury",         features = ["cpi"] }
 factory          = { path = "../factory",          features = ["cpi"] }
 access-control   = { path = "../access-control",   features = ["cpi"] }
+cap              = { path = "../cap",              features = ["cpi"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }

@@ -6,4 +6,6 @@ pub enum MintError {
     EmptyBatch,
     #[msg("Expected exactly two remaining accounts (destination + whitelist PDA) per destination")]
     InvalidRemainingAccounts,
+    #[msg("The sum of the batch amounts overflows u64")]
+    AmountOverflow,
 }
