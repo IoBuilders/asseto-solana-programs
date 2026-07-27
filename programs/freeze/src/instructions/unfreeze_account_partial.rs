@@ -8,7 +8,7 @@ use crate::state::FrozenBalance;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
-pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
+pub fn unfreeze_account_partial(ctx: Context<UnfreezeAccountPartial>) -> Result<()> {
     // ── Verify caller holds the freeze-manager role ───────────────────────────
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
@@ -37,7 +37,7 @@ pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct RemovePartialFreeze<'info> {
+pub struct UnfreezeAccountPartial<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 

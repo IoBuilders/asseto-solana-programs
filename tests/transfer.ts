@@ -6,11 +6,10 @@ import { deployMint } from "./program_helpers/deploy_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_FREEZE_MANAGER } from "./utils/roles";
 import {
-  freezeAccount,
-  partiallyFreezeAccount,
-  removePartialFreeze,
-} from "./program_helpers/freeze/freeze_instruction_helper";
-import { getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
+  clearFrozenBalancePda,
+  getFrozenBalanceByPda,
+  setFrozenAccountPda,
+} from "./program_helpers/freeze/freeze_pda_helper";
 import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
 import {
   burnTokensViaSurfpool,
@@ -21,7 +20,13 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
-import { buildVerifyTransferInstruction, transfer, verifyTransfer } from "./program_helpers/transfer_helper";
+import {
+  batchTransfer,
+  buildBatchVerifyTransferInstruction,
+  buildVerifyTransferInstruction,
+  transfer,
+  verifyTransfer,
+} from "./program_helpers/transfer_helper";
 import { beforeEach } from "mocha";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -44,6 +49,7 @@ import {
   setTransferControlModeMarker,
   setWhitelistMarker,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
+import { setFrozenBalancePda } from "./program_helpers/freeze/freeze_pda_helper";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -58,7 +64,6 @@ describe("transfer", () => {
   const destinationOwnerKeypair = Keypair.generate();
   const destinationOwner = destinationOwnerKeypair.publicKey;
   const authority = provider.wallet.payer;
-  const payerKeypair = provider.wallet.payer!;
   let mint: PublicKey;
 
   beforeEach(async () => {
@@ -342,7 +347,7 @@ describe("transfer", () => {
 
       // ── Partially freeze 80 tokens (only 20 available) ───────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       try {
         await verifyTransfer(
@@ -362,7 +367,7 @@ describe("transfer", () => {
 
       // ── Update partial freeze to 40 tokens (60 now available) ────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: UPDATED_FROZEN_AMOUNT });
+      await setFrozenBalancePda(mint, source, UPDATED_FROZEN_AMOUNT);
 
       const frozenBalanceAfterUpdate = await getFrozenBalanceByPda(frozenBalancePda);
       assert.equal(
@@ -404,7 +409,7 @@ describe("transfer", () => {
 
       // ── Partially freeze 50 tokens ────────────────────────────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       // ── Transfer 40 tokens — succeeds (available = 100 - 50 = 50 >= 40) ──────
       await transfer(
@@ -457,7 +462,7 @@ describe("transfer", () => {
 
       // ── Partially freeze 40 tokens (available = 60 of 100) ────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await partiallyFreezeAccount({ authority, mint, account: source }, { balance: FROZEN_AMOUNT });
+      await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       // ── Burn 80 via permanent-delegate (issuer redemption) ────────────────────
       //
@@ -496,9 +501,9 @@ describe("transfer", () => {
         );
       }
 
-      // (4) Recovery path — after remove_partial_freeze, the 20 remaining tokens transact normally.
+      // (4) Recovery path — after unfreeze_account_partial, the 20 remaining tokens transact normally.
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await removePartialFreeze({ mint, authority, account: source });
+      await clearFrozenBalancePda(mint, source);
       await transfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_ATTEMPT }
@@ -508,7 +513,7 @@ describe("transfer", () => {
       assert.equal(
         sourceAfterRecovery.toString(),
         EXPECTED_REMAINDER.sub(TRANSFER_ATTEMPT).toString(),
-        "after remove_partial_freeze the remaining tokens transact normally"
+        "after unfreeze_account_partial the remaining tokens transact normally"
       );
     });
   });
@@ -610,7 +615,7 @@ describe("transfer", () => {
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
-      await freezeAccount({ authority, mint, account: source });
+      await setFrozenAccountPda(mint, source);
 
       // ── Transfer must now be rejected with AccountFrozen ──────────────────
       try {
@@ -642,6 +647,163 @@ describe("transfer", () => {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+      }
+    });
+  });
+
+  describe("batch_transfer", async () => {
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: fans tokens out from one source to many destinations", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+
+      const destinations: PublicKey[] = [];
+      for (let i = 0; i < 3; i++) {
+        destinations.push(await createTokenAccount({ mint, owner: Keypair.generate().publicKey }));
+      }
+      const amounts = [
+        new anchor.BN(100 * 10 ** MINT_DECIMALS),
+        new anchor.BN(50 * 10 ** MINT_DECIMALS),
+        new anchor.BN(30 * 10 ** MINT_DECIMALS),
+      ];
+      const total = amounts.reduce((acc, a) => acc.add(a), new anchor.BN(0));
+      const supplyBefore = (await getMint(mint)).supply;
+
+      await batchTransfer({ mint, source, sourceOwner, destinations, signers: [sourceOwnerKeypair] }, { amounts });
+
+      const sourceAfter = (await getTokenAccount(source)).amount;
+      assert.equal(
+        sourceAfter.toString(),
+        MINT_AMOUNT.sub(total).toString(),
+        "source balance should be reduced by the sum of the batch"
+      );
+      for (let i = 0; i < destinations.length; i++) {
+        const destAfter = (await getTokenAccount(destinations[i])).amount;
+        assert.equal(destAfter.toString(), amounts[i].toString(), `destination ${i} should receive amounts[${i}]`);
+      }
+      assert.equal(
+        (await getMint(mint)).supply.toString(),
+        supplyBefore.toString(),
+        "total supply should be unchanged after a batch transfer"
+      );
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: fails with EmptyBatch when amounts is empty", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+
+      try {
+        await batchTransfer(
+          { mint, source, sourceOwner, destinations: [], signers: [sourceOwnerKeypair] },
+          { amounts: [] }
+        );
+        assert.fail("Expected EmptyBatch error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "EmptyBatch", "error code should be EmptyBatch");
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: fails with InvalidRemainingAccounts when destination count doesn't match amounts", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const d1 = await createTokenAccount({ mint, owner: destinationOwner });
+      const d2 = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+      const amounts = [new anchor.BN(1), new anchor.BN(1)];
+
+      try {
+        // batch_verify passes (2 pairs), but batch_transfer is given only 1 destination for 2 amounts.
+        await batchTransfer(
+          { mint, source, sourceOwner, destinations: [d1, d2], signers: [sourceOwnerKeypair] },
+          { amounts, transferRemainingAccounts: [{ pubkey: d1, isWritable: true, isSigner: false }] }
+        );
+        assert.fail("Expected InvalidRemainingAccounts error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal(
+          (err as AnchorError).error.errorCode.code,
+          "InvalidRemainingAccounts",
+          "error code should be InvalidRemainingAccounts"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: fails when N-1 is a single verify_transfer instead of batch_verify_transfer", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const destination = await createTokenAccount({ mint, owner: destinationOwner });
+      const amount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
+
+      // Pair the batch with the SINGULAR verify_transfer — the hook must reject it
+      // because N-1 is not batch_verify_transfer.
+      const singleVerifyIx = await buildVerifyTransferInstruction(
+        { mint, source, sourceOwner, destination },
+        { amount }
+      );
+
+      try {
+        await batchTransfer(
+          {
+            mint,
+            source,
+            sourceOwner,
+            destinations: [destination],
+            preInstructions: [singleVerifyIx],
+            signers: [sourceOwnerKeypair],
+          },
+          { amounts: [amount] }
+        );
+        assert.fail("Expected PrevInstructionNotVerifyTransfer error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal(
+          (err as AnchorError).error.errorCode.code,
+          "PrevInstructionNotVerifyTransfer",
+          "error code should be PrevInstructionNotVerifyTransfer"
+        );
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("batch_transfer: rejects a transfer batch that duplicates a leg beyond what verify declared", async () => {
+      // Bypass attempt: verify a single (dest, amount) leg, but transfer it
+      // twice. Per-leg matching alone would let both transfers map onto the one
+      // verified leg — draining more than verify's summed balance check covered.
+      // The identical-batch guard must reject it.
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const destination = await createTokenAccount({ mint, owner: destinationOwner });
+      const amount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
+
+      // verify declares ONE leg; batch_transfer declares the SAME leg TWICE.
+      const verifyOneLegIx = await buildBatchVerifyTransferInstruction(
+        { mint, source, sourceOwner, destinations: [destination], signers: [sourceOwnerKeypair] },
+        { amounts: [amount] }
+      );
+
+      try {
+        await batchTransfer(
+          {
+            mint,
+            source,
+            sourceOwner,
+            destinations: [destination, destination],
+            preInstructions: [verifyOneLegIx],
+            signers: [sourceOwnerKeypair],
+          },
+          { amounts: [amount, amount] }
+        );
+        assert.fail("Expected CurrentInstructionArgumentMismatch error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal(
+          (err as AnchorError).error.errorCode.code,
+          "CurrentInstructionArgumentMismatch",
+          "the verify/transfer batches must be identical; a duplicated transfer leg must be rejected"
+        );
       }
     });
   });

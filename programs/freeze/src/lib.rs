@@ -27,30 +27,41 @@ pub mod freeze {
         freeze_account::freeze_account(ctx)
     }
 
-    pub fn batch_freeze<'info>(ctx: Context<'info, BatchFreezeAccounts<'info>>) -> Result<()> {
-        batch_freeze::batch_freeze(ctx)
+    pub fn batch_freeze_account<'info>(
+        ctx: Context<'info, BatchFreezeAccount<'info>>,
+    ) -> Result<()> {
+        batch_freeze_account::batch_freeze_account(ctx)
     }
 
     pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
         unfreeze_account::unfreeze_account(ctx)
     }
 
-    pub fn partially_freeze_account(
-        ctx: Context<PartiallyFreezeAccount>,
-        balance: u64,
+    pub fn batch_unfreeze_account<'info>(
+        ctx: Context<'info, BatchUnfreezeAccount<'info>>,
     ) -> Result<()> {
-        partially_freeze_account::partially_freeze_account(ctx, balance)
+        batch_unfreeze_account::batch_unfreeze_account(ctx)
     }
 
-    pub fn batch_partially_freeze<'info>(
-        ctx: Context<'info, BatchPartiallyFreezeAccounts<'info>>,
+    pub fn freeze_account_partial(ctx: Context<FreezeAccountPartial>, balance: u64) -> Result<()> {
+        freeze_account_partial::freeze_account_partial(ctx, balance)
+    }
+
+    pub fn batch_freeze_account_partial<'info>(
+        ctx: Context<'info, BatchFreezeAccountPartial<'info>>,
         balances: Vec<u64>,
     ) -> Result<()> {
-        batch_partially_freeze::batch_partially_freeze(ctx, balances)
+        batch_freeze_account_partial::batch_freeze_account_partial(ctx, balances)
     }
 
-    pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
-        remove_partial_freeze::remove_partial_freeze(ctx)
+    pub fn unfreeze_account_partial(ctx: Context<UnfreezeAccountPartial>) -> Result<()> {
+        unfreeze_account_partial::unfreeze_account_partial(ctx)
+    }
+
+    pub fn batch_unfreeze_account_partial<'info>(
+        ctx: Context<'info, BatchUnfreezeAccountPartial<'info>>,
+    ) -> Result<()> {
+        batch_unfreeze_account_partial::batch_unfreeze_account_partial(ctx)
     }
 }
 

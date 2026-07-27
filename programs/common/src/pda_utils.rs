@@ -66,3 +66,21 @@ pub fn create_or_adopt_pda<'info>(
 
     Ok(())
 }
+
+/// Closes `pda`, returning its lamports to `authority` and zeroing its data.
+///
+/// The manual counterpart to Anchor's `#[account(close = authority)]`
+/// constraint, needed anywhere a PDA is closed via `remaining_accounts` rather
+/// than through a typed Anchor account (Anchor's `close` constraint can't
+/// target a variable-length account list). Callers are expected to have
+/// already verified `pda` is the expected account and is non-empty.
+pub fn close_pda(pda: &AccountInfo, authority: &AccountInfo) -> Result<()> {
+    let lamports = pda.lamports();
+    **pda.try_borrow_mut_lamports()? = 0;
+    **authority.try_borrow_mut_lamports()? = authority
+        .lamports()
+        .checked_add(lamports)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    pda.try_borrow_mut_data()?.fill(0);
+    Ok(())
+}
