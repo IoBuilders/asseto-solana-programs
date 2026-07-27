@@ -18,7 +18,7 @@ import {
   getControllerRedemptionEvent,
   getControllerRedemptionEvents,
   getControllerTransferredEvent,
-} from "./program_helpers/burn/burn_instruction_helper";
+} from "./program_helpers/operations/operations_instruction_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,

@@ -10,7 +10,7 @@ import {
 } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
-import { permanentDelegatePda } from "./program_helpers/burn/burn_pda_helper";
+import { permanentDelegatePda } from "./program_helpers/operations/operations_pda_helper";
 import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
 import { freezeAuthorityPda } from "./program_helpers/freeze/freeze_pda_helper";
 import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
