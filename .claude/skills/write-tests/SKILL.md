@@ -59,7 +59,7 @@ All shared test logic lives here. Import from the relevant helper rather than re
 | `freeze_helper.ts` | `freezeAccount`, `unfreezeAccount`, `partiallyFreezeAccount`, `removePartialFreeze` |
 | `pause_helper.ts` | `pauseMint`, `unpauseMint` |
 | `deactivate_helper.ts` | `deactivateMint` |
-| `snapshot_helper.ts` | `takeSnapshot`, `updateHolderBalanceSnapshot`, `updateTotalSupplySnapshot` |
+| `snapshot_helper.ts` | `takeSnapshot`, `updateHolderBalanceSnapshot` |
 | `coupon_helper.ts` | `createCoupon` |
 | `bond_helper.ts` | `updateBondTerms` |
 | `account_helper.ts` | `requestAirdrop`, `getAccountInfo`, `getBalanceForRentExeption` |

@@ -417,15 +417,12 @@ describe("treasury", () => {
     it("pay_coupon: transfers the computed amount, debits the treasury, and creates the coupon_paid marker", async () => {
       const ctx = await deployBondAndCoupon();
 
-      // The snapshot was taken inside create_coupon (before any new mints), so the
-      // recorded balance at snapshot_id=0 is 0 for this brand-new holder. Snapshot
-      // program falls back to the live balance when the history is empty for the
-      // queried id — i.e. the current holder balance, which is BOND_HOLDER_AMOUNT.
-      // (See snapshot::get_holderbalance_snapshot_at and the matching
-      // assertion in mint.ts:579-591.)
-      //
-      // The proof commits to (holderTokenAccount, BOND_HOLDER_AMOUNT); the payout
-      // is computed from that verified balance.
+      // deployBondAndCoupon plants the snapshot merkle root as the single leaf hash
+      // for (holderTokenAccount, BOND_HOLDER_AMOUNT), so an EMPTY_PROOF verifies
+      // trivially against it (see setSnapshotMerkleRoot above). pay_coupon takes
+      // the holder's balance as an explicit argument and checks it against that
+      // root via require_balance_proof — the payout is computed from that verified
+      // balance, not read from any on-chain snapshot state.
       const holderBalance = BOND_HOLDER_AMOUNT;
 
       const expectedAmount = computeExpectedAmount({

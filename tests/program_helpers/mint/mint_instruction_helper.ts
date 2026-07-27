@@ -13,7 +13,7 @@ import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
 import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
-import { snapshotCounterPda, snapshotTotalSupplyPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
+import { snapshotCounterPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { maxSupplyPda } from "../cap/cap_pda_helper";
 
@@ -64,7 +64,6 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
       maxSupplyPda: maxSupplyPda(callContext.mint),
       snapshotCounterPda: snapshotCounterPda(callContext.mint),
-      totalSupplySnapshot: snapshotTotalSupplyPda(callContext.mint),
       holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
       freezeProgram: FREEZE_PROGRAM_ID,
       snapshotProgram: SNAPSHOT_PROGRAM_ID,

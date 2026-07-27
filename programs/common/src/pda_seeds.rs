@@ -78,13 +78,8 @@ pub fn transfer_hook_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [
 
 /********************************* SNAPSHOT *********************************/
 pub const SNAPSHOT_COUNTER: &[u8] = b"snapshot_counter";
-pub const SNAPSHOT_TOTALSUPPLY: &[u8] = b"snapshot_totalsupply";
 pub const SNAPSHOT_HOLDERBALANCE: &[u8] = b"snapshot_holderbalance";
 pub const SNAPSHOT_MERKLE_ROOT: &[u8] = b"snapshot_merkle_root";
-
-pub fn snapshot_totalsupply_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
-    vec![SNAPSHOT_TOTALSUPPLY, mint.as_ref()]
-}
 
 pub fn snapshot_merkle_root_seeds<'info>(
     mint: &'info Pubkey,

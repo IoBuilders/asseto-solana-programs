@@ -20,7 +20,7 @@ import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, operationsEventAuthorityPda } from "./operations_pda_helper";
 import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
-import { snapshotCounterPda, snapshotTotalSupplyPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
+import { snapshotCounterPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { buildVerifyTransferInstruction } from "../transfer_helper";
 
@@ -69,7 +69,6 @@ export async function burnTokens(
       operationsAuthority: permanentDelegatePda(callContext.mint),
       freezeAuthority: freezeAuthorityPda(callContext.mint),
       snapshotCounterPda: snapshotCounterPda(callContext.mint),
-      totalSupplySnapshot: snapshotTotalSupplyPda(callContext.mint),
       holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.tokenAccount),
       freezeProgram: FREEZE_PROGRAM_ID,
       snapshotProgram: SNAPSHOT_PROGRAM_ID,

@@ -2,9 +2,9 @@
 
 Program ID: `hgUtrpstViwxutrkoVXwQh3GQC18wHAmuAvYFTNiV2M`
 
-Records point-in-time values for a mint — its total supply and every holder's balance — indexed by a monotonically-increasing snapshot id. Enables reconstructing balances at past snapshots (e.g. coupon record dates) without storing per-transfer history.
+Records point-in-time values for a mint — every holder's balance — indexed by a monotonically-increasing snapshot id. Enables reconstructing balances at past snapshots (e.g. coupon record dates) without storing per-transfer history.
 
-Snapshots are taken exclusively by `coupon::create_coupon`, which CPIs `take_snapshot` signed by its `coupon_authority` PDA. Two other callers append entries to the running histories whenever they move tokens (so long as a snapshot is active): `mint_authority` (mint) and `permanent_delegate` (operations). `transfer_hook_authority` is still on the authorised-caller list but is now unreachable: `transfer-hook::execute` no longer signs anything, so transfers do not touch the holder-balance histories — a holder's balance at a snapshot is proven against that snapshot's Merkle root instead.
+Snapshots are taken exclusively by `coupon::create_coupon`, which CPIs `take_snapshot` signed by its `coupon_authority` PDA. Two other callers append entries to the running holder-balance history whenever they move tokens (so long as a snapshot is active): `mint_authority` (mint) and `permanent_delegate` (operations). `transfer_hook_authority` is still on the authorised-caller list but is now unreachable: `transfer-hook::execute` no longer signs anything, so transfers do not touch the holder-balance histories — a holder's balance at a snapshot is proven against that snapshot's Merkle root instead.
 
 ---
 
@@ -58,12 +58,7 @@ pub struct SnapshotHistory {
 // BASE_LEN = 8 + 1 + 4 = 13 bytes; len_for(n) = 13 + n * 16
 ```
 
-Stores the full `(snapshot_id, value)` history for one subject:
-
-| Seeds | Subject |
-|---|---|
-| `["snapshot_totalsupply", mint]` | mint total supply |
-| `["snapshot_holderbalance", mint, token_account]` | one holder's balance |
+Stores the full `(snapshot_id, value)` history for one holder, seeds `["snapshot_holderbalance", mint, token_account]`.
 
 Entries are always appended with a strictly-increasing `key`. `SnapshotHistory::lookup_at_or_above(key)` returns the value stored at that key, or — if the exact key is missing — the value of the next-higher key (binary search on the sorted entries).
 
@@ -103,7 +98,7 @@ Because the snapshot id equals `snapshot_counter.count` — a value that already
 
 `calling_authority` must be the `coupon_authority` PDA owned by `coupon` (seeds: `["coupon_authority", mint]`). Only `coupon::create_coupon` can produce that signature via `invoke_signed`, so every snapshot in the workspace is anchored to a coupon.
 
-Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause / deactivate checks live in `coupon::create_coupon` — `take_snapshot` itself trusts its caller, matching the style of the other auxiliaries (`update_totalsupply_snapshot`, `update_holderbalance_snapshot`).
+Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause / deactivate checks live in `coupon::create_coupon` — `take_snapshot` itself trusts its caller, matching the style of the other auxiliary (`update_holderbalance_snapshot`).
 
 ### Accounts
 
@@ -128,31 +123,6 @@ Emitted with `emit_cpi!` (not `emit!`), which records the event as a self-CPI ca
 
 ---
 
-## Instruction: `update_totalsupply_snapshot` (Auxiliary)
-
-No parameters.
-
-Appends `(current_snapshot_id, mint.supply)` to `total_supply_snapshot`, where `current_snapshot_id = snapshot_counter.count - 1` (the last-taken snapshot, since the counter stores the *next* id). Creates the PDA on first use, grows it by one entry otherwise. Silently succeeds when `snapshot_counter` does not exist (no active snapshot).
-
-### Authorization
-
-`calling_authority` must be either:
-- `["mint_authority", mint]` owned by `mint`, or
-- `["permanent_delegate", mint]` owned by `operations`.
-
-### Accounts
-
-| Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|
-| `calling_authority` | no | yes | Signer | One of the two allowed PDAs |
-| `payer` | yes | yes | Signer | Funds PDA creation / realloc |
-| `mint` | no | no | UncheckedAccount | Current supply read via `StateWithExtensions` |
-| `snapshot_counter` | no | no | UncheckedAccount | seeds `["snapshot_counter", mint]`; may be empty |
-| `total_supply_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_totalsupply", mint]` |
-| `system_program` | no | no | Program<System> | |
-
----
-
 ## Instruction: `update_holderbalance_snapshot` (Auxiliary)
 
 ### Parameters
@@ -164,7 +134,7 @@ increase: bool
 
 Records `(current_snapshot_id, balance ± delta)` for the given `holder_token_account`, where `current_snapshot_id = snapshot_counter.count - 1` (the last-taken snapshot, since the counter stores the *next* id). With `increase = true` the recorded value is `balance + delta`; otherwise `balance - delta`. Callers that want to capture a balance as it was *before* a token movement that has already been applied (e.g. the transfer hook, which runs after the debit) pass the moved amount to reconstruct the pre-movement value. Callers that record the on-chain balance as-is pass `delta = 0`.
 
-Same "silent no-op when no snapshot is active" semantics as the total-supply variant.
+Silently succeeds when `snapshot_counter` does not exist (no active snapshot).
 
 ### Authorization
 

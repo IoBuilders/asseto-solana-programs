@@ -8,7 +8,6 @@ import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper
 import {
   takeSnapshot,
   updateHolderBalanceSnapshot,
-  updateTotalSupplySnapshot,
 } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
   encodeSnapshotCounter,
@@ -149,20 +148,6 @@ describe.skip("snapshot", () => {
         merkleRoot,
         "root should be stored despite the pre-funding griefing attempt"
       );
-    });
-  });
-
-  describe("update_totalsupply_snapshot", async () => {
-    it("update_totalsupply_snapshot: rejects direct invocation with Unauthorized (auxiliary, only callable via mint/operations CPI)", async () => {
-      const mint = Keypair.generate().publicKey;
-
-      try {
-        await updateTotalSupplySnapshot({ authority, mint });
-        assert.fail("Expected Unauthorized error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "Unauthorized");
-      }
     });
   });
 

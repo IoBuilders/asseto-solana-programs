@@ -21,10 +21,6 @@ pub mod snapshot {
         take_snapshot::take_snapshot(ctx, merkle_root)
     }
 
-    pub fn update_totalsupply_snapshot(ctx: Context<UpdateTotalSupplySnapshot>) -> Result<()> {
-        update_totalsupply_snapshot::update_totalsupply_snapshot(ctx)
-    }
-
     pub fn update_holderbalance_snapshot(
         ctx: Context<UpdateHolderBalanceSnapshot>,
         delta: u64,
@@ -50,27 +46,6 @@ pub(crate) fn assert_take_snapshot_authorized_caller(
         &COUPON_PROGRAM_ID,
     );
     require!(expected == *caller, ErrorCode::Unauthorized);
-    Ok(())
-}
-
-pub(crate) fn assert_total_supply_authorized_caller(
-    mint_key: &Pubkey,
-    caller: &Pubkey,
-) -> Result<()> {
-    use crate::errors::ErrorCode;
-
-    require!(
-        pda_utils::is_caller_pda(
-            caller,
-            &pda_seeds::mint_authority_seeds(mint_key),
-            &MINT_PROGRAM_ID
-        ) || pda_utils::is_caller_pda(
-            caller,
-            &pda_seeds::permanent_delegate_seeds(mint_key),
-            &OPERATIONS_PROGRAM_ID
-        ),
-        ErrorCode::Unauthorized
-    );
     Ok(())
 }
 

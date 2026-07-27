@@ -52,16 +52,6 @@ export async function setSnapshotCounter(mint: PublicKey, count: anchor.BN): Pro
   });
 }
 
-// ── snapshot_totalsupply PDA ───────────────────────────────────────────────────
-
-export function snapshotTotalSupplyPda(mint: PublicKey): PublicKey {
-  return snapshotTotalSupplyPdaWithBump(mint)[0];
-}
-
-export function snapshotTotalSupplyPdaWithBump(mint: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("snapshot_totalsupply"), mint.toBuffer()], SNAPSHOT_PROGRAM_ID);
-}
-
 // ── snapshot_holderbalance PDA ─────────────────────────────────────────────────
 
 export function snapshotHolderBalancePda(mint: PublicKey, tokenAccount: PublicKey): PublicKey {

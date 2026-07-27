@@ -10,7 +10,7 @@ The `mint_authority` PDA also serves as one of the three accepted callers for `f
 
 ## Instruction: `mint`
 
-Mints `amount` tokens to `destination`. Before minting, records the pre-mint total supply and destination balance into any active snapshot (both no-ops when no snapshot has been taken yet). Because all token accounts are frozen by default, thaws `destination` before minting and re-freezes it immediately after.
+Mints `amount` tokens to `destination`. Before minting, records the pre-mint destination balance into any active snapshot (a no-op when no snapshot has been taken yet). Because all token accounts are frozen by default, thaws `destination` before minting and re-freezes it immediately after.
 
 ### Parameters
 
@@ -34,7 +34,6 @@ amount: u64  // raw token units (accounting for decimals)
 | `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, destination]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; must exist when whitelist mode is active |
 | `max_supply_pda` | no | no | UncheckedAccount | seeds `["max_supply", mint]`, `seeds::program = CAP_PROGRAM_ID`; may be empty only when the asset-class version does not enable `CAP_MAX_SUPPLY` |
 | `snapshot_counter_pda` | no | no | UncheckedAccount | seeds `["snapshot_counter", mint]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; may be empty |
-| `total_supply_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_totalsupply", mint]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; created/grown by snapshot |
 | `holder_balance_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_holderbalance", mint, destination]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; created/grown by snapshot |
 | `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
 | `snapshot_program` | no | no | UncheckedAccount | address constrained to `SNAPSHOT_PROGRAM_ID` |
@@ -52,22 +51,21 @@ amount: u64  // raw token units (accounting for decimals)
 3. `require_functionality(asset_class_version_pda.load()?, MINT_MINT)` — errors if the mint's asset-class version isn't finalized or doesn't enable `MINT_MINT`
 4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[&destination_whitelist_pda])` — a no-op if `transfer_control_mode_pda` is empty (no mode active); otherwise, in whitelist mode, errors with `NotWhitelisted` if `destination_whitelist_pda` is empty
 5. `cap::require_within_max_supply(&mint, &max_supply_pda, asset_class_version_pda.load()?, amount)` — errors with `MaxSupplyExceeded` if `supply + amount` exceeds the stored cap. When `max_supply_pda` is empty, the outcome depends on the asset-class version's `CAP_MAX_SUPPLY` bit: a no-op if the bit is unset (the mint opted out of capping), `MaxSupplyNotSet` if it is set (the mint is meant to be capped but `set_max_supply` was never called). Runs before the snapshot CPIs so a rejected mint leaves no writes behind
-6. CPI → `snapshot::update_totalsupply_snapshot` signed with `["mint_authority", mint, bump]` — records pre-mint supply into the active snapshot (no-op if none)
-7. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["mint_authority", mint, bump]` — records pre-mint destination balance (no adjustment)
-8. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`
-9. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
-10. Emit `Issued { mint, operator: authority, to: destination, value: amount }` via `emit_cpi!`
-11. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`
+6. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["mint_authority", mint, bump]` — records pre-mint destination balance (no adjustment)
+7. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`
+8. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
+9. Emit `Issued { mint, operator: authority, to: destination, value: amount }` via `emit_cpi!`
+10. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`
 
-Steps 6–8 and 10–11 all sign with the same `mint_authority` PDA seeds. The thaw/re-freeze pattern is necessary because all token accounts are frozen by default (`DefaultAccountState::Frozen`). Snapshot CPIs run before the balance change so the recorded value reflects the pre-mint state.
+Steps 6–7 and 10 all sign with the same `mint_authority` PDA seeds. The thaw/re-freeze pattern is necessary because all token accounts are frozen by default (`DefaultAccountState::Frozen`). The snapshot CPI runs before the balance change so the recorded value reflects the pre-mint state.
 
 ### Events
 
 | Event | Fields | Emitted |
 |---|---|---|
-| `Issued` | `mint: Pubkey`, `operator: Pubkey`, `to: Pubkey`, `value: u64` | After the `mint_to` CPI succeeds (step 8, emitted at step 9) |
+| `Issued` | `mint: Pubkey`, `operator: Pubkey`, `to: Pubkey`, `value: u64` | After the `mint_to` CPI succeeds (step 7, emitted at step 8) |
 
-`Issued` is emitted with `emit_cpi!` rather than `emit!`. This instruction already performs 5 CPIs before minting (2× snapshot, 2× freeze thaw/re-freeze, 1× Token-2022 `mint_to`), each contributing its own program logs — `emit!` writes to the same log buffer (`Program data:`), which validators/RPC providers truncate around 10KB, risking silent event loss for off-chain indexers. `emit_cpi!` instead records the event as a self-CPI captured in the transaction's `innerInstructions`, which isn't subject to log truncation. This requires `#[event_cpi]` on `MintTokens`, which injects the `event_authority` and `program` accounts above, and the `event-cpi` feature enabled on `anchor-lang` in `Cargo.toml`.
+`Issued` is emitted with `emit_cpi!` rather than `emit!`. This instruction already performs 4 CPIs before minting (1× snapshot, 2× freeze thaw/re-freeze, 1× Token-2022 `mint_to`), each contributing its own program logs — `emit!` writes to the same log buffer (`Program data:`), which validators/RPC providers truncate around 10KB, risking silent event loss for off-chain indexers. `emit_cpi!` instead records the event as a self-CPI captured in the transaction's `innerInstructions`, which isn't subject to log truncation. This requires `#[event_cpi]` on `MintTokens`, which injects the `event_authority` and `program` accounts above, and the `event-cpi` feature enabled on `anchor-lang` in `Cargo.toml`.
 
 Because `emit_cpi!` events live in inner instructions rather than program logs, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them directly from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`, which handles both `emit!` and `emit_cpi!` events).
 
@@ -138,7 +136,7 @@ The role/active/functionality and supply-cap checks (see Preconditions) run once
 
 ### No snapshot integration
 
-`batch_mint` does not CPI into `snapshot::update_totalsupply_snapshot` / `update_holderbalance_snapshot` the way `mint` does. A batch mint performed while a snapshot is active will not be reflected in that snapshot's recorded total supply or the destinations' recorded balances.
+`batch_mint` does not CPI into `snapshot::update_holderbalance_snapshot` the way `mint` does. A batch mint performed while a snapshot is active will not be reflected in the destinations' recorded balances.
 
 ### Errors
 

@@ -7,7 +7,6 @@ import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import { getEvent } from "../event_helper";
 import {
   snapshotCounterPda,
-  snapshotTotalSupplyPda,
   snapshotHolderBalancePda,
   snapshotMerkleRootPda,
   snapshotTriggeredEventAuthorityPda,
@@ -58,23 +57,6 @@ type SnapshotTriggeredEvent = {
  */
 export async function getSnapshotTriggeredEvent(signature: string) {
   return getEvent<SnapshotTriggeredEvent>(getSnapshotProgram(), signature, "snapshotTriggered");
-}
-
-// ── update_totalsupply_snapshot ────────────────────────────────────────────────
-
-export async function updateTotalSupplySnapshot(ctx: MintWriteWithPayerContext): Promise<void> {
-  await getSnapshotProgram()
-    .methods.updateTotalsupplySnapshot()
-    .accountsStrict({
-      callingAuthority: ctx.authority.publicKey,
-      payer: ctx.payer ?? ctx.authority.publicKey,
-      mint: ctx.mint,
-      snapshotCounter: snapshotCounterPda(ctx.mint),
-      totalSupplySnapshot: snapshotTotalSupplyPda(ctx.mint),
-      systemProgram: SYSTEM_PROGRAM_ID,
-    })
-    .signers(ctx.signers ?? [ctx.authority])
-    .rpc({ commitment: "confirmed" });
 }
 
 // ── update_holderbalance_snapshot ──────────────────────────────────────────────
