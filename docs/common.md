@@ -114,6 +114,29 @@ Re-derives the canonical `["whitelist", mint, destination]` PDA (owned by `trans
 
 ---
 
+## Module: `pda_utils`
+
+`is_caller_pda(caller, program_seeds, program_id) -> bool` and `build_pda_signer_seeds(seeds, bump) -> Vec<&[u8]>` are small shared helpers used throughout the workspace for CPI-authorization checks and building `invoke_signed` seed slices.
+
+### Function: `create_or_adopt_pda`
+
+```rust
+pub fn create_or_adopt_pda<'info>(
+    payer: &AccountInfo<'info>,
+    pda: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
+    program_id: &Pubkey,
+    space: usize,
+    signer_seeds: &[&[u8]],
+) -> Result<()>
+```
+
+Creates `pda` (owned by `program_id`, sized `space`) the same way Anchor's own `#[account(init, ...)]` constraint does under the hood, tolerating a PDA that already holds lamports. A plain `system_instruction::create_account` CPI unconditionally fails with `AccountAlreadyInUse` if the destination already has `lamports() > 0` — including a zero-data account that was merely sent lamports. Since a PDA's address is derivable by anyone, an attacker can grief any `create_account`-based initialization by pre-funding the target address with a single lamport before the legitimate transaction lands, permanently blocking that exact call.
+
+When `pda` has no lamports yet, this does a plain `create_account` (funds + allocates + assigns atomically). Otherwise it falls back to the same two-step sequence Anchor's `init` uses: top up to rent-exemption via `transfer` (only if needed), then `allocate` + `assign` separately — since `create_account` itself refuses to run against a non-empty-lamports account. Needed anywhere a PDA is created manually via `remaining_accounts` rather than through a typed Anchor account (Anchor's `init` can't target a variable-length account list) — e.g. `freeze::batch_freeze`, which creates one `frozen_account_pda` per entry.
+
+---
+
 ## Module: `merkle`
 
 Merkle-proof verification for snapshot balances. The snapshot programs store only a 32-byte Merkle root per snapshot; a holder's `(account, balance)` is proven against that root off-chain-style, on demand (e.g. in `treasury::pay_coupon`).

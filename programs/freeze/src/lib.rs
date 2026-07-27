@@ -27,6 +27,10 @@ pub mod freeze {
         freeze_account::freeze_account(ctx)
     }
 
+    pub fn batch_freeze<'info>(ctx: Context<'info, BatchFreezeAccounts<'info>>) -> Result<()> {
+        batch_freeze::batch_freeze(ctx)
+    }
+
     pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
         unfreeze_account::unfreeze_account(ctx)
     }

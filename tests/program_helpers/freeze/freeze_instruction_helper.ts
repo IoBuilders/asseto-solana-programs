@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { AccountMeta, PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../../utils/pda_utils";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import * as anchor from "@anchor-lang/core";
@@ -6,7 +6,7 @@ import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID } from "../../utils/address_utils"
 import { MintWriteContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Freeze } from "../../../target/types/freeze";
-import { getEvent } from "../event_helper";
+import { getEvent, getEvents } from "../event_helper";
 import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { frozenAccountPda, frozenBalancePda, freezeEventAuthorityPda } from "./freeze_pda_helper";
@@ -66,6 +66,63 @@ type AccountFrozenEvent = {
  */
 export async function getAccountFrozenEvent(signature: string) {
   return getEvent<AccountFrozenEvent>(getFreezeProgram(), signature, "accountFrozen");
+}
+
+// ── batch_freeze ───────────────────────────────────────────────────────────────
+
+export type BatchFreezeAccountsContext = MintWriteContext & {
+  accounts: PublicKey[];
+};
+
+type BatchFreezeAccountsArgs = {
+  // Overrides the remaining accounts. Defaults to `[account, frozenAccountPda]` per
+  // account, in order. Provide this to exercise remaining-account error paths.
+  remainingAccounts?: AccountMeta[];
+};
+
+export async function batchFreeze(
+  callContext: BatchFreezeAccountsContext,
+  args?: BatchFreezeAccountsArgs
+): Promise<string> {
+  // Two remaining accounts per entry: the account to freeze (read-only) and its
+  // not-yet-created frozen_account_pda (writable) — the handler creates the
+  // latter manually since Anchor's `init` can't target a variable-length list.
+  const remainingAccounts: AccountMeta[] =
+    args?.remainingAccounts ??
+    callContext.accounts.flatMap((account) => [
+      { pubkey: account, isWritable: false, isSigner: false },
+      { pubkey: frozenAccountPda(callContext.mint, account), isWritable: true, isSigner: false },
+    ]);
+
+  const program = getFreezeProgram();
+  const assetConfiguration = await getAssetConfiguration(callContext.mint);
+  const authority = callContext.authority ?? program.provider.wallet.payer;
+
+  return await program.methods
+    .batchFreeze()
+    .accountsStrict({
+      authority: authority.publicKey,
+      authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
+      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      mint: callContext.mint,
+      deactivatePda: deactivatePda(callContext.mint),
+      assetClassVersionPda: assetClassVersionPda(
+        assetConfiguration.assetClassConfigId,
+        assetConfiguration.assetClassVersionId
+      ),
+      systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: freezeEventAuthorityPda(),
+      program: FREEZE_PROGRAM_ID,
+    })
+    .remainingAccounts(remainingAccounts)
+    .signers(callContext?.signers ?? [authority])
+    .rpc({ commitment: "confirmed" });
+}
+
+export async function getAccountFrozenEvents(signature: string): Promise<AccountFrozenEvent[]> {
+  return (await getEvents(getFreezeProgram(), signature))
+    .filter((event) => event.name === "accountFrozen")
+    .map((event) => event.data as AccountFrozenEvent);
 }
 
 // ── unfreeze_account ───────────────────────────────────────────────────────────

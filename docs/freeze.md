@@ -6,7 +6,7 @@ Controls the Token-2022 freeze authority and all programmatic freezing. Owns the
 
 Exposes two categories of instructions:
 - **Auxiliary** (`block_account`, `unblock_account`): called exclusively via CPI by `mint`, `operations`, and `transfer` as part of their token operation flows. These do not emit events.
-- **Management** (`freeze_account`, `unfreeze_account`, `partially_freeze_account`, `remove_partial_freeze`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
+- **Management** (`freeze_account`, , `batch_freeze`, `unfreeze_account`, `partially_freeze_account`, `remove_partial_freeze`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
 
 Also exports two verification functions used by `transfer` to gate transfers.
 
@@ -96,13 +96,13 @@ No external wallet can produce these signatures. Only the owning program can via
 
 ### Accounts
 
-| Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|
-| `calling_authority` | no | yes | Signer | One of the three allowed PDAs (runtime check) |
-| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]` (owned by this program) |
-| `mint` | no | no | UncheckedAccount | The Token-2022 mint |
-| `token_account` | yes | no | UncheckedAccount | Token account to block (freeze) |
-| `token_2022_program` | no | no | Program<Token2022> | |
+| Account              | Mut | Signer | Type               | Notes                                                      |
+|----------------------|-----|--------|--------------------|------------------------------------------------------------|
+| `calling_authority`  | no  | yes    | Signer             | One of the three allowed PDAs (runtime check)              |
+| `freeze_authority`   | no  | no     | UncheckedAccount   | seeds `["freeze_authority", mint]` (owned by this program) |
+| `mint`               | no  | no     | UncheckedAccount   | The Token-2022 mint                                        |
+| `token_account`      | yes | no     | UncheckedAccount   | Token account to block (freeze)                            |
+| `token_2022_program` | no  | no     | Program<Token2022> |                                                            |
 
 ### Execution
 
@@ -135,25 +135,86 @@ Creates the `frozen_account_pda` marker. After this call `require_unfrozen_accou
 
 ### Accounts
 
-| Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|
-| `authority` | yes | yes | Signer | Must hold `ROLE_FREEZE_MANAGER`; funds the PDA creation |
-| `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
-| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `account` | no | no | UncheckedAccount | The token account to freeze; used only as a seed |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| `frozen_account_pda` | yes | no | `Account<FrozenAccountStatus>` | init, `payer = authority`; seeds `["frozen_account", mint, account]` |
-| `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
-| `system_program` | no | no | Program<System> | |
-| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountFrozen` |
-| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+| Account                   | Mut | Signer | Type                             | Notes                                                                                                                                    |
+|---------------------------|-----|--------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; funds the PDA creation                                                                                  |
+| `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                                   |
+| `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`                    |
+| `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                             |
+| `account`                 | no  | no     | UncheckedAccount                 | The token account to freeze; used only as a seed                                                                                         |
+| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`                                                                   |
+| `frozen_account_pda`      | yes | no     | `Account<FrozenAccountStatus>`   | init, `payer = authority`; seeds `["frozen_account", mint, account]`                                                                     |
+| `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`              |
+| `system_program`          | no  | no     | Program<System>                  |                                                                                                                                          |
+| `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountFrozen` |
+| `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI                                                    |
 
 ### Events
 
-| Event | Fields | Emitted |
-|---|---|---|
+| Event           | Fields                                                | Emitted                                          |
+|-----------------|-------------------------------------------------------|--------------------------------------------------|
 | `AccountFrozen` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | After the `frozen_account_pda` marker is created |
+
+---
+
+## Instruction: `batch_freeze` (Management)
+
+Freezes, in a single instruction, every account passed in via `remaining_accounts` — the batched equivalent of calling `freeze_account` once per account. Runs the same authorization checks as `freeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountFrozen` event per account. Unlike the singular instruction, there is no per-account `frozen_account_pda` field in the typed accounts struct — Anchor's `init` constraint can't create a variable number of accounts, so each `frozen_account_pda` is created manually inside the handler via `common::pda_utils::create_or_adopt_pda` (signed by the PDA's own seeds), followed by a manual discriminator + Borsh write. `create_or_adopt_pda` tolerates a target PDA that a griefer pre-funded with lamports before the transaction landed — see [`docs/common.md`](common.md#function-create_or_adopt_pda).
+
+### Parameters
+
+No instruction parameters — the accounts to freeze are described entirely by `remaining_accounts`.
+
+### Remaining accounts
+
+Two accounts per entry, in order, appended as `remaining_accounts`:
+
+| Offset (per entry `i`) | Account              | Mut | Notes                                                                                                                 |
+|------------------------|----------------------|-----|-----------------------------------------------------------------------------------------------------------------------|
+| `i * 2`                | `account`            | no  | The token account to freeze; used only as a seed                                                                      |
+| `i * 2 + 1`            | `frozen_account_pda` | yes | Not yet created; must equal the canonical `["frozen_account", mint, account]` PDA — verified on-chain before creation |
+
+### Preconditions
+
+- `!remaining_accounts.is_empty()` — errors `EmptyBatch` if the batch is empty.
+- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `frozen_account_pda` per `account`).
+- `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
+- `require_not_paused` — mint must not be paused.
+- `require_active` — mint must not be deactivated.
+- `require_functionality(FREEZE_FREEZE_ACCOUNT)` — the mint's asset-class version must be finalized and enable freezing (same functionality bit as `freeze_account`; batching doesn't get its own bit).
+- Per entry: the supplied `frozen_account_pda` must match the address `Pubkey::find_program_address(["frozen_account", mint, account], freeze_program_id)` derives, else `FrozenAccountPdaMismatch`.
+- Per entry: `frozen_account_pda` must not already exist, else `AccountFrozen` (mirrors `freeze_account`'s behaviour of failing on an already-frozen account, since Anchor's `init` would likewise fail with the account already in use).
+
+### Accounts
+
+The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `frozen_account_pda` field here — both are supplied per entry instead.
+
+| Account                   | Mut | Signer | Type                             | Notes                                                                                                                       |
+|---------------------------|-----|--------|----------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; funds every `frozen_account_pda` creation                                                  |
+| `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                      |
+| `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`       |
+| `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                |
+| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`                                                      |
+| `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
+| `system_program`          | no  | no     | Program<System>                  | Target of the `create_or_adopt_pda` CPI(s) per entry                                                                       |
+| `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`                                                           |
+| `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID                                                               |
+
+### Errors
+
+| Code                       | Cause                                                                                |
+|----------------------------|--------------------------------------------------------------------------------------|
+| `EmptyBatch`               | `remaining_accounts` is empty                                                        |
+| `InvalidRemainingAccounts` | `remaining_accounts.len() % 2 != 0`                                                  |
+| `FrozenAccountPdaMismatch` | Supplied `frozen_account_pda` does not match the canonical derived PDA for `account` |
+| `AccountFrozen`            | `frozen_account_pda` already exists (account is already frozen)                      |
+
+### Events
+
+| Event           | Fields                                                | Emitted                                                   |
+|-----------------|-------------------------------------------------------|-----------------------------------------------------------|
+| `AccountFrozen` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | After each entry's `frozen_account_pda` marker is created |
 
 ---
 
@@ -170,23 +231,23 @@ Closes the `frozen_account_pda` marker and returns rent to `authority`.
 
 ### Accounts
 
-| Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|
-| `authority` | yes | yes | Signer | Must hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports |
-| `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
-| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `account` | no | no | UncheckedAccount | The token account to unfreeze; used only as a seed |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| `frozen_account_pda` | yes | no | `Account<FrozenAccountStatus>` | `close = authority`; seeds `["frozen_account", mint, account]` |
-| `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
-| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountUnfrozen` |
-| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+| Account                   | Mut | Signer | Type                             | Notes                                                                                                                                      |
+|---------------------------|-----|--------|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports                                                                        |
+| `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                                     |
+| `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`                      |
+| `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                               |
+| `account`                 | no  | no     | UncheckedAccount                 | The token account to unfreeze; used only as a seed                                                                                         |
+| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`                                                                     |
+| `frozen_account_pda`      | yes | no     | `Account<FrozenAccountStatus>`   | `close = authority`; seeds `["frozen_account", mint, account]`                                                                             |
+| `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`                |
+| `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountUnfrozen` |
+| `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI                                                      |
 
 ### Events
 
-| Event | Fields | Emitted |
-|---|---|---|
+| Event             | Fields                                                | Emitted                                          |
+|-------------------|-------------------------------------------------------|--------------------------------------------------|
 | `AccountUnfrozen` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | Before the `frozen_account_pda` marker is closed |
 
 ---
@@ -208,24 +269,24 @@ Creates the `frozen_balance_pda` on first call; overwrites `balance` on subseque
 
 ### Accounts
 
-| Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|
-| `authority` | yes | yes | Signer | Must hold `ROLE_FREEZE_MANAGER`; funds PDA creation if needed |
-| `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
-| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `account` | no | no | UncheckedAccount | The token account to partially freeze; used only as a seed |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| `frozen_balance_pda` | yes | no | `Account<FrozenBalance>` | `init_if_needed`, `payer = authority`; seeds `["frozen_balance", mint, account]` |
-| `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
-| `system_program` | no | no | Program<System> | |
-| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountPartiallyFrozen` |
-| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+| Account                   | Mut | Signer | Type                             | Notes                                                                                                                                             |
+|---------------------------|-----|--------|----------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; funds PDA creation if needed                                                                                     |
+| `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                                            |
+| `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`                             |
+| `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                                      |
+| `account`                 | no  | no     | UncheckedAccount                 | The token account to partially freeze; used only as a seed                                                                                        |
+| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`                                                                            |
+| `frozen_balance_pda`      | yes | no     | `Account<FrozenBalance>`         | `init_if_needed`, `payer = authority`; seeds `["frozen_balance", mint, account]`                                                                  |
+| `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`                       |
+| `system_program`          | no  | no     | Program<System>                  |                                                                                                                                                   |
+| `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountPartiallyFrozen` |
+| `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI                                                             |
 
 ### Events
 
-| Event | Fields | Emitted |
-|---|---|---|
+| Event                    | Fields                                                                       | Emitted                                                                                        |
+|--------------------------|------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | `AccountPartiallyFrozen` | `mint: Pubkey`, `account: Pubkey`, `frozen_balance: u64`, `operator: Pubkey` | After the `frozen_balance_pda` is set/updated (`frozen_balance` is the newly-locked `balance`) |
 
 ---
@@ -243,24 +304,24 @@ Closes the `frozen_balance_pda` marker and returns rent to `authority`, lifting 
 
 ### Accounts
 
-| Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|
-| `authority` | yes | yes | Signer | Must hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports |
-| `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
-| `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
-| `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `account` | no | no | UncheckedAccount | The token account whose partial freeze is removed; used only as a seed |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| `frozen_balance_pda` | yes | no | `Account<FrozenBalance>` | `close = authority`; seeds `["frozen_balance", mint, account]` |
-| `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
-| `system_program` | no | no | Program<System> | |
-| `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountPartialFreezeRemoved` |
-| `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
+| Account                   | Mut | Signer | Type                             | Notes                                                                                                                                                  |
+|---------------------------|-----|--------|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; receives the closed PDA's lamports                                                                                    |
+| `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                                                 |
+| `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`                                  |
+| `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                                           |
+| `account`                 | no  | no     | UncheckedAccount                 | The token account whose partial freeze is removed; used only as a seed                                                                                 |
+| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`                                                                                 |
+| `frozen_balance_pda`      | yes | no     | `Account<FrozenBalance>`         | `close = authority`; seeds `["frozen_balance", mint, account]`                                                                                         |
+| `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`                            |
+| `system_program`          | no  | no     | Program<System>                  |                                                                                                                                                        |
+| `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountPartialFreezeRemoved` |
+| `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI                                                                  |
 
 ### Events
 
-| Event | Fields | Emitted |
-|---|---|---|
+| Event                         | Fields                                                | Emitted                                          |
+|-------------------------------|-------------------------------------------------------|--------------------------------------------------|
 | `AccountPartialFreezeRemoved` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | Before the `frozen_balance_pda` marker is closed |
 
 ---
