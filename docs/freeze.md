@@ -6,7 +6,7 @@ Controls the Token-2022 freeze authority and all programmatic freezing. Owns the
 
 Exposes two categories of instructions:
 - **Auxiliary** (`block_account`, `unblock_account`): called exclusively via CPI by `mint`, `operations`, and `transfer` as part of their token operation flows. These do not emit events.
-- **Management** (`freeze_account`, `batch_freeze`, `unfreeze_account`, `partially_freeze_account`, `batch_partially_freeze`, `remove_partial_freeze`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
+- **Management** (`freeze_account`, `batch_freeze`, `unfreeze_account`, `batch_unfreeze`, `partially_freeze_account`, `batch_partially_freeze`, `remove_partial_freeze`, `batch_remove_partial_freeze`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
 
 Also exports two verification functions used by `transfer` to gate transfers.
 
@@ -252,6 +252,66 @@ Closes the `frozen_account_pda` marker and returns rent to `authority`.
 
 ---
 
+## Instruction: `batch_unfreeze` (Management)
+
+Unfreezes, in a single instruction, every account passed in via `remaining_accounts` — the batched equivalent of calling `unfreeze_account` once per account. Runs the same authorization checks as `unfreeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountUnfrozen` event per account. Unlike the singular instruction, there is no per-account `frozen_account_pda` field in the typed accounts struct — Anchor's `close` constraint can't target a variable number of accounts, so each `frozen_account_pda` is closed manually inside the handler via `common::pda_utils::close_pda` (zeroing lamports and data, returning rent to `authority`) — see [`docs/common.md`](common.md#function-close_pda).
+
+### Parameters
+
+No instruction parameters — the accounts to unfreeze are described entirely by `remaining_accounts`.
+
+### Remaining accounts
+
+Two accounts per entry, in order, appended as `remaining_accounts`:
+
+| Offset (per entry `i`) | Account              | Mut | Notes                                                                                                     |
+|------------------------|----------------------|-----|-------------------------------------------------------------------------------------------------------------|
+| `i * 2`                | `account`            | no  | The token account to unfreeze; used only as a seed                                                          |
+| `i * 2 + 1`            | `frozen_account_pda` | yes | Must equal the canonical `["frozen_account", mint, account]` PDA — verified on-chain; must already exist |
+
+### Preconditions
+
+- `!remaining_accounts.is_empty()` — errors `EmptyBatch` if the batch is empty.
+- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `frozen_account_pda` per `account`).
+- `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
+- `require_not_paused` — mint must not be paused.
+- `require_active` — mint must not be deactivated.
+- `require_functionality(FREEZE_UNFREEZE_ACCOUNT)` — the mint's asset-class version must be finalized and enable unfreezing (same functionality bit as `unfreeze_account`; batching doesn't get its own bit).
+- Per entry: the supplied `frozen_account_pda` must match the address `Pubkey::find_program_address(["frozen_account", mint, account], freeze_program_id)` derives, else `FrozenAccountPdaMismatch`.
+- Per entry: `frozen_account_pda` must already exist, else `AccountNotFrozen` (mirrors `unfreeze_account`'s behaviour of failing when the typed account can't be resolved).
+
+### Accounts
+
+The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `frozen_account_pda` field here — both are supplied per entry instead.
+
+| Account                   | Mut | Signer | Type                             | Notes                                                                                                                       |
+|---------------------------|-----|--------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; receives every closed `frozen_account_pda`'s lamports                                     |
+| `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                      |
+| `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`       |
+| `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                |
+| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`                                                      |
+| `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
+| `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`                                                           |
+| `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID                                                               |
+
+### Errors
+
+| Code                       | Cause                                                                              |
+|----------------------------|----------------------------------------------------------------------------------------|
+| `EmptyBatch`               | `remaining_accounts` is empty                                                          |
+| `InvalidRemainingAccounts` | `remaining_accounts.len() % 2 != 0`                                                    |
+| `FrozenAccountPdaMismatch` | Supplied `frozen_account_pda` does not match the canonical derived PDA for `account`   |
+| `AccountNotFrozen`         | `frozen_account_pda` does not exist (account is not frozen)                            |
+
+### Events
+
+| Event             | Fields                                                | Emitted                                                 |
+|-------------------|---------------------------------------------------------|------------------------------------------------------------|
+| `AccountUnfrozen` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | Before each entry's `frozen_account_pda` marker is closed |
+
+---
+
 ## Instruction: `partially_freeze_account` (Management)
 
 ### Parameters
@@ -384,6 +444,66 @@ Closes the `frozen_balance_pda` marker and returns rent to `authority`, lifting 
 | Event                         | Fields                                                | Emitted                                          |
 |-------------------------------|-------------------------------------------------------|--------------------------------------------------|
 | `AccountPartialFreezeRemoved` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | Before the `frozen_balance_pda` marker is closed |
+
+---
+
+## Instruction: `batch_remove_partial_freeze` (Management)
+
+Removes the partial freeze, in a single instruction, from every account passed in via `remaining_accounts` — the batched equivalent of calling `remove_partial_freeze` once per account. Named after `remove_partial_freeze` rather than literally "batch unfreeze" for discoverability, matching every other `batch_*` instruction's `batch_<singular name>` pattern. Runs the same authorization checks as `remove_partial_freeze` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartialFreezeRemoved` event per account. Unlike the singular instruction, there is no per-account `frozen_balance_pda` field in the typed accounts struct — Anchor's `close` constraint can't target a variable number of accounts, so each `frozen_balance_pda` is closed manually inside the handler via `common::pda_utils::close_pda`.
+
+### Parameters
+
+No instruction parameters — the accounts are described entirely by `remaining_accounts`.
+
+### Remaining accounts
+
+Two accounts per entry, in order, appended as `remaining_accounts`:
+
+| Offset (per entry `i`) | Account              | Mut | Notes                                                                                                        |
+|------------------------|----------------------|-----|-----------------------------------------------------------------------------------------------------------------|
+| `i * 2`                | `account`            | no  | The token account whose partial freeze is removed; used only as a seed                                          |
+| `i * 2 + 1`            | `frozen_balance_pda` | yes | Must equal the canonical `["frozen_balance", mint, account]` PDA — verified on-chain; must already exist |
+
+### Preconditions
+
+- `!remaining_accounts.is_empty()` — errors `EmptyBatch` if the batch is empty.
+- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `frozen_balance_pda` per `account`).
+- `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
+- `require_not_paused` — mint must not be paused.
+- `require_active` — mint must not be deactivated.
+- `require_functionality(FREEZE_REMOVE_PARTIAL_FREEZE)` — the mint's asset-class version must be finalized and enable removing partial freezes (same functionality bit as `remove_partial_freeze`; batching doesn't get its own bit).
+- Per entry: the supplied `frozen_balance_pda` must match the address `Pubkey::find_program_address(["frozen_balance", mint, account], freeze_program_id)` derives, else `FrozenBalancePdaMismatch`.
+- Per entry: `frozen_balance_pda` must already exist, else `AccountNotPartiallyFrozen` (mirrors `remove_partial_freeze`'s behaviour of failing when the typed account can't be resolved).
+
+### Accounts
+
+The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `frozen_balance_pda` field here — both are supplied per entry instead.
+
+| Account                   | Mut | Signer | Type                             | Notes                                                                                                                       |
+|---------------------------|-----|--------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; receives every closed `frozen_balance_pda`'s lamports                                     |
+| `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                      |
+| `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`       |
+| `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                |
+| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`                                                      |
+| `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
+| `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`                                                           |
+| `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID                                                               |
+
+### Errors
+
+| Code                        | Cause                                                                                |
+|-----------------------------|---------------------------------------------------------------------------------------|
+| `EmptyBatch`                | `remaining_accounts` is empty                                                          |
+| `InvalidRemainingAccounts`  | `remaining_accounts.len() % 2 != 0`                                                    |
+| `FrozenBalancePdaMismatch`  | Supplied `frozen_balance_pda` does not match the canonical derived PDA for `account`   |
+| `AccountNotPartiallyFrozen` | `frozen_balance_pda` does not exist (account is not partially frozen)                  |
+
+### Events
+
+| Event                         | Fields                                                | Emitted                                                     |
+|-------------------------------|-----------------------------------------------------------|------------------------------------------------------------|
+| `AccountPartialFreezeRemoved` | `mint: Pubkey`, `account: Pubkey`, `operator: Pubkey` | Before each entry's `frozen_balance_pda` marker is closed |
 
 ---
 

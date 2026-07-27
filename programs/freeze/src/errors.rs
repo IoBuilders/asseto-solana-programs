@@ -16,4 +16,8 @@ pub enum ErrorCode {
     FrozenAccountPdaMismatch,
     #[msg("Provided frozen_balance_pda does not match the derived PDA for this account")]
     FrozenBalancePdaMismatch,
+    #[msg("Account is not frozen (frozen_account_pda does not exist)")]
+    AccountNotFrozen,
+    #[msg("Account is not partially frozen (frozen_balance_pda does not exist)")]
+    AccountNotPartiallyFrozen,
 }

@@ -135,6 +135,14 @@ Creates `pda` (owned by `program_id`, sized `space`) the same way Anchor's own `
 
 When `pda` has no lamports yet, this does a plain `create_account` (funds + allocates + assigns atomically). Otherwise it falls back to the same two-step sequence Anchor's `init` uses: top up to rent-exemption via `transfer` (only if needed), then `allocate` + `assign` separately — since `create_account` itself refuses to run against a non-empty-lamports account. Needed anywhere a PDA is created manually via `remaining_accounts` rather than through a typed Anchor account (Anchor's `init` can't target a variable-length account list) — e.g. `freeze::batch_freeze`, which creates one `frozen_account_pda` per entry.
 
+### Function: `close_pda`
+
+```rust
+pub fn close_pda(pda: &AccountInfo, authority: &AccountInfo) -> Result<()>
+```
+
+The manual counterpart to Anchor's `#[account(close = authority)]` constraint: zeroes `pda`'s lamports (crediting them to `authority`) and clears its data. Needed anywhere a PDA is closed via `remaining_accounts` rather than through a typed Anchor account (Anchor's `close` constraint can't target a variable-length account list) — e.g. `freeze::batch_unfreeze` / `freeze::batch_remove_partial_freeze`, each of which closes one PDA per entry. Callers are expected to have already verified `pda` is the expected account and is non-empty; unlike `create_or_adopt_pda`, there's no griefing angle to closing an account, so this is a plain, unconditional operation.
+
 ---
 
 ## Module: `merkle`

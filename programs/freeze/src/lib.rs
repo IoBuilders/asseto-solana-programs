@@ -35,6 +35,10 @@ pub mod freeze {
         unfreeze_account::unfreeze_account(ctx)
     }
 
+    pub fn batch_unfreeze<'info>(ctx: Context<'info, BatchUnfreezeAccounts<'info>>) -> Result<()> {
+        batch_unfreeze::batch_unfreeze(ctx)
+    }
+
     pub fn partially_freeze_account(
         ctx: Context<PartiallyFreezeAccount>,
         balance: u64,
@@ -51,6 +55,12 @@ pub mod freeze {
 
     pub fn remove_partial_freeze(ctx: Context<RemovePartialFreeze>) -> Result<()> {
         remove_partial_freeze::remove_partial_freeze(ctx)
+    }
+
+    pub fn batch_remove_partial_freeze<'info>(
+        ctx: Context<'info, BatchRemovePartialFreezeAccounts<'info>>,
+    ) -> Result<()> {
+        batch_remove_partial_freeze::batch_remove_partial_freeze(ctx)
     }
 }
 
