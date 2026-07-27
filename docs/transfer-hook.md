@@ -11,9 +11,9 @@ Two responsibilities:
 1. **Introspection gate.** Reads the `Instructions` sysvar and refuses the
    transfer unless (a) the immediately-prior top-level instruction is
    `transfer::verify_transfer` with matching arguments and (b) the
-   current top-level instruction is one of two known-good entrypoints
-   (`transfer::transfer` or a bare top-level
-   `Token-2022::TransferChecked`) — also with matching arguments. This is
+   current top-level instruction is one of three known-good entrypoints
+   (`transfer::transfer`, `operations::controller_transfer`, or a bare
+   top-level `Token-2022::TransferChecked`) — also with matching arguments. This is
    the only compliance enforcement the hook does; the actual rule checks
    (deactivation, transfer-mode, whitelist, frozen account, frozen balance)
    live in `transfer::verify_transfer` so the metalist stays small
@@ -147,11 +147,20 @@ checks effectively gate the *outer* transaction shape.
    - `prev_ix.data[8..16]` parsed as little-endian `u64` equals `expected.amount`,
      and `prev_ix.accounts[1..=3]` equal `expected.source / destination / mint`
      (any mismatch → `PrevInstructionArgumentMismatch`).
-5. **Current-instruction check (must be `transfer::transfer` OR
-   `Token-2022::TransferChecked`):**
+5. **Current-instruction check (must be `transfer::transfer`,
+   `operations::controller_transfer` OR `Token-2022::TransferChecked`):**
    - If `curr_ix.program_id == TRANSFER_PROGRAM_ID`: same Anchor layout
      check as step 4 but against `TRANSFER_DISCRIMINATOR` and using the
      `Current*` error variants.
+   - Else if `curr_ix.program_id == OPERATIONS_PROGRAM_ID`: same Anchor
+     data layout (8-byte discriminator + `u64` amount) against
+     `CONTROLLER_TRANSFER_DISCRIMINATOR`, but a different **account**
+     layout — `controller_transfer` has no `source_owner` at index 0, so
+     source / destination / mint sit at indices 4 / 5 / 3 rather than
+     1 / 2 / 3. The two layouts are declared side by side as
+     `TRANSFER_LAYOUT` / `CONTROLLER_TRANSFER_LAYOUT` in `execute.rs`;
+     reordering the accounts of either introspected instruction requires
+     updating its layout here.
    - Else if `curr_ix.program_id == TOKEN_2022_PROGRAM_ID`: SPL layout —
      1-byte tag (`12`), 8-byte amount, 1-byte decimals; accounts at
      indices 0/1/2 = source / mint / destination (any mismatch →
@@ -181,9 +190,16 @@ hidden inside one top-level instruction. The `Instructions` sysvar only
 exposes *top-level* instructions, so the hook would only see "the wrapper" at
 N and "verify_transfer" at N-1 (signed earlier by the user) and let the
 transfer through despite arbitrary state mutations between the verify and
-the actual transfer. Forcing N to be exactly `transfer::transfer` (or a
-bare top-level `Token-2022::TransferChecked`) denies any wrapper from sitting
-between the user and the real transfer instruction.
+the actual transfer. Forcing N to be exactly one of the three whitelisted
+entrypoints denies any wrapper from sitting between the user and the real
+transfer instruction.
+
+`operations::controller_transfer` is on that list because a controller
+force-transfer is itself a top-level, fully-gated entrypoint (controller role +
+`OPERATIONS_CONTROLLER_TRANSFER` functionality) — the same guarantee
+`transfer::transfer` provides, just with a different authority. It is not a
+wrapper: the hook pins its discriminator, so nothing else in `operations` can
+reach the transfer path.
 
 The bare `Token-2022::TransferChecked` entrypoint is permitted for
 composability but is effectively dead-letter today: the source account is
@@ -209,8 +225,8 @@ pub enum TransferHookError {
     PrevInstructionNotVerifyTransfer,             // discriminator mismatch
     PrevInstructionArgumentMismatch,              // amount / source / destination / mint / data layout
 
-    // Introspection — current instruction (must be transfer or transfer_checked)
-    CurrentInstructionUnknownProgram,             // not transfer and not token-2022
+    // Introspection — current instruction (must be transfer, controller_transfer or transfer_checked)
+    CurrentInstructionUnknownProgram,             // not transfer, operations or token-2022
     CurrentInstructionNotTransferOrTransferChecked, // wrong discriminator/tag
     CurrentInstructionArgumentMismatch,
 }
@@ -234,9 +250,10 @@ use common::program_ids as constants;
 ```rust
 // Anchor / SPL discriminators — used by the introspection check against
 // the data of the introspected instructions. Must be kept in sync with
-// transfer's #[program] (Anchor derives them from the Rust function
-// names sha256("global:<name>")[..8]).
-pub const VERIFY_TRANSFER_DISCRIMINATOR:    [u8; 8] = [...];
-pub const TRANSFER_DISCRIMINATOR:           [u8; 8] = [...];
-pub const TOKEN_2022_TRANSFER_CHECKED_TAG:  u8       = 12;
+// transfer's and operations' #[program] (Anchor derives them from the Rust
+// function names sha256("global:<name>")[..8]).
+pub const VERIFY_TRANSFER_DISCRIMINATOR:     [u8; 8] = [...];
+pub const TRANSFER_DISCRIMINATOR:            [u8; 8] = [...];
+pub const CONTROLLER_TRANSFER_DISCRIMINATOR: [u8; 8] = [...];
+pub const TOKEN_2022_TRANSFER_CHECKED_TAG:   u8      = 12;
 ```

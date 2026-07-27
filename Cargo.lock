@@ -971,6 +971,7 @@ dependencies = [
  "common",
  "freeze",
  "snapshot",
+ "solana-instructions-sysvar",
  "spl-token-2022",
 ]
 

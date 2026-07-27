@@ -5,7 +5,9 @@ use solana_instructions_sysvar::{load_current_index_checked, load_instruction_at
 
 use crate::constants;
 use crate::errors::TransferHookError;
-use common::program_ids::{DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, TRANSFER_PROGRAM_ID};
+use common::program_ids::{
+    DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGRAM_ID,
+};
 use common::state::{AssetClassVersion, AssetConfiguration};
 
 pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
@@ -36,26 +38,37 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
         prev_ix.program_id == TRANSFER_PROGRAM_ID,
         TransferHookError::PrevInstructionWrongProgram
     );
-    assert_matches_transfer_ix(
+    assert_matches_anchor_transfer_ix(
         &prev_ix,
         &constants::VERIFY_TRANSFER_DISCRIMINATOR,
+        &TRANSFER_LAYOUT,
         &expected,
         IntrospectionTarget::PrevVerifyTransfer,
     )?;
 
-    // N must be transfer::transfer OR Token-2022::transfer_checked.
+    // N must be transfer::transfer, operations::controller_transfer OR
+    // Token-2022::transfer_checked.
     if curr_ix.program_id == TRANSFER_PROGRAM_ID {
-        assert_matches_transfer_ix(
+        assert_matches_anchor_transfer_ix(
             &curr_ix,
             &constants::TRANSFER_DISCRIMINATOR,
+            &TRANSFER_LAYOUT,
             &expected,
             IntrospectionTarget::CurrentTransfer,
+        )?;
+    } else if curr_ix.program_id == OPERATIONS_PROGRAM_ID {
+        assert_matches_anchor_transfer_ix(
+            &curr_ix,
+            &constants::CONTROLLER_TRANSFER_DISCRIMINATOR,
+            &CONTROLLER_TRANSFER_LAYOUT,
+            &expected,
+            IntrospectionTarget::CurrentControllerTransfer,
         )?;
     } else if curr_ix.program_id == anchor_spl::token_2022::ID {
         assert_matches_token2022_transfer_checked(&curr_ix, &expected)?;
     } else {
         msg!(
-            "introspection: top-level instruction's program is neither transfer nor token-2022 (program_id={})",
+            "introspection: top-level instruction's program is none of transfer, operations or token-2022 (program_id={})",
             curr_ix.program_id
         );
         return err!(TransferHookError::CurrentInstructionUnknownProgram);
@@ -81,6 +94,7 @@ struct ExpectedTransfer {
 enum IntrospectionTarget {
     PrevVerifyTransfer,
     CurrentTransfer,
+    CurrentControllerTransfer,
     CurrentTokenTransferChecked,
 }
 
@@ -88,7 +102,9 @@ impl IntrospectionTarget {
     fn err_wrong_method(self) -> TransferHookError {
         match self {
             Self::PrevVerifyTransfer => TransferHookError::PrevInstructionNotVerifyTransfer,
-            Self::CurrentTransfer | Self::CurrentTokenTransferChecked => {
+            Self::CurrentTransfer
+            | Self::CurrentControllerTransfer
+            | Self::CurrentTokenTransferChecked => {
                 TransferHookError::CurrentInstructionNotTransferOrTransferChecked
             }
         }
@@ -97,16 +113,45 @@ impl IntrospectionTarget {
     fn err_args_mismatch(self) -> TransferHookError {
         match self {
             Self::PrevVerifyTransfer => TransferHookError::PrevInstructionArgumentMismatch,
-            Self::CurrentTransfer | Self::CurrentTokenTransferChecked => {
+            Self::CurrentTransfer
+            | Self::CurrentControllerTransfer
+            | Self::CurrentTokenTransferChecked => {
                 TransferHookError::CurrentInstructionArgumentMismatch
             }
         }
     }
 }
 
-fn assert_matches_transfer_ix(
+/// Positions of `(source, destination, mint)` within an introspected
+/// instruction's account list. Every accepted instruction shares the same data
+/// layout (8-byte Anchor discriminator + `u64` amount) but orders its accounts
+/// differently, so the indices travel alongside the discriminator.
+struct AccountLayout {
+    source: usize,
+    destination: usize,
+    mint: usize,
+}
+
+/// `transfer::verify_transfer` and `transfer::transfer` — indices 0–3 are
+/// `source_owner`, `source`, `destination`, `mint` in both.
+const TRANSFER_LAYOUT: AccountLayout = AccountLayout {
+    source: 1,
+    destination: 2,
+    mint: 3,
+};
+
+/// `operations::controller_transfer` — the holder does not sign, so there is no
+/// `source_owner` at index 0 and the mint precedes the two token accounts.
+const CONTROLLER_TRANSFER_LAYOUT: AccountLayout = AccountLayout {
+    source: 4,
+    destination: 5,
+    mint: 3,
+};
+
+fn assert_matches_anchor_transfer_ix(
     ix: &Instruction,
     expected_discriminator: &[u8; 8],
+    layout: &AccountLayout,
     expected: &ExpectedTransfer,
     target: IntrospectionTarget,
 ) -> Result<()> {
@@ -118,9 +163,9 @@ fn assert_matches_transfer_ix(
     let amount = u64::from_le_bytes(ix.data[8..16].try_into().unwrap());
     require!(amount == expected.amount, target.err_args_mismatch());
 
-    require_account(ix, 1, &expected.source, target)?;
-    require_account(ix, 2, &expected.destination, target)?;
-    require_account(ix, 3, &expected.mint, target)?;
+    require_account(ix, layout.source, &expected.source, target)?;
+    require_account(ix, layout.destination, &expected.destination, target)?;
+    require_account(ix, layout.mint, &expected.mint, target)?;
     Ok(())
 }
 

@@ -44,12 +44,12 @@ asseto-solana-programs/
 │   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated)
 │   ├── metadata-update/      — controls metadata updates
 │   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
-│   ├── operations/           — burn via permanent delegate (`burn` + `batch_burn`)
+│   ├── operations/           — permanent-delegate operations: burn (`burn` + `batch_burn`) + force-transfer (`controller_transfer`)
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers
 │   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block)
-│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double introspection (prev = verify_transfer, curr = transfer / transfer_checked) + `TRANSFER_HOOK_EXECUTE` functionality check. Writes nothing
+│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double introspection (prev = verify_transfer, curr = transfer / controller_transfer / transfer_checked) + `TRANSFER_HOOK_EXECUTE` functionality check. Writes nothing
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
@@ -195,7 +195,7 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
 | `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` | All new accounts start frozen; thawed/re-frozen transiently during mint/burn/transfer |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer` or `Token-2022::transfer_checked`, both with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules (deactivation, transfer-mode, whitelist, frozen account, frozen balance) live in `transfer::verify_transfer`, not in the hook — see [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) for why. |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer`, `operations::controller_transfer` or `Token-2022::transfer_checked`, all with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules (deactivation, transfer-mode, whitelist, frozen account, frozen balance) live in `transfer::verify_transfer`, not in the hook — see [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) for why. |
 
 ---
 

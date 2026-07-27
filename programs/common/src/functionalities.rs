@@ -25,6 +25,7 @@ pub const TREASURY_SET_PAYMENT_TOKEN: u16 = 18;
 pub const TREASURY_PAY_COUPON: u16 = 19;
 pub const ACCESS_CONTROL_GRANT_ROLES: u16 = 20;
 pub const ACCESS_CONTROL_REVOKE_ROLES: u16 = 21;
+pub const OPERATIONS_CONTROLLER_TRANSFER: u16 = 22;
 
 #[cfg(test)]
 mod tests {
