@@ -22,4 +22,8 @@ pub mod operations {
     ) -> Result<()> {
         batch_burn::batch_burn(ctx, amounts)
     }
+
+    pub fn controller_transfer(ctx: Context<ControllerTransfer>, amount: u64) -> Result<()> {
+        controller_transfer::controller_transfer(ctx, amount)
+    }
 }

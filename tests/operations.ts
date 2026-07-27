@@ -14,15 +14,17 @@ import {
 import {
   batchBurnTokens,
   burnTokens,
+  controllerTransfer,
   getControllerRedemptionEvent,
   getControllerRedemptionEvents,
-} from "./program_helpers/burn/burn_instruction_helper";
+  getControllerTransferredEvent,
+} from "./program_helpers/operations/operations_instruction_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
-import { OPERATIONS_BURN } from "./utils/functionalities";
+import { OPERATIONS_BURN, OPERATIONS_CONTROLLER_TRANSFER, TRANSFER_HOOK_EXECUTE } from "./utils/functionalities";
 import { beforeEach } from "mocha";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN, ROLE_CONTROLLER } from "./utils/roles";
@@ -375,6 +377,178 @@ describe("operations", () => {
         assert.instanceOf(err, AnchorError);
         const anchorErr = err as AnchorError;
         assert.equal(anchorErr.error.errorCode.code, "InvalidRemainingAccounts");
+      }
+    });
+  });
+
+  describe("controller_transfer", async () => {
+    let mint: PublicKey;
+    const MINT_DECIMALS = 6;
+
+    // A fresh mint per test (unpaused + active out of the box) plus a fresh
+    // asset-class version finalized with the controller-transfer functionality.
+    // TRANSFER_HOOK_EXECUTE is enabled too because the inner `transfer_checked`
+    // invokes the hook, which gates on its own functionality bit.
+    beforeEach(async () => {
+      ({ mint } = await deployMint({}, { decimals: MINT_DECIMALS }));
+      await setAssetClassVersionForMint(mint, {
+        functionalities: [OPERATIONS_CONTROLLER_TRANSFER, TRANSFER_HOOK_EXECUTE],
+      });
+      await setRoles(mint, authority!.publicKey, [ROLE_CONTROLLER]);
+    });
+
+    // `from` is owned by a keypair the test controls: the `verify_transfer`
+    // pre-instruction the hook introspects declares `source_owner` as a Signer,
+    // so it has to co-sign the transaction.
+    async function createFundedAccounts(initialBalance: anchor.BN) {
+      const fromOwner = Keypair.generate();
+      const from = await createTokenAccount({ mint, owner: fromOwner.publicKey });
+      const to = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+      await mintTokensViaSurfpool(mint, from, initialBalance);
+      return { from, to, fromOwner };
+    }
+
+    type TransferAccounts = { from: PublicKey; to: PublicKey; fromOwner: Keypair };
+
+    function callControllerTransfer(caller: Keypair, accounts: TransferAccounts, amount?: anchor.BN) {
+      return controllerTransfer(
+        {
+          mint,
+          authority: caller,
+          from: accounts.from,
+          to: accounts.to,
+          sourceOwner: accounts.fromOwner.publicKey,
+          signers: [caller, accounts.fromOwner],
+        },
+        amount ? { amount } : undefined
+      );
+    }
+
+    it("controller_transfer: moves tokens between accounts via permanent delegate", async () => {
+      const initialBalance = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
+      const transferAmount = new anchor.BN(250 * 10 ** MINT_DECIMALS);
+      const accounts = await createFundedAccounts(initialBalance);
+      const { from, to } = accounts;
+
+      const { signature } = await callControllerTransfer(authority!, accounts, transferAmount);
+
+      // ── Balances moved, both accounts re-frozen ────────────────────────────
+      const fromAfter = await getTokenAccount(from);
+      const toAfter = await getTokenAccount(to);
+      assert.equal(
+        fromAfter.amount.toString(),
+        initialBalance.sub(transferAmount).toString(),
+        "source balance should be reduced by the transfer amount"
+      );
+      assert.equal(
+        toAfter.amount.toString(),
+        transferAmount.toString(),
+        "destination balance should be increased by the transfer amount"
+      );
+
+      // ── ControllerTransferred event ────────────────────────────────────────
+      const event = await getControllerTransferredEvent(signature);
+      assert.isNotNull(event, "ControllerTransferred event should be emitted");
+      assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the transferred mint");
+      assert.equal(
+        event!.controller.toBase58(),
+        authority!.publicKey.toBase58(),
+        "event controller should be the authority"
+      );
+      assert.equal(event!.from.toBase58(), from.toBase58(), "event from should be the source token account");
+      assert.equal(event!.to.toBase58(), to.toBase58(), "event to should be the destination token account");
+      assert.equal(event!.value.toString(), transferAmount.toString(), "event value should match the transfer amount");
+    });
+
+    it("controller_transfer: fails with MissingRole when authority does not have the controller role", async () => {
+      const accounts = await createFundedAccounts(new anchor.BN(1));
+
+      const rogueKeypair = Keypair.generate();
+      await setRoles(mint, rogueKeypair.publicKey, [ROLE_ADMIN]); // rogue has admin but not controller role
+
+      try {
+        await callControllerTransfer(rogueKeypair, accounts);
+        assert.fail("Expected MissingRole error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
+      }
+    });
+
+    it("controller_transfer: fails with Deactivated when mint has been deactivated", async () => {
+      const accounts = await createFundedAccounts(new anchor.BN(1));
+      await setDeactivateMarker(mint);
+
+      try {
+        await callControllerTransfer(authority!, accounts);
+        assert.fail("Expected Deactivated error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+      }
+    });
+
+    it("controller_transfer: fails with FunctionalityNotSupportedError when the functionality is not enabled", async () => {
+      const accounts = await createFundedAccounts(new anchor.BN(1));
+
+      // Re-seed the asset-class version WITHOUT the controller-transfer functionality.
+      await setAssetClassVersionForMint(mint, { functionalities: [TRANSFER_HOOK_EXECUTE] });
+
+      try {
+        await callControllerTransfer(authority!, accounts);
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "FunctionalityNotSupportedError",
+          "error code should be FunctionalityNotSupportedError"
+        );
+      }
+    });
+
+    it("controller_transfer: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+      const accounts = await createFundedAccounts(new anchor.BN(1));
+
+      await setAssetClassVersionForMint(mint, {
+        state: ASSET_CLASS_VERSION_STATE_DRAFT,
+        functionalities: [OPERATIONS_CONTROLLER_TRANSFER, TRANSFER_HOOK_EXECUTE],
+      });
+
+      try {
+        await callControllerTransfer(authority!, accounts);
+        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(
+          anchorErr.error.errorCode.code,
+          "AssetClassVersionNotFinalized",
+          "error code should be AssetClassVersionNotFinalized"
+        );
+      }
+    });
+
+    it("controller_transfer: fails when mint is paused", async () => {
+      const accounts = await createFundedAccounts(new anchor.BN(1));
+      await setMintPaused(mint, true);
+
+      // `controller_transfer` does not run `require_not_paused` itself — the
+      // rejection comes from Token-2022 inside the `transfer_checked` CPI, so it
+      // surfaces as a SendTransactionError rather than an AnchorError.
+      try {
+        await callControllerTransfer(authority!, accounts);
+        assert.fail("Expected mint-is-paused error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
+        const logs = (err as SendTransactionError).logs ?? [];
+        assert.isTrue(
+          logs.some((log) => log.includes("paused")),
+          "transaction logs should mention the mint is paused"
+        );
       }
     });
   });

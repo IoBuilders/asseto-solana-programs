@@ -9,14 +9,22 @@ for mints that have this program registered in their `TransferHook` extension.
 Two responsibilities:
 
 1. **Introspection gate.** Reads the `Instructions` sysvar and refuses the
-   transfer unless (a) the immediately-prior top-level instruction is
-   `transfer::verify_transfer` with matching arguments and (b) the
-   current top-level instruction is one of two known-good entrypoints
-   (`transfer::transfer` or a bare top-level
-   `Token-2022::TransferChecked`) — also with matching arguments. This is
-   the only compliance enforcement the hook does; the actual rule checks
+   transfer unless the previous (N-1) and current (N) top-level instructions
+   form one of two recognised pairs, both with arguments matching the hooked
+   transfer:
+   - **Single** — N-1 is `transfer::verify_transfer` and N is one of three
+     known-good entrypoints (`transfer::transfer`,
+     `operations::controller_transfer`, or a bare top-level
+     `Token-2022::TransferChecked`).
+   - **Batch** — N-1 is `transfer::batch_verify_transfer` and N is
+     `transfer::batch_transfer`. The hook fires once per leg, so each leg is
+     matched individually against both instructions, and the two are also
+     required to describe the *identical ordered* batch.
+
+   This is the only compliance enforcement the hook does; the actual rule checks
    (deactivation, transfer-mode, whitelist, frozen account, frozen balance)
-   live in `transfer::verify_transfer` so the metalist stays small
+   live in `transfer::verify_transfer` / `transfer::batch_verify_transfer` so
+   the metalist stays small
    enough for Token-2022's 32 KiB heap to resolve it (see
    [`transfer-hook-heap-oom.md`](transfer-hook-heap-oom.md)).
 2. **Functionality gate.** Reads the mint's `asset_configuration_pda` to
@@ -140,41 +148,63 @@ checks effectively gate the *outer* transaction shape.
 2. Build `ExpectedTransfer { source: source_token.key(), mint: mint.key(),
    destination: destination_token.key(), amount }`.
 3. Load `prev_ix = instruction[current_idx - 1]` and `curr_ix = instruction[current_idx]`.
-4. **Previous-instruction check (must be `transfer::verify_transfer`):**
-   - `prev_ix.program_id == TRANSFER_PROGRAM_ID` (else `PrevInstructionWrongProgram`).
-   - `prev_ix.data[0..8] == VERIFY_TRANSFER_DISCRIMINATOR`
-     (else `PrevInstructionNotVerifyTransfer`).
-   - `prev_ix.data[8..16]` parsed as little-endian `u64` equals `expected.amount`,
-     and `prev_ix.accounts[1..=3]` equal `expected.source / destination / mint`
-     (any mismatch → `PrevInstructionArgumentMismatch`).
-5. **Dispatch on the current instruction's shape.** The current top-level
-   instruction determines which pair the hook is looking at:
-   - **Batch pair** — `curr_ix.program_id == TRANSFER_PROGRAM_ID` and
-     `curr_ix.data[0..8] == BATCH_TRANSFER_DISCRIMINATOR`: N-1 must be
-     `batch_verify_transfer` and N must be `batch_transfer`. Because one batch
-     fires the hook once per leg, neither instruction can be described by a
-     single fixed triple — so instead the hook parses the Borsh `Vec<u64>
-     amounts` (`[disc(8)][len: u32 LE][len × u64]`) and requires the hooked
+4. **Previous instruction must belong to `transfer`:**
+   `prev_ix.program_id == TRANSFER_PROGRAM_ID` (else
+   `PrevInstructionWrongProgram`). *Which* `transfer` instruction it has to be
+   is decided by step 5 — the batch and single paths expect different ones.
+5. **Dispatch on the current instruction's shape.** N is what tells the hook
+   which pair it is looking at. It is the batch pair when
+   `curr_ix.program_id == TRANSFER_PROGRAM_ID` and
+   `curr_ix.data[0..8] == BATCH_TRANSFER_DISCRIMINATOR`; otherwise it is the
+   single pair.
+   - **Batch pair** (N-1 = `batch_verify_transfer`, N = `batch_transfer`).
+     Because one batch fires the hook once per leg, neither instruction can be
+     described by a single fixed triple — so instead the hook parses the Borsh
+     `Vec<u64> amounts` (`[disc(8)][len: u32 LE][len × u64]`, length-validated
+     against the data size) and requires the hooked
      `(source, destination, amount)` to appear as some leg `i` in **both**:
+     - `batch_verify_transfer` (N-1): discriminator must be
+       `BATCH_VERIFY_TRANSFER_DISCRIMINATOR` (else
+       `PrevInstructionNotVerifyTransfer`); `source` @1, `mint` @2, and the
+       `(destination, whitelist)` pairs as the trailing `2n` accounts → match
+       `accounts[len-2n+2i] == destination && amounts[i] == amount`
+       (else `PrevInstructionArgumentMismatch`).
      - `batch_transfer` (N): `source` @1, `mint` @2, destinations as the
        trailing `n` accounts → match `accounts[len-n+i] == destination &&
-       amounts[i] == amount`.
-     - `batch_verify_transfer` (N-1): `source` @1, `mint` @2, `(destination,
-       whitelist)` pairs as the trailing `2n` accounts → match
-       `accounts[len-2n+2i] == destination && amounts[i] == amount`.
+       amounts[i] == amount` (else `CurrentInstructionArgumentMismatch`).
+     - **Pair identity** — the two must additionally describe the *same
+       ordered* batch: identical `amounts` bytes (`data[8..]`) and identical
+       destination order (N's trailing `n` vs the even offsets of N-1's
+       trailing `2n`). Per-leg existence alone is not sufficient: without
+       this, several transfer legs could collapse onto one verified leg, so
+       `batch_verify_transfer`'s *summed* balance / partial-freeze check would
+       cover less than what actually moves.
 
      Every executed leg is checked independently (the hook runs `n` times), so
      any leg not present in the verified batch reverts the whole transaction.
-     Failures surface as `Prev*` / `Current*ArgumentMismatch` (or
-     `PrevInstructionNotVerifyTransfer` if N-1 isn't `batch_verify_transfer`).
    - **Single `transfer::transfer`** — `curr_ix.program_id ==
-     TRANSFER_PROGRAM_ID` (non-batch discriminator): N-1 must be
-     `verify_transfer`; same Anchor layout check as step 4 against
-     `TRANSFER_DISCRIMINATOR` with the `Current*` error variants.
+     TRANSFER_PROGRAM_ID` with a non-batch discriminator. N-1 is checked
+     against `VERIFY_TRANSFER_DISCRIMINATOR` (Anchor layout: 8-byte
+     discriminator + `u64` amount; accounts 1/2/3 = source / destination /
+     mint; errors `PrevInstructionNotVerifyTransfer` /
+     `PrevInstructionArgumentMismatch`), and N against
+     `TRANSFER_DISCRIMINATOR` with the same layout and the `Current*` error
+     variants.
+   - **`operations::controller_transfer`** — `curr_ix.program_id ==
+     OPERATIONS_PROGRAM_ID`. N-1 is `verify_transfer` as above; N shares the
+     same Anchor *data* layout but a different **account** layout —
+     `controller_transfer` has no `source_owner` at index 0, so
+     source / destination / mint sit at indices 4 / 5 / 3 rather than
+     1 / 2 / 3. The two layouts are declared side by side as
+     `TRANSFER_LAYOUT` / `CONTROLLER_TRANSFER_LAYOUT` in `execute.rs`;
+     reordering the accounts of either introspected instruction requires
+     updating its layout here.
    - **Bare `Token-2022::TransferChecked`** — `curr_ix.program_id ==
-     TOKEN_2022_PROGRAM_ID`: N-1 must be `verify_transfer`; SPL layout —
-     1-byte tag (`12`), 8-byte amount, 1-byte decimals; accounts at indices
-     0/1/2 = source / mint / destination.
+     TOKEN_2022_PROGRAM_ID`. N-1 is `verify_transfer` as above; N uses the SPL
+     layout — 1-byte tag (`12`), 8-byte amount, 1-byte decimals; accounts at
+     indices 0/1/2 = source / mint / destination (tag mismatch →
+     `CurrentInstructionNotTransferOrTransferChecked`, accounts/amount →
+     `CurrentInstructionArgumentMismatch`).
    - Else → `CurrentInstructionUnknownProgram`.
 6. `require_functionality(asset_class_version_pda, TRANSFER_HOOK_EXECUTE)` —
    the asset-class version this mint is pinned to must have the hook's
@@ -199,9 +229,24 @@ hidden inside one top-level instruction. The `Instructions` sysvar only
 exposes *top-level* instructions, so the hook would only see "the wrapper" at
 N and "verify_transfer" at N-1 (signed earlier by the user) and let the
 transfer through despite arbitrary state mutations between the verify and
-the actual transfer. Forcing N to be exactly `transfer::transfer` (or a
-bare top-level `Token-2022::TransferChecked`) denies any wrapper from sitting
-between the user and the real transfer instruction.
+the actual transfer. Forcing N to be exactly one of the four whitelisted
+entrypoints (`transfer::transfer`, `transfer::batch_transfer`,
+`operations::controller_transfer`, bare `Token-2022::TransferChecked`) denies
+any wrapper from sitting between the user and the real transfer instruction.
+
+`transfer::batch_transfer` needs one guarantee the single entrypoints get for
+free. Its paired `batch_verify_transfer` checks the *sum* of the legs against
+the source's unfrozen balance, so matching each hooked leg against *some* leg
+of the verified batch is not enough — two transfer legs of 100 could both point
+at a single verified leg of 100, moving 200 against a 100-token check. Hence
+the pair-identity check in step 5: same amounts, same order, same destinations.
+
+`operations::controller_transfer` is on that list because a controller
+force-transfer is itself a top-level, fully-gated entrypoint (controller role +
+`OPERATIONS_CONTROLLER_TRANSFER` functionality) — the same guarantee
+`transfer::transfer` provides, just with a different authority. It is not a
+wrapper: the hook pins its discriminator, so nothing else in `operations` can
+reach the transfer path.
 
 The bare `Token-2022::TransferChecked` entrypoint is permitted for
 composability but is effectively dead-letter today: the source account is
@@ -227,8 +272,8 @@ pub enum TransferHookError {
     PrevInstructionNotVerifyTransfer,             // discriminator mismatch
     PrevInstructionArgumentMismatch,              // amount / source / destination / mint / data layout
 
-    // Introspection — current instruction (must be transfer or transfer_checked)
-    CurrentInstructionUnknownProgram,             // not transfer and not token-2022
+    // Introspection — current instruction (must be transfer, batch_transfer, controller_transfer or transfer_checked)
+    CurrentInstructionUnknownProgram,             // not transfer, operations or token-2022
     CurrentInstructionNotTransferOrTransferChecked, // wrong discriminator/tag
     CurrentInstructionArgumentMismatch,
 }
@@ -252,11 +297,12 @@ use common::program_ids as constants;
 ```rust
 // Anchor / SPL discriminators — used by the introspection check against
 // the data of the introspected instructions. Must be kept in sync with
-// transfer's #[program] (Anchor derives them from the Rust function
-// names sha256("global:<name>")[..8]).
-pub const VERIFY_TRANSFER_DISCRIMINATOR:        [u8; 8] = [...];
-pub const TRANSFER_DISCRIMINATOR:               [u8; 8] = [...];
-pub const BATCH_VERIFY_TRANSFER_DISCRIMINATOR:  [u8; 8] = [...];
-pub const BATCH_TRANSFER_DISCRIMINATOR:         [u8; 8] = [...];
-pub const TOKEN_2022_TRANSFER_CHECKED_TAG:      u8       = 12;
+// transfer's and operations' #[program] (Anchor derives them from the Rust
+// function names sha256("global:<name>")[..8]).
+pub const VERIFY_TRANSFER_DISCRIMINATOR:       [u8; 8] = [...];
+pub const TRANSFER_DISCRIMINATOR:              [u8; 8] = [...];
+pub const BATCH_VERIFY_TRANSFER_DISCRIMINATOR: [u8; 8] = [...];
+pub const BATCH_TRANSFER_DISCRIMINATOR:        [u8; 8] = [...];
+pub const CONTROLLER_TRANSFER_DISCRIMINATOR:   [u8; 8] = [...];
+pub const TOKEN_2022_TRANSFER_CHECKED_TAG:     u8      = 12;
 ```

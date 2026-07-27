@@ -21,10 +21,10 @@ pub enum TransferHookError {
     #[msg("Previous transfer::verify_transfer arguments do not match the transfer being hooked (amount / source / destination / mint)")]
     PrevInstructionArgumentMismatch,
 
-    // ── Introspection: current instruction (must be transfer or transfer_checked) ──
-    #[msg("Current top-level instruction's program is neither transfer nor token-2022")]
+    // ── Introspection: current instruction (must be transfer, controller_transfer or transfer_checked) ──
+    #[msg("Current top-level instruction's program is none of transfer, operations or token-2022")]
     CurrentInstructionUnknownProgram,
-    #[msg("Current top-level instruction is neither transfer::transfer nor token-2022::transfer_checked")]
+    #[msg("Current top-level instruction is none of transfer::transfer, operations::controller_transfer or token-2022::transfer_checked")]
     CurrentInstructionNotTransferOrTransferChecked,
     #[msg("Current top-level instruction's arguments do not match the transfer being hooked (amount / source / destination / mint)")]
     CurrentInstructionArgumentMismatch,
