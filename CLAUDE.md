@@ -41,7 +41,7 @@ asseto-solana-programs/
 ├── programs/
 │   ├── common/               — shared library: no program ID, no entrypoint
 │   ├── deploy/               — deploys mints; records the asset-class config/version ids in `asset_configuration_pda`; bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
-│   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated)
+│   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated). Both enforce the `cap` supply cap before issuing
 │   ├── metadata-update/      — controls metadata updates
 │   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
 │   ├── operations/           — burn via permanent delegate (`burn` + `batch_burn`)
@@ -55,6 +55,7 @@ asseto-solana-programs/
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
 │   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (Merkle-proves the holder's snapshot balance, then transfer_checked from treasury TA, signed by `treasury_authority` PDA)
 │   ├── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`); multi-step asset-class version deploy (`init_asset_class_version` → `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` → `finalize_asset_class_version`) storing a large functionality bit-mask
+│   ├── cap/                  — supply cap: `set_max_supply` records a per-mint maximum supply PDA + exports `require_within_max_supply` (linked-in check, no CPI) that `mint`/`batch_mint` call before issuing
 │   └── access-control/       — per-mint role bit-mask: `initialize` (auxiliary, CPI-only from `deploy`) bootstraps the deployer's `Roles` PDA with `ROLE_ADMIN`; `grant_roles` / `revoke_roles` set/clear role bits for an `(mint, account)` pair; grant/revoke are admin-gated (signer must hold `ROLE_ADMIN`) + functionality-gated, only while not paused / not deactivated
 └── tests/                    — one .ts file per program
 ```
@@ -77,10 +78,10 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 - `state::AssetConfiguration` — struct for the `asset_configuration_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] AssetConfiguration` wrapping the same fields for `Account<AssetConfiguration>` usage.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
-- `functionalities` — flat append-only `u16` ids, one per instruction across the whole workspace (`BOND_UPDATE_BOND_TERMS = 0` … `ACCESS_CONTROL_REVOKE_ROLES = 21`), excluding `factory` itself. A unit test asserts ids are sequential from 0.
+- `functionalities` — flat append-only `u16` ids, one per instruction across the whole workspace (`BOND_UPDATE_BOND_TERMS = 0` … `CAP_MAX_SUPPLY = 22`), excluding `factory` itself. A unit test asserts ids are sequential from 0.
 - `require_functionality()` — checks a `factory` `AssetClassVersion`'s mask has a given functionality bit set; takes a `Ref<AssetClassVersion>` from the caller's `AccountLoader<common::state::AssetClassVersion>` (zero-copy typed load) and reads `.mask` via `bitmask::is_set`; errors `AssetClassVersionNotFinalized` if the version isn't sealed `Ready`, `FunctionalityNotSupportedError` if the bit is unset, `FunctionalityOutOfBounds` if the functionality id exceeds the mask.
 - `bitmask` — generic `[u8; N]` bit-mask primitives (`set_bits` / `clear_bits` / `is_set`) reused by every program with a bit-mask (`factory` functionalities, `access-control` roles, `require_functionality`). Bounds are derived from the mask slice length; only the shared `MASK_CHUNK_BITS = 8` lives here — per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`) stay with their structs.
-- `roles` — flat append-only `u16` role ids (`ROLE_ADMIN = 0` … `ROLE_CUSTOM_DATA_MANAGER = 9`) + `ROLES_MASK_OFFSET`; mirror of `functionalities` for `access-control`. Beyond `access-control`'s own `ROLE_ADMIN` gating, management instructions in other programs are role-gated too (`pause`/`unpause` → `ROLE_PAUSER`; `freeze` management → `ROLE_FREEZE_MANAGER`; `metadata-update` → `ROLE_CUSTOM_DATA_MANAGER`). A unit test asserts ids are sequential from 0.
+- `roles` — flat append-only `u16` role ids (`ROLE_ADMIN = 0` … `ROLE_CAP = 10`) + `ROLES_MASK_OFFSET`; mirror of `functionalities` for `access-control`. Beyond `access-control`'s own `ROLE_ADMIN` gating, management instructions in other programs are role-gated too (`pause`/`unpause` → `ROLE_PAUSER`; `freeze` management → `ROLE_FREEZE_MANAGER`; `metadata-update` → `ROLE_CUSTOM_DATA_MANAGER`; `cap::set_max_supply` → `ROLE_CAP`). A unit test asserts ids are sequential from 0.
 - `require_role()` — checks an `access-control` `Roles` PDA has a given role bit; takes a `Ref<Roles>` from the caller's `AccountLoader<common::state::Roles>` (zero-copy typed load, same as `require_functionality`) and reads `.mask` via `bitmask::is_set`; errors `MissingRole` if the bit is unset, `RoleOutOfBounds` if the role id exceeds the mask. `common::state::Roles` is a field-for-field mirror of `access-control::state::Roles` (discriminator + size guarded by compile-time asserts in `access-control`), so `common` can load it without a circular dep. Note: an absent PDA now fails at account resolution (`AccountOwnedByWrongProgram`), not with `MissingRole`.
 - `merkle` — Merkle-proof verification for snapshot balances. `verify_balance_proof(proof, root, account, balance) -> bool` folds a **sorted-pair** (commutative) proof up from `leaf_hash = keccak(account || balance.to_le_bytes())` and checks it equals `root`; `LeafData { account, amount }` + `leaf_hash()` help build leaves. Only leaf existence is proven, not position. Uses `solana-keccak-hasher` (syscall on the `solana` target; `sha3` feature gives a host impl for unit tests). Consumed by `treasury::pay_coupon` to validate a holder's balance against a snapshot's Merkle root.
 
@@ -106,6 +107,7 @@ Exception: `transfer-hook` also has `constants.rs` for instruction discriminator
 | `treasury` | `G71RRNtr2PLZ9Tbmp9CKnxghf3aMoasUwLGPb2u7BytA` |
 | `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
 | `access-control` | `GpyjQqBWux3JYqxKCXFrDbWZmhFWBJWVaVivkBW2DL2w` |
+| `cap` | `64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm` |
 
 ### ID sharing pattern
 
@@ -177,6 +179,7 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["asset_class_pending_owner", config_id]` | `factory` | Per-`config_id` `AssetClassPendingOwner` PDA (nominated owner); created/updated by `nominate_asset_class_owner`, removed by `accept_asset_class_ownership` / `cancel_asset_class_ownership` |
 | `["asset_class_version", config_id, version]` | `factory` | Per-version `AssetClassVersion` PDA — **zero-copy**, fixed-capacity `[u8; FUNCTIONALITIES_BYTES_MASK]` functionality bit-mask + state; created `Draft` by `init_asset_class_version` with an empty (all-zero) mask (each version is independent — nothing inherited from the previous one), bits freely turned on/off by `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` while `Draft`, sealed `Ready` (immutable) by `finalize_asset_class_version` |
 | `["roles", mint, account]` | `access-control` | Per-`(mint, account)` `Roles` PDA — **zero-copy**, fixed-capacity `[u8; ROLES_BYTES_MASK]` role bit-mask; bit `i` = role `i` granted. Bootstrapped for the deployer by `initialize` (CPI from `deploy_mint`, grants `ROLE_ADMIN`); created/updated by `grant_roles` (sets bits), cleared by `revoke_roles`. Seeds are the `"roles"` prefix (`pda_seeds::ROLES`) + the raw `mint` + `account` pubkeys. The same PDA at `["roles", mint, authority]` doubles as the role-check account, loaded as `AccountLoader<Roles>` and read by `require_role`. Mirrored by `common::state::Roles` so `common` can load it without depending on `access-control` |
+| `["max_supply", mint]` | `cap` | Typed `MaxSupply` PDA (maximum total supply in raw mint units) — created/overwritten by `set_max_supply`; read by `mint`/`batch_mint` via `cap::require_within_max_supply`. Absent = no cap |
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
@@ -229,4 +232,5 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 - [`docs/treasury.md`](docs/treasury.md)
 - [`docs/factory.md`](docs/factory.md)
 - [`docs/access-control.md`](docs/access-control.md)
+- [`docs/cap.md`](docs/cap.md)
 - [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design

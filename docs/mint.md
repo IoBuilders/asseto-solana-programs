@@ -32,6 +32,7 @@ amount: u64  // raw token units (accounting for decimals)
 | `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed through to freeze |
 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; read to check whitelist mode |
 | `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, destination]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; must exist when whitelist mode is active |
+| `max_supply_pda` | no | no | UncheckedAccount | seeds `["max_supply", mint]`, `seeds::program = CAP_PROGRAM_ID`; may be empty (no cap set) |
 | `snapshot_counter_pda` | no | no | UncheckedAccount | seeds `["snapshot_counter", mint]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; may be empty |
 | `total_supply_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_totalsupply", mint]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; created/grown by snapshot |
 | `holder_balance_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_holderbalance", mint, destination]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; created/grown by snapshot |
@@ -50,14 +51,15 @@ amount: u64  // raw token units (accounting for decimals)
 2. `require_active(&deactivate_pda)` — errors if the mint has been deactivated
 3. `require_functionality(asset_class_version_pda.load()?, MINT_MINT)` — errors if the mint's asset-class version isn't finalized or doesn't enable `MINT_MINT`
 4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[&destination_whitelist_pda])` — a no-op if `transfer_control_mode_pda` is empty (no mode active); otherwise, in whitelist mode, errors with `NotWhitelisted` if `destination_whitelist_pda` is empty
-5. CPI → `snapshot::update_totalsupply_snapshot` signed with `["mint_authority", mint, bump]` — records pre-mint supply into the active snapshot (no-op if none)
-6. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["mint_authority", mint, bump]` — records pre-mint destination balance (no adjustment)
-7. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`
-8. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
-9. Emit `Issued { mint, operator: authority, to: destination, value: amount }` via `emit_cpi!`
-10. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`
+5. `cap::require_within_max_supply(&mint, &max_supply_pda, amount)` — a no-op if `max_supply_pda` is empty (no cap set); otherwise errors with `MaxSupplyExceeded` if `supply + amount` exceeds the stored cap. Runs before the snapshot CPIs so a rejected mint leaves no writes behind
+6. CPI → `snapshot::update_totalsupply_snapshot` signed with `["mint_authority", mint, bump]` — records pre-mint supply into the active snapshot (no-op if none)
+7. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["mint_authority", mint, bump]` — records pre-mint destination balance (no adjustment)
+8. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`
+9. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
+10. Emit `Issued { mint, operator: authority, to: destination, value: amount }` via `emit_cpi!`
+11. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`
 
-Steps 4–7 and 9 all sign with the same `mint_authority` PDA seeds. The thaw/re-freeze pattern is necessary because all token accounts are frozen by default (`DefaultAccountState::Frozen`). Snapshot CPIs run before the balance change so the recorded value reflects the pre-mint state.
+Steps 6–8 and 10–11 all sign with the same `mint_authority` PDA seeds. The thaw/re-freeze pattern is necessary because all token accounts are frozen by default (`DefaultAccountState::Frozen`). Snapshot CPIs run before the balance change so the recorded value reflects the pre-mint state.
 
 ### Events
 
@@ -97,6 +99,7 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 - `require_role(authority_roles_pda, ROLE_ISSUER)`
 - `require_active(&deactivate_pda)`
 - `require_functionality(asset_class_version_pda, MINT_MINT)` — same functionality bit as `mint`, not a separate one
+- `cap::require_within_max_supply(&mint, &max_supply_pda, sum(amounts))` — checked **once on the batch total**, not per destination. Equivalent to a per-destination check (the final supply is `initial + sum`, and every intermediate undershoots it) but pays the mint's TLV unpack once instead of `N` times, and fails before any CPI is issued. A no-op if `max_supply_pda` is empty. The sum itself is folded with `checked_add` and errors with `AmountOverflow` if it overflows `u64`
 - When whitelist mode is active, **every** destination's whitelist PDA is verified (`WhitelistPdaMismatch` if the passed PDA isn't the one derived for that destination; `NotWhitelisted` if it is empty).
 
 ### Accounts
@@ -109,6 +112,7 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs unblock/mint_to/block CPIs per destination |
 | `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed through to freeze |
+| `max_supply_pda` | no | no | UncheckedAccount | seeds `["max_supply", mint]`, `seeds::program = CAP_PROGRAM_ID`; may be empty (no cap set) |
 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; read once to determine whether whitelist mode is active for the whole batch |
 | `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
 | `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
@@ -130,7 +134,7 @@ For each index `i` in `0..amounts.len()`:
 4. Emit `Issued { mint, operator: authority, to: destination, value: amounts[i] }` via `emit_cpi!`.
 5. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`.
 
-The role/active/functionality checks (see Preconditions) run once before the loop, not per destination.
+The role/active/functionality and supply-cap checks (see Preconditions) run once before the loop, not per destination.
 
 ### No snapshot integration
 
@@ -144,6 +148,8 @@ The role/active/functionality checks (see Preconditions) run once before the loo
 | `InvalidRemainingAccounts` | `remaining_accounts.len() != amounts.len() * 2`    |
 | `WhitelistPdaMismatch`     | `the passed whitelist PDA isn't correctly derived` |
 | `NotWhitelisted`           | `remaining_accounts.len() != amounts.len() * 2`    |
+| `AmountOverflow`           | the sum of `amounts` overflows `u64`               |
+| `MaxSupplyExceeded`        | `supply + sum(amounts)` exceeds the stored cap     |
 
 ---
 ```

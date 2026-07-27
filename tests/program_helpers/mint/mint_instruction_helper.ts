@@ -15,6 +15,7 @@ import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
 import { snapshotCounterPda, snapshotTotalSupplyPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
+import { maxSupplyPda } from "../cap/cap_pda_helper";
 
 export function getMintProgram(): Program<Mint> {
   return anchor.workspace.Mint as Program<Mint>;
@@ -61,6 +62,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       freezeAuthority: freezeAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
+      maxSupplyPda: maxSupplyPda(callContext.mint),
       snapshotCounterPda: snapshotCounterPda(callContext.mint),
       totalSupplySnapshot: snapshotTotalSupplyPda(callContext.mint),
       holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
@@ -136,6 +138,7 @@ export async function batchMintTokens(
       mint: callContext.mint,
       mintAuthority: mintAuthorityPda(callContext.mint),
       freezeAuthority: freezeAuthorityPda(callContext.mint),
+      maxSupplyPda: maxSupplyPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       freezeProgram: FREEZE_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(
