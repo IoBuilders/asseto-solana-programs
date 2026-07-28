@@ -11,6 +11,8 @@ import {
   TRANSFER_HOOK_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
   FACTORY_PROGRAM_ID,
+  DEACTIVATE_PROGRAM_ID,
+  TRANSFER_CONTROL_PROGRAM_ID,
 } from "../../utils/address_utils";
 import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
 import { getEvent, getEvents } from "../event_helper";
@@ -18,9 +20,9 @@ import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, operationsEventAuthorityPda } from "./operations_pda_helper";
-import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
+import { freezeAuthorityPda, frozenAccountPda, frozenBalancePda } from "../freeze/freeze_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
-import { buildVerifyTransferInstruction } from "../transfer_helper";
+import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
 
 export function getOperationsProgram(): Program<Operations> {
   return anchor.workspace.Operations as Program<Operations>;
@@ -164,11 +166,9 @@ export async function getControllerRedemptionEvents(signature: string): Promise<
 export type ControllerTransferContext = MintWriteContext & {
   from: PublicKey;
   to: PublicKey;
-  // Owner of `from`. Not an account of `controller_transfer` itself — it is only
-  // needed to build the default `verify_transfer` pre-instruction the transfer
-  // hook introspects, and it must be in `signers` because `verify_transfer`
-  // declares `source_owner` as a `Signer`.
-  sourceOwner: PublicKey;
+  // Owner of `from`. No longer an account of `controller_transfer` nor a required
+  // signer — kept optional for backwards compatibility with existing callers.
+  sourceOwner?: PublicKey;
   preInstructions?: TransactionInstruction[];
 };
 
@@ -186,25 +186,15 @@ export async function controllerTransfer(
   // `asset_configuration` account — the same values the on-chain program reads.
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
-  // The inner `transfer_checked` fires `transfer-hook::execute`, whose double
-  // introspection requires `transfer::verify_transfer` at index N-1 with
-  // matching (source, destination, mint, amount) — same pre-instruction the
-  // `transfer` helper prepends.
-  let preInstructions: TransactionInstruction[];
-  if (callContext.preInstructions) {
-    preInstructions = callContext.preInstructions;
-  } else {
-    const verifyIx = await buildVerifyTransferInstruction(
-      {
-        mint: callContext.mint,
-        sourceOwner: callContext.sourceOwner,
-        source: callContext.from,
-        destination: callContext.to,
-      },
-      { amount }
-    );
-    preInstructions = [verifyIx];
-  }
+  // Compliance lives in transfer-hook::execute, which bypasses the whitelist /
+  // frozen checks for permanent-delegate transfers. Token-2022 still resolves the
+  // whole metalist, so every forwarded PDA must be supplied (may be empty).
+  // The unblock ×2 → transfer_checked → hook → block ×2 chain exceeds the default
+  // 200k CU budget, so raise it.
+  const preInstructions = [
+    anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+    ...(callContext.preInstructions ?? []),
+  ];
 
   const signature = await getOperationsProgram()
     .methods.controllerTransfer(amount)
@@ -222,7 +212,13 @@ export async function controllerTransfer(
       freezeProgram: FREEZE_PROGRAM_ID,
       deployProgram: DEPLOY_PROGRAM_ID,
       factoryProgram: FACTORY_PROGRAM_ID,
-      instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      deactivateProgram: DEACTIVATE_PROGRAM_ID,
+      transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
+      transferControlModePda: transferControlModePda(callContext.mint),
+      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.from),
+      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.to),
+      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.from),
+      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.from),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId

@@ -343,6 +343,23 @@ What clients have to do:
   — so each transfer test drops the result into `.preInstructions([...])`
   immediately before the `transfer` call.
 
+## 2026 revision: checks moved back into the hook
+
+The introspection design (option 2) breaks composability: the `Instructions`
+sysvar exposes only top-level instructions, so any program wrapping
+`transfer_checked` in a CPI (DEX, custodian, multisig) is rejected. So the full
+compliance suite moved **back into `transfer-hook::execute`**; introspection and
+`transfer::verify_transfer` / `batch_verify_transfer` were removed, and the
+balance check was reformulated for the post-debit state the hook sees
+(`balance_post >= frozen`, `freeze::require_frozen_balance_covered`).
+`operations::controller_transfer` is recognised by its permanent-delegate
+authority and bypasses the whitelist/frozen checks.
+
+This regrows the `ExtraAccountMetaList` to ~13 entries but **no longer OOMs** on
+the current `spl-token-2022`; the binding constraint is now compute units
+(callers must set ~400 K CU, scaled per batch leg). If a future extension pushes
+the metalist back to OOM, the durable fix is Token ACL (sRFC-37).
+
 Residual risk worth flagging in code review: the introspection layer can only
 guarantee adjacency at top level. If a future change ever sneaks a
 state-mutating CPI into `transfer::transfer` between its entry and the

@@ -48,8 +48,8 @@ asseto-solana-programs/
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers
-│   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block); batch counterpart `batch_verify_transfer` + `batch_transfer` (one source holder → N destinations via `remaining_accounts`)
-│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double introspection (prev = verify_transfer, curr = transfer / controller_transfer / transfer_checked; or the batch pair prev = batch_verify_transfer, curr = batch_transfer, matched per-leg) + `TRANSFER_HOOK_EXECUTE` functionality check. Writes nothing
+│   ├── transfer/             — custom transfer endpoint: `transfer` (unblock → transfer_checked → re-block) + `batch_transfer` (one source holder → N destinations via `remaining_accounts`, 2 per leg). Single instruction; compliance is enforced by the hook during the inner transfer_checked
+│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate that enforces ALL compliance itself (deactivation, transfer-mode/whitelist, frozen account, post-debit frozen balance) + `TRANSFER_HOOK_EXECUTE` functionality check. Bypasses compliance for `operations::controller_transfer` (authority = permanent_delegate PDA). Writes nothing
 │   ├── snapshot/             — snapshot counter + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
@@ -196,7 +196,7 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
 | `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` | All new accounts start frozen; thawed/re-frozen transiently during mint/burn/transfer |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer`, `operations::controller_transfer` or `Token-2022::transfer_checked`, all with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules (deactivation, transfer-mode, whitelist, frozen account, frozen balance) live in `transfer::verify_transfer`, not in the hook — see [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) for why. |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook enforces ALL compliance itself (deactivation, transfer-mode/whitelist, frozen account, post-debit frozen balance) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. It bypasses the whitelist/frozen checks when the transfer authority is the `["permanent_delegate", mint]` PDA (an `operations::controller_transfer` seizure). No instruction introspection — see [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) for the history (checks used to live in `transfer::verify_transfer` behind an introspection gate to fit the 32 KiB heap). |
 
 ---
 
@@ -231,4 +231,4 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 - [`docs/factory.md`](docs/factory.md)
 - [`docs/access-control.md`](docs/access-control.md)
 - [`docs/cap.md`](docs/cap.md)
-- [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
+- [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that once drove the verify_transfer + introspection design, and why compliance later moved back into the hook (composability)

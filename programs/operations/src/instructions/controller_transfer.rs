@@ -79,9 +79,9 @@ pub fn controller_transfer(ctx: Context<ControllerTransfer>, amount: u64) -> Res
     )
     .map_err(Error::from)?;
 
-    // The mint carries the TransferHook extension, so Token-2022 forwards the
-    // trailing accounts to the hook. Order is fixed by the metalist built in
-    // `transfer-hook::initialize_extra_account_meta_list` (hook indices 4..=9).
+    // Forwarded to the hook in metalist order (load-bearing). The hook bypasses
+    // compliance for this permanent-delegate path, but Token-2022 still resolves
+    // the whole metalist, so every entry must be forwarded (see docs/operations.md).
     for meta in [
         ctx.accounts.extra_account_meta_list.key(),
         ctx.accounts.transfer_hook_program.key(),
@@ -89,7 +89,15 @@ pub fn controller_transfer(ctx: Context<ControllerTransfer>, amount: u64) -> Res
         ctx.accounts.asset_configuration_pda.key(),
         ctx.accounts.factory_program.key(),
         ctx.accounts.asset_class_version_pda.key(),
-        ctx.accounts.instructions_sysvar.key(),
+        ctx.accounts.deactivate_program.key(),
+        ctx.accounts.deactivate_pda.key(),
+        ctx.accounts.transfer_control_program.key(),
+        ctx.accounts.transfer_control_mode_pda.key(),
+        ctx.accounts.source_whitelist_pda.key(),
+        ctx.accounts.destination_whitelist_pda.key(),
+        ctx.accounts.freeze_program.key(),
+        ctx.accounts.source_frozen_pda.key(),
+        ctx.accounts.source_frozen_balance_pda.key(),
     ] {
         transfer_ix
             .accounts
@@ -109,7 +117,15 @@ pub fn controller_transfer(ctx: Context<ControllerTransfer>, amount: u64) -> Res
             ctx.accounts.asset_configuration_pda.to_account_info(),
             ctx.accounts.factory_program.to_account_info(),
             ctx.accounts.asset_class_version_pda.to_account_info(),
-            ctx.accounts.instructions_sysvar.to_account_info(),
+            ctx.accounts.deactivate_program.to_account_info(),
+            ctx.accounts.deactivate_pda.to_account_info(),
+            ctx.accounts.transfer_control_program.to_account_info(),
+            ctx.accounts.transfer_control_mode_pda.to_account_info(),
+            ctx.accounts.source_whitelist_pda.to_account_info(),
+            ctx.accounts.destination_whitelist_pda.to_account_info(),
+            ctx.accounts.freeze_program.to_account_info(),
+            ctx.accounts.source_frozen_pda.to_account_info(),
+            ctx.accounts.source_frozen_balance_pda.to_account_info(),
         ],
         &[permanent_delegate_signer_seeds.as_slice()],
     )?;
@@ -223,9 +239,53 @@ pub struct ControllerTransfer<'info> {
     #[account(address = constants::FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address pinned by constraint and re-verified by the hook's metalist.
-    #[account(address = solana_instructions_sysvar::ID)]
-    pub instructions_sysvar: UncheckedAccount<'info>,
+    /// CHECK: Address verified by constraint; forwarded to the hook.
+    #[account(address = constants::DEACTIVATE_PROGRAM_ID)]
+    pub deactivate_program: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by constraint; forwarded to the hook.
+    #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]
+    pub transfer_control_program: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook. May be empty (no mode active).
+    #[account(
+        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub transfer_control_mode_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook. May be empty (seizure from non-whitelisted).
+    #[account(
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), from.key().as_ref()],
+        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub source_whitelist_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook. May be empty (seizure to non-whitelisted).
+    #[account(
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), to.key().as_ref()],
+        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub destination_whitelist_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook. May be present (seizure from frozen account).
+    #[account(
+        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), from.key().as_ref()],
+        seeds::program = constants::FREEZE_PROGRAM_ID,
+        bump,
+    )]
+    pub source_frozen_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook. May be empty (no partial freeze).
+    #[account(
+        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), from.key().as_ref()],
+        seeds::program = constants::FREEZE_PROGRAM_ID,
+        bump,
+    )]
+    pub source_frozen_balance_pda: UncheckedAccount<'info>,
 
     #[account(
         seeds = [

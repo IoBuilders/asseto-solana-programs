@@ -28,6 +28,10 @@ import { OPERATIONS_BURN, OPERATIONS_CONTROLLER_TRANSFER, TRANSFER_HOOK_EXECUTE 
 import { beforeEach } from "mocha";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN, ROLE_CONTROLLER } from "./utils/roles";
+import { transfer } from "./program_helpers/transfer_helper";
+import { setFrozenAccountPda } from "./program_helpers/freeze/freeze_pda_helper";
+import { setTransferControlModeMarker } from "./program_helpers/transfer_control/transfer_control_pda_helper";
+import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 
 describe("operations", () => {
   const provider = anchor.AnchorProvider.env();
@@ -397,9 +401,9 @@ describe("operations", () => {
       await setRoles(mint, authority!.publicKey, [ROLE_CONTROLLER]);
     });
 
-    // `from` is owned by a keypair the test controls: the `verify_transfer`
-    // pre-instruction the hook introspects declares `source_owner` as a Signer,
-    // so it has to co-sign the transaction.
+    // `controller_transfer` is now a unilateral permanent-delegate seizure: the
+    // holder of `from` no longer co-signs (there is no verify_transfer
+    // pre-instruction), so only the controller `authority` signs.
     async function createFundedAccounts(initialBalance: anchor.BN) {
       const fromOwner = Keypair.generate();
       const from = await createTokenAccount({ mint, owner: fromOwner.publicKey });
@@ -417,8 +421,7 @@ describe("operations", () => {
           authority: caller,
           from: accounts.from,
           to: accounts.to,
-          sourceOwner: accounts.fromOwner.publicKey,
-          signers: [caller, accounts.fromOwner],
+          signers: [caller],
         },
         amount ? { amount } : undefined
       );
@@ -550,6 +553,87 @@ describe("operations", () => {
           "transaction logs should mention the mint is paused"
         );
       }
+    });
+
+    // The permanent-delegate bypass: the transfer hook skips whitelist / frozen
+    // compliance when the authority is the permanent_delegate PDA, so a
+    // controller can seize tokens a normal holder transfer cannot move. Each
+    // test proves the contrast: the normal `transfer` is rejected by the hook,
+    // the `controller_transfer` succeeds.
+    it("controller_transfer: seizes from a fully frozen account that a normal transfer cannot move", async () => {
+      const initialBalance = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
+      const seizeAmount = new anchor.BN(250 * 10 ** MINT_DECIMALS);
+      const accounts = await createFundedAccounts(initialBalance);
+      const { from, to, fromOwner } = accounts;
+
+      // Fully freeze the source account.
+      await setFrozenAccountPda(mint, from);
+
+      // A normal holder transfer is rejected by the hook with AccountFrozen…
+      try {
+        await transfer(
+          { mint, source: from, sourceOwner: fromOwner.publicKey, destination: to, signers: [fromOwner] },
+          { amount: seizeAmount }
+        );
+        assert.fail("normal transfer from a frozen account should be rejected");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "AccountFrozen", "error code should be AccountFrozen");
+      }
+
+      // …but the controller seizes anyway (hook bypasses compliance for the permanent delegate).
+      await callControllerTransfer(authority!, accounts, seizeAmount);
+
+      assert.equal(
+        (await getTokenAccount(from)).amount.toString(),
+        initialBalance.sub(seizeAmount).toString(),
+        "source should be debited by the seized amount despite being frozen"
+      );
+      assert.equal(
+        (await getTokenAccount(to)).amount.toString(),
+        seizeAmount.toString(),
+        "destination should receive the seized amount"
+      );
+    });
+
+    it("controller_transfer: seizes to a non-whitelisted destination under whitelist mode", async () => {
+      const initialBalance = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
+      const seizeAmount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
+      const accounts = await createFundedAccounts(initialBalance);
+      const { from, to, fromOwner } = accounts;
+
+      // Whitelist mode ON, but neither the source nor the destination is whitelisted.
+      await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
+
+      // A normal holder transfer is rejected by the hook with NotWhitelisted…
+      try {
+        await transfer(
+          { mint, source: from, sourceOwner: fromOwner.publicKey, destination: to, signers: [fromOwner] },
+          { amount: seizeAmount }
+        );
+        assert.fail("normal transfer under whitelist mode with non-whitelisted accounts should be rejected");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal(
+          (err as AnchorError).error.errorCode.code,
+          "NotWhitelisted",
+          "error code should be NotWhitelisted"
+        );
+      }
+
+      // …but the controller seizes regardless of whitelist state.
+      await callControllerTransfer(authority!, accounts, seizeAmount);
+
+      assert.equal(
+        (await getTokenAccount(from)).amount.toString(),
+        initialBalance.sub(seizeAmount).toString(),
+        "source should be debited by the seized amount despite whitelist mode"
+      );
+      assert.equal(
+        (await getTokenAccount(to)).amount.toString(),
+        seizeAmount.toString(),
+        "non-whitelisted destination should receive the seized amount"
+      );
     });
   });
 });

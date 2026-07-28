@@ -2494,10 +2494,11 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "common",
- "solana-instructions-sysvar",
+ "freeze",
  "spl-tlv-account-resolution",
  "spl-token-2022",
  "spl-transfer-hook-interface",
+ "transfer-control",
 ]
 
 [[package]]
