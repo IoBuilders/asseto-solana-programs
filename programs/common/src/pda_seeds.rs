@@ -72,13 +72,8 @@ pub fn transfer_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
 pub const TRANSFER_HOOK_AUTHORITY: &[u8] = b"transfer_hook_authority";
 pub const EXTRA_ACCOUNT_METAS: &[u8] = b"extra-account-metas";
 
-pub fn transfer_hook_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
-    vec![TRANSFER_HOOK_AUTHORITY, mint.as_ref()]
-}
-
 /********************************* SNAPSHOT *********************************/
 pub const SNAPSHOT_COUNTER: &[u8] = b"snapshot_counter";
-pub const SNAPSHOT_HOLDERBALANCE: &[u8] = b"snapshot_holderbalance";
 pub const SNAPSHOT_MERKLE_ROOT: &[u8] = b"snapshot_merkle_root";
 
 pub fn snapshot_merkle_root_seeds<'info>(
@@ -86,17 +81,6 @@ pub fn snapshot_merkle_root_seeds<'info>(
     snapshot_id: &'info [u8],
 ) -> Vec<&'info [u8]> {
     vec![SNAPSHOT_MERKLE_ROOT, mint.as_ref(), snapshot_id]
-}
-
-pub fn snapshot_holderbalance_seeds<'info>(
-    mint: &'info Pubkey,
-    holder_token_account: &'info Pubkey,
-) -> Vec<&'info [u8]> {
-    vec![
-        SNAPSHOT_HOLDERBALANCE,
-        mint.as_ref(),
-        holder_token_account.as_ref(),
-    ]
 }
 
 /*********************************** BOND ***********************************/

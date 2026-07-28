@@ -1,4 +1,4 @@
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import * as anchor from "@anchor-lang/core";
 import { MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
@@ -7,7 +7,6 @@ import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import { getEvent } from "../event_helper";
 import {
   snapshotCounterPda,
-  snapshotHolderBalancePda,
   snapshotMerkleRootPda,
   snapshotTriggeredEventAuthorityPda,
   nextSnapshotId,
@@ -57,44 +56,4 @@ type SnapshotTriggeredEvent = {
  */
 export async function getSnapshotTriggeredEvent(signature: string) {
   return getEvent<SnapshotTriggeredEvent>(getSnapshotProgram(), signature, "snapshotTriggered");
-}
-
-// ── update_holderbalance_snapshot ──────────────────────────────────────────────
-
-type UpdateHolderBalanceSnapshotArgs = {
-  delta: anchor.BN;
-  increase: boolean;
-};
-
-function getUpdateHolderBalanceSnapshotArgs(): Required<UpdateHolderBalanceSnapshotArgs> {
-  return {
-    delta: new anchor.BN(0),
-    increase: true,
-  };
-}
-
-export async function updateHolderBalanceSnapshot(
-  ctx: MintWriteWithPayerContext,
-  args?: { delta: anchor.BN; increase: boolean }
-): Promise<void> {
-  const effectiveArgs: Required<UpdateHolderBalanceSnapshotArgs> = {
-    ...getUpdateHolderBalanceSnapshotArgs(),
-    ...args,
-  };
-
-  const holderTokenAccount = Keypair.generate().publicKey;
-
-  await getSnapshotProgram()
-    .methods.updateHolderbalanceSnapshot(effectiveArgs.delta, effectiveArgs.increase)
-    .accountsStrict({
-      callingAuthority: ctx.authority.publicKey,
-      payer: ctx.payer ?? ctx.authority.publicKey,
-      mint: ctx.mint,
-      snapshotCounter: snapshotCounterPda(ctx.mint),
-      holderBalanceSnapshot: snapshotHolderBalancePda(ctx.mint, holderTokenAccount),
-      holderTokenAccount: holderTokenAccount,
-      systemProgram: SYSTEM_PROGRAM_ID,
-    })
-    .signers(ctx.signers ?? [ctx.authority])
-    .rpc({ commitment: "confirmed" });
 }

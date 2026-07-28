@@ -3,7 +3,6 @@ use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::{pda_seeds, pda_utils, require_active, require_functionality, require_role, roles};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use snapshot::cpi::accounts::UpdateHolderBalanceSnapshot;
 use spl_token_2022::instruction::burn as spl_burn;
 
 use crate::events::ControllerRedemption;
@@ -32,26 +31,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         &ctx.bumps.operations_authority,
     );
 
-    // ── 1. Update holder balance snapshot (CPI to snapshot) ────────────
-    snapshot::cpi::update_holderbalance_snapshot(
-        CpiContext::new_with_signer(
-            constants::SNAPSHOT_PROGRAM_ID,
-            UpdateHolderBalanceSnapshot {
-                calling_authority: ctx.accounts.operations_authority.to_account_info(),
-                payer: ctx.accounts.payer.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
-                holder_balance_snapshot: ctx.accounts.holder_balance_snapshot.to_account_info(),
-                holder_token_account: ctx.accounts.token_account.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-            },
-            &[permanent_delegate_signer_seeds.as_slice()],
-        ),
-        0,
-        true,
-    )?;
-
-    // ── 2. Unblock token_account (CPI to freeze) ───────────────────────
+    // ── 1. Unblock token_account (CPI to freeze) ───────────────────────
     freeze::cpi::unblock_account(CpiContext::new_with_signer(
         constants::FREEZE_PROGRAM_ID,
         UnblockAccount {
@@ -64,7 +44,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         &[permanent_delegate_signer_seeds.as_slice()],
     ))?;
 
-    // ── 3. Burn via permanent delegate ──────────────────────────────────────────
+    // ── 2. Burn via permanent delegate ──────────────────────────────────────────
     invoke_signed(
         &spl_burn(
             &token_program_id,
@@ -83,7 +63,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         &[permanent_delegate_signer_seeds.as_slice()],
     )?;
 
-    // ── 4. Re-block token_account (CPI to freeze) ──────────────────────
+    // ── 3. Re-block token_account (CPI to freeze) ──────────────────────
     freeze::cpi::block_account(CpiContext::new_with_signer(
         constants::FREEZE_PROGRAM_ID,
         BlockAccount {
@@ -96,7 +76,7 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
         &[permanent_delegate_signer_seeds.as_slice()],
     ))?;
 
-    // ── 5. Emit ControllerRedemption ─────────────────────────────────────────
+    // ── 4. Emit ControllerRedemption ─────────────────────────────────────────
     // Emitted last so it only fires when the full burn succeeds.
     emit_cpi!(ControllerRedemption {
         mint: mint_key,
@@ -154,25 +134,9 @@ pub struct BurnTokens<'info> {
     )]
     pub freeze_authority: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by seeds/bump; existence and contents checked by snapshot.
-    #[account(
-        seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
-        seeds::program = constants::SNAPSHOT_PROGRAM_ID,
-        bump,
-    )]
-    pub snapshot_counter_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Writable; address and existence verified inside update_holderbalance_snapshot.
-    #[account(mut)]
-    pub holder_balance_snapshot: UncheckedAccount<'info>,
-
     /// CHECK: Address verified by constraint.
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint.
-    #[account(address = constants::SNAPSHOT_PROGRAM_ID)]
-    pub snapshot_program: UncheckedAccount<'info>,
 
     #[account(
         seeds = [

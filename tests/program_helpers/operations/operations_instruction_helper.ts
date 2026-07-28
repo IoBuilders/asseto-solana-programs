@@ -7,7 +7,6 @@ import { Program } from "@anchor-lang/core";
 import {
   SYSTEM_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
-  SNAPSHOT_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
@@ -20,7 +19,6 @@ import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, operationsEventAuthorityPda } from "./operations_pda_helper";
 import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
-import { snapshotCounterPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { buildVerifyTransferInstruction } from "../transfer_helper";
 
@@ -68,10 +66,7 @@ export async function burnTokens(
       deactivatePda: deactivatePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
       freezeAuthority: freezeAuthorityPda(callContext.mint),
-      snapshotCounterPda: snapshotCounterPda(callContext.mint),
-      holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.tokenAccount),
       freezeProgram: FREEZE_PROGRAM_ID,
-      snapshotProgram: SNAPSHOT_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId

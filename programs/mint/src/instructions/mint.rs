@@ -6,7 +6,6 @@ use common::pda_utils;
 use common::state::Roles as RolesCommon;
 use common::{pda_seeds, require_active, require_functionality, require_role, roles};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use snapshot::cpi::accounts::UpdateHolderBalanceSnapshot;
 use spl_token_2022::instruction::mint_to;
 use transfer_control::verify_transfer_control_mode;
 
@@ -32,7 +31,6 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     )?;
 
     // ── Supply cap check ─────────────────────────────────────────────────
-    // Runs before the snapshot CPIs so a rejected mint leaves no writes behind.
     require_within_max_supply(
         &ctx.accounts.mint.to_account_info(),
         &ctx.accounts.max_supply_pda.to_account_info(),
@@ -48,26 +46,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         &ctx.bumps.mint_authority,
     );
 
-    // ── 1. Update holder balance snapshot (CPI to snapshot) ────────────
-    snapshot::cpi::update_holderbalance_snapshot(
-        CpiContext::new_with_signer(
-            constants::SNAPSHOT_PROGRAM_ID,
-            UpdateHolderBalanceSnapshot {
-                calling_authority: ctx.accounts.mint_authority.to_account_info(),
-                payer: ctx.accounts.payer.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                snapshot_counter: ctx.accounts.snapshot_counter_pda.to_account_info(),
-                holder_balance_snapshot: ctx.accounts.holder_balance_snapshot.to_account_info(),
-                holder_token_account: ctx.accounts.destination.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-            },
-            &[mint_authority_signer_seeds.as_slice()],
-        ),
-        0,
-        true,
-    )?;
-
-    // ── 2. Unblock destination (CPI to freeze) ─────────────────────────
+    // ── 1. Unblock destination (CPI to freeze) ─────────────────────────
     freeze::cpi::unblock_account(CpiContext::new_with_signer(
         constants::FREEZE_PROGRAM_ID,
         UnblockAccount {
@@ -80,7 +59,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         &[mint_authority_signer_seeds.as_slice()],
     ))?;
 
-    // ── 3. Mint tokens (CPI to Token-2022) ──────────────────────────────────
+    // ── 2. Mint tokens (CPI to Token-2022) ──────────────────────────────────
     invoke_signed(
         &mint_to(
             &token_program_id,
@@ -106,7 +85,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         value: amount,
     });
 
-    // ── 4. Re-block destination (CPI to freeze) ────────────────────────
+    // ── 3. Re-block destination (CPI to freeze) ────────────────────────
     freeze::cpi::block_account(CpiContext::new_with_signer(
         constants::FREEZE_PROGRAM_ID,
         BlockAccount {
@@ -192,25 +171,9 @@ pub struct MintTokens<'info> {
     )]
     pub max_supply_pda: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by seeds/bump; existence and contents checked by snapshot.
-    #[account(
-        seeds = [pda_seeds::SNAPSHOT_COUNTER, mint.key().as_ref()],
-        seeds::program = constants::SNAPSHOT_PROGRAM_ID,
-        bump,
-    )]
-    pub snapshot_counter_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Writable; address and existence verified inside update_holderbalance_snapshot.
-    #[account(mut)]
-    pub holder_balance_snapshot: UncheckedAccount<'info>,
-
     /// CHECK: Address verified by constraint.
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint.
-    #[account(address = constants::SNAPSHOT_PROGRAM_ID)]
-    pub snapshot_program: UncheckedAccount<'info>,
 
     #[account(
         seeds = [

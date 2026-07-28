@@ -50,7 +50,7 @@ asseto-solana-programs/
 │   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers
 │   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block); batch counterpart `batch_verify_transfer` + `batch_transfer` (one source holder → N destinations via `remaining_accounts`)
 │   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double introspection (prev = verify_transfer, curr = transfer / controller_transfer / transfer_checked; or the batch pair prev = batch_verify_transfer, curr = batch_transfer, matched per-leg) + `TRANSFER_HOOK_EXECUTE` functionality check. Writes nothing
-│   ├── snapshot/             — snapshot counter + holder-balance histories per mint + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
+│   ├── snapshot/             — snapshot counter + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
 │   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (Merkle-proves the holder's snapshot balance, then transfer_checked from treasury TA, signed by `treasury_authority` PDA)

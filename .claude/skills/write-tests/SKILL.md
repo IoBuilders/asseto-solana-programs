@@ -59,7 +59,7 @@ All shared test logic lives here. Import from the relevant helper rather than re
 | `freeze_helper.ts` | `freezeAccount`, `unfreezeAccount`, `partiallyFreezeAccount`, `removePartialFreeze` |
 | `pause_helper.ts` | `pauseMint`, `unpauseMint` |
 | `deactivate_helper.ts` | `deactivateMint` |
-| `snapshot_helper.ts` | `takeSnapshot`, `updateHolderBalanceSnapshot` |
+| `snapshot_helper.ts` | `takeSnapshot` |
 | `coupon_helper.ts` | `createCoupon` |
 | `bond_helper.ts` | `updateBondTerms` |
 | `account_helper.ts` | `requestAirdrop`, `getAccountInfo`, `getBalanceForRentExeption` |
@@ -193,25 +193,6 @@ it("pause: fails with MissingRole when authority doesn't have required role", as
 `tests/utils/roles.ts` mirrors `common::roles` — check there for the exact constant name before hardcoding a role id. If the instruction is also functionality-gated (see `docs/<program>.md`'s Preconditions section), also cover the `FunctionalityNotSupportedError` case by not enabling the relevant `functionalities` bit on the asset-class version.
 
 ## 10. Transfer-specific patterns
-
-### Fund the transfer-hook authority
-
-The hook authority PDA pays for snapshot-PDA creation during `execute`. Fund it once before any transfer in the test:
-
-```ts
-async function fundTransferHookAuthority(transferHookAuthority: PublicKey) {
-  const tx = new anchor.web3.Transaction().add(
-    anchor.web3.SystemProgram.transfer({
-      fromPubkey: payerKeypair.publicKey,
-      toPubkey:   transferHookAuthority,
-      lamports:   anchor.web3.LAMPORTS_PER_SOL * 0.01,
-    })
-  );
-  await anchor.web3.sendAndConfirmTransaction(
-    provider.connection, tx, [payerKeypair], { commitment: "confirmed" }
-  );
-}
-```
 
 ### Using `transfer()` from `transfer_helper.ts`
 
