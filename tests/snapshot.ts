@@ -5,11 +5,7 @@ import { assert } from "chai";
 import { SNAPSHOT_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "./utils/address_utils";
 import { deployMint } from "./program_helpers/deploy_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
-import {
-  takeSnapshot,
-  updateHolderBalanceSnapshot,
-  updateTotalSupplySnapshot,
-} from "./program_helpers/snapshot/snapshot_instruction_helper";
+import { takeSnapshot } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {
   encodeSnapshotCounter,
   getSnapshotCounterByPda,
@@ -149,34 +145,6 @@ describe.skip("snapshot", () => {
         merkleRoot,
         "root should be stored despite the pre-funding griefing attempt"
       );
-    });
-  });
-
-  describe("update_totalsupply_snapshot", async () => {
-    it("update_totalsupply_snapshot: rejects direct invocation with Unauthorized (auxiliary, only callable via mint/operations CPI)", async () => {
-      const mint = Keypair.generate().publicKey;
-
-      try {
-        await updateTotalSupplySnapshot({ authority, mint });
-        assert.fail("Expected Unauthorized error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "Unauthorized");
-      }
-    });
-  });
-
-  describe("update_holderbalance_snapshot", async () => {
-    it("update_holderbalance_snapshot: rejects direct invocation with Unauthorized (auxiliary, only callable via mint/operations/transfer-hook CPI)", async () => {
-      const mint = Keypair.generate().publicKey;
-
-      try {
-        await updateHolderBalanceSnapshot({ authority, mint });
-        assert.fail("Expected Unauthorized error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "Unauthorized");
-      }
     });
   });
 });

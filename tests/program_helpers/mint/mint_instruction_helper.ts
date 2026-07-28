@@ -3,8 +3,8 @@ import * as pdaUtils from "../../utils/pda_utils";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
-import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID, SNAPSHOT_PROGRAM_ID } from "../../utils/address_utils";
-import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
+import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID } from "../../utils/address_utils";
+import { MintWriteContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
 import { getEvent, getEvents } from "../event_helper";
@@ -13,7 +13,6 @@ import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
 import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
-import { snapshotCounterPda, snapshotTotalSupplyPda, snapshotHolderBalancePda } from "../snapshot/snapshot_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { maxSupplyPda } from "../cap/cap_pda_helper";
 
@@ -23,7 +22,7 @@ export function getMintProgram(): Program<Mint> {
 
 // ── mint ───────────────────────────────────────────────────────────────────────
 
-export type MintTokensContext = MintWriteWithPayerContext & {
+export type MintTokensContext = MintWriteContext & {
   destination: PublicKey;
 };
 
@@ -52,7 +51,6 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
   return await mintProgram.methods
     .mint(effectiveArgs.amount)
     .accountsStrict({
-      payer: callContext.payer ?? callContext.authority.publicKey,
       authority: callContext.authority.publicKey,
       mint: callContext.mint,
       destination: callContext.destination,
@@ -63,11 +61,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       transferControlModePda: transferControlModePda(callContext.mint),
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
       maxSupplyPda: maxSupplyPda(callContext.mint),
-      snapshotCounterPda: snapshotCounterPda(callContext.mint),
-      totalSupplySnapshot: snapshotTotalSupplyPda(callContext.mint),
-      holderBalanceSnapshot: snapshotHolderBalancePda(callContext.mint, callContext.destination),
       freezeProgram: FREEZE_PROGRAM_ID,
-      snapshotProgram: SNAPSHOT_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: mintEventAuthorityPda(),

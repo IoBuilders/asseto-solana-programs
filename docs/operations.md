@@ -10,7 +10,7 @@ The `operations_authority` (permanent_delegate PDA) is one of the three callers 
 
 ## Instruction: `burn` (Operational — controller only)
 
-Burns `amount` tokens from any `token_account` for the given mint via the permanent delegate, without the holder's consent. Before burning, records the pre-burn total supply and holder balance into any active snapshot (no-ops when no snapshot has been taken yet).
+Burns `amount` tokens from any `token_account` for the given mint via the permanent delegate, without the holder's consent.
 
 ### Parameters
 
@@ -28,7 +28,7 @@ amount: u64  // raw token units to burn
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `payer` | yes | yes | Signer | Signs and pays for snapshot PDA creation |
+| `payer` | yes | yes | Signer | Required alongside `authority`; currently funds nothing in this instruction |
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_CONTROLLER` on this mint |
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; the caller's own PDA, loaded and read by `require_role` (must exist & be owned by `access-control`) |
@@ -36,13 +36,9 @@ amount: u64  // raw token units to burn
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to burn from |
 | `token_account` | yes | no | UncheckedAccount | The holder's token account to burn from |
-| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs unblock, snapshot, burn, and re-block CPIs |
+| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs unblock, burn, and re-block CPIs |
 | `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed to freeze |
-| `snapshot_counter_pda` | no | no | UncheckedAccount | seeds `["snapshot_counter", mint]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; may be empty |
-| `total_supply_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_totalsupply", mint]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; created/grown by snapshot |
-| `holder_balance_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_holderbalance", mint, token_account]`, `seeds::program = SNAPSHOT_PROGRAM_ID`; created/grown by snapshot |
 | `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
-| `snapshot_program` | no | no | UncheckedAccount | address constrained to `SNAPSHOT_PROGRAM_ID` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
 
@@ -50,19 +46,17 @@ amount: u64  // raw token units to burn
 
 1. `require_role(authority_roles_pda.load()?, ROLE_CONTROLLER)` — signer must hold the controller role
 2. `require_active(&deactivate_pda)` + `require_functionality(OPERATIONS_BURN)`
-3. CPI → `snapshot::update_totalsupply_snapshot` signed with `["permanent_delegate", mint, bump]` — records pre-burn supply into the active snapshot (no-op if none)
-4. CPI → `snapshot::update_holderbalance_snapshot(0, true)` signed with `["permanent_delegate", mint, bump]` — records pre-burn holder balance (no adjustment)
-5. CPI → `freeze::unblock_account(token_account)` signed with `["permanent_delegate", mint, bump]`
-6. `invoke_signed` → `burn(token_account, mint, operations_authority, amount)` signed with `["permanent_delegate", mint, bump]`
-7. CPI → `freeze::block_account(token_account)` signed with `["permanent_delegate", mint, bump]`
+3. CPI → `freeze::unblock_account(token_account)` signed with `["permanent_delegate", mint, bump]`
+4. `invoke_signed` → `burn(token_account, mint, operations_authority, amount)` signed with `["permanent_delegate", mint, bump]`
+5. CPI → `freeze::block_account(token_account)` signed with `["permanent_delegate", mint, bump]`
 
-The unblock/re-block wrapper is required because all token accounts are frozen by default (`DefaultAccountState::Frozen`). Snapshot CPIs run before the balance change so the recorded value reflects the pre-burn state.
+The unblock/re-block wrapper is required because all token accounts are frozen by default (`DefaultAccountState::Frozen`).
 
 ---
 
 ## Instruction: `batch_burn` (Operational — controller only)
 
-Burns, in a single instruction, `amounts[i]` tokens from the `i`-th source token account. Runs the same authorization checks as `burn` (controller role, active, functionality) but **skips the snapshot CPIs** — batch burning does not record per-holder or total-supply snapshots. Unlike `batch_mint`, there is **no whitelist gate** (burning is never whitelist-restricted). Emits one `ControllerRedemption` event per source.
+Burns, in a single instruction, `amounts[i]` tokens from the `i`-th source token account. Runs the same authorization checks as `burn` (controller role, active, functionality). Unlike `batch_mint`, there is **no whitelist gate** (burning is never whitelist-restricted). Emits one `ControllerRedemption` event per source.
 
 ### Parameters
 
@@ -114,8 +108,6 @@ The fixed accounts (the per-source token accounts are passed via `remaining_acco
    2. `invoke_signed` → `burn(source, mint, operations_authority, amounts[i])` signed with `["permanent_delegate", mint, bump]`
    3. Emit `ControllerRedemption { mint, controller: authority, from: source, value: amounts[i] }` via `emit_cpi!`
    4. CPI → `freeze::block_account(source)` signed with `["permanent_delegate", mint, bump]`
-
-Unlike `burn`, no `snapshot::update_*` CPIs run — batch burning is snapshot-agnostic, so no `snapshot_counter` / `total_supply_snapshot` / `holder_balance_snapshot` accounts are required.
 
 ### Errors
 

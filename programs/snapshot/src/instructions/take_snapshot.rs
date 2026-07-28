@@ -4,7 +4,7 @@ use anchor_lang::Discriminator;
 use common::pda_seeds;
 
 use crate::events::SnapshotTriggered;
-use crate::state::{SnapshotCounter, SnapshotHistory, SnapshotMerkleRoot};
+use crate::state::{SnapshotCounter, SnapshotMerkleRoot};
 
 pub fn take_snapshot(ctx: Context<TakeSnapshot>, merkle_root: [u8; 32]) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();
@@ -79,12 +79,4 @@ pub struct TakeSnapshot<'info> {
     pub snapshot_merkle_root: Account<'info, SnapshotMerkleRoot>,
 
     pub system_program: Program<'info, System>,
-}
-
-// Just to make SnapshotHistory part of the IDL. `snapshot_history` is only ever
-// an `UncheckedAccount` in real instructions, so without this Anchor would omit
-// it from the IDL's `accounts` section.
-#[derive(Accounts)]
-pub struct __SnapshotHistoryIDL<'info> {
-    pub snapshot_history: Account<'info, SnapshotHistory>,
 }

@@ -2,9 +2,9 @@
 
 Program ID: `hgUtrpstViwxutrkoVXwQh3GQC18wHAmuAvYFTNiV2M`
 
-Records point-in-time values for a mint — its total supply and every holder's balance — indexed by a monotonically-increasing snapshot id. Enables reconstructing balances at past snapshots (e.g. coupon record dates) without storing per-transfer history.
+Records an immutable Merkle-root commitment for a mint at a point in time, indexed by a monotonically-increasing snapshot id. A holder's balance at a given snapshot is proven against that snapshot's root via an off-chain Merkle proof, rather than by reading any on-chain per-holder history.
 
-Snapshots are taken exclusively by `coupon::create_coupon`, which CPIs `take_snapshot` signed by its `coupon_authority` PDA. Two other callers append entries to the running histories whenever they move tokens (so long as a snapshot is active): `mint_authority` (mint) and `permanent_delegate` (operations). `transfer_hook_authority` is still on the authorised-caller list but is now unreachable: `transfer-hook::execute` no longer signs anything, so transfers do not touch the holder-balance histories — a holder's balance at a snapshot is proven against that snapshot's Merkle root instead.
+Snapshots are taken exclusively by `coupon::create_coupon`, which CPIs `take_snapshot` signed by its `coupon_authority` PDA.
 
 ---
 
@@ -40,33 +40,6 @@ pub struct SnapshotMerkleRoot {
 
 One **immutable** commitment per snapshot. Created by `take_snapshot` with the caller-supplied 32-byte root of the off-chain Sorted-pair Merkle tree whose leaves are `(account, balance)` pairs at that snapshot. Created via Anchor's `#[account(init)]` keyed by the snapshot id, so it can be created only once per id — the root can never be rewritten — and Anchor transparently handles an attacker having pre-funded the (predictable) PDA address.
 
-### `SnapshotEntry`
-
-```rust
-pub struct SnapshotEntry { pub key: u64, pub value: u64 }
-// 16 bytes
-```
-
-### `SnapshotHistory`
-
-```rust
-#[account]
-pub struct SnapshotHistory {
-    pub bump: u8,
-    pub entries: Vec<SnapshotEntry>,
-}
-// BASE_LEN = 8 + 1 + 4 = 13 bytes; len_for(n) = 13 + n * 16
-```
-
-Stores the full `(snapshot_id, value)` history for one subject:
-
-| Seeds | Subject |
-|---|---|
-| `["snapshot_totalsupply", mint]` | mint total supply |
-| `["snapshot_holderbalance", mint, token_account]` | one holder's balance |
-
-Entries are always appended with a strictly-increasing `key`. `SnapshotHistory::lookup_at_or_above(key)` returns the value stored at that key, or — if the exact key is missing — the value of the next-higher key (binary search on the sorted entries).
-
 ---
 
 ## Error Codes
@@ -74,8 +47,6 @@ Entries are always appended with a strictly-increasing `key`. `SnapshotHistory::
 ```rust
 pub enum ErrorCode {
     Unauthorized,             // calling_authority not in the allowed set
-    InvalidTokenAccount,      // holder_token_account.mint does not match the mint arg
-    DeltaOverflow,            // balance ± delta would overflow/underflow u64
     SnapshotCounterOverflow,  // counter at u64::MAX when taking a new snapshot
 }
 ```
@@ -103,7 +74,7 @@ Because the snapshot id equals `snapshot_counter.count` — a value that already
 
 `calling_authority` must be the `coupon_authority` PDA owned by `coupon` (seeds: `["coupon_authority", mint]`). Only `coupon::create_coupon` can produce that signature via `invoke_signed`, so every snapshot in the workspace is anchored to a coupon.
 
-Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause / deactivate checks live in `coupon::create_coupon` — `take_snapshot` itself trusts its caller, matching the style of the other auxiliaries (`update_totalsupply_snapshot`, `update_holderbalance_snapshot`).
+Role (`ROLE_CORPORATE_ACTION`) / functionality (`COUPON_CREATE_COUPON`) / pause / deactivate checks live in `coupon::create_coupon` — `take_snapshot` itself trusts its caller.
 
 ### Accounts
 
@@ -128,71 +99,12 @@ Emitted with `emit_cpi!` (not `emit!`), which records the event as a self-CPI ca
 
 ---
 
-## Instruction: `update_totalsupply_snapshot` (Auxiliary)
-
-No parameters.
-
-Appends `(current_snapshot_id, mint.supply)` to `total_supply_snapshot`, where `current_snapshot_id = snapshot_counter.count - 1` (the last-taken snapshot, since the counter stores the *next* id). Creates the PDA on first use, grows it by one entry otherwise. Silently succeeds when `snapshot_counter` does not exist (no active snapshot).
-
-### Authorization
-
-`calling_authority` must be either:
-- `["mint_authority", mint]` owned by `mint`, or
-- `["permanent_delegate", mint]` owned by `operations`.
-
-### Accounts
-
-| Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|
-| `calling_authority` | no | yes | Signer | One of the two allowed PDAs |
-| `payer` | yes | yes | Signer | Funds PDA creation / realloc |
-| `mint` | no | no | UncheckedAccount | Current supply read via `StateWithExtensions` |
-| `snapshot_counter` | no | no | UncheckedAccount | seeds `["snapshot_counter", mint]`; may be empty |
-| `total_supply_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_totalsupply", mint]` |
-| `system_program` | no | no | Program<System> | |
-
----
-
-## Instruction: `update_holderbalance_snapshot` (Auxiliary)
-
-### Parameters
-
-```rust
-delta:    u64
-increase: bool
-```
-
-Records `(current_snapshot_id, balance ± delta)` for the given `holder_token_account`, where `current_snapshot_id = snapshot_counter.count - 1` (the last-taken snapshot, since the counter stores the *next* id). With `increase = true` the recorded value is `balance + delta`; otherwise `balance - delta`. Callers that want to capture a balance as it was *before* a token movement that has already been applied (e.g. the transfer hook, which runs after the debit) pass the moved amount to reconstruct the pre-movement value. Callers that record the on-chain balance as-is pass `delta = 0`.
-
-Same "silent no-op when no snapshot is active" semantics as the total-supply variant.
-
-### Authorization
-
-`calling_authority` must be one of:
-- `["mint_authority", mint]` (mint)
-- `["permanent_delegate", mint]` (operations)
-- `["transfer_hook_authority", mint]` (transfer-hook) — retained but unreachable; the hook no longer CPIs this instruction
-
-### Accounts
-
-| Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|
-| `calling_authority` | no | yes | Signer | One of the three allowed PDAs |
-| `payer` | yes | yes | Signer | Funds PDA creation / realloc |
-| `mint` | no | no | UncheckedAccount | |
-| `snapshot_counter` | no | no | UncheckedAccount | seeds `["snapshot_counter", mint]`; may be empty |
-| `holder_balance_snapshot` | yes | no | UncheckedAccount | seeds `["snapshot_holderbalance", mint, holder_token_account]` |
-| `holder_token_account` | no | no | UncheckedAccount | Token-2022 account; its `amount` is the reference balance |
-| `system_program` | no | no | Program<System> | |
-
----
-
 ## Program IDs
 
-All program IDs come from `common::program_ids`. In `lib.rs` the relevant IDs are imported directly by name — no per-program `constants.rs` exists:
+All program IDs come from `common::program_ids`. In `lib.rs` the relevant ID is imported directly by name — no per-program `constants.rs` exists:
 
 ```rust
-use common::program_ids::{COUPON_PROGRAM_ID, MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID};
+use common::program_ids::COUPON_PROGRAM_ID;
 ```
 
-These are used in `assert_authorized_caller` and related functions inside `lib.rs`. Instructions that need IDs use `use common::program_ids as constants;` locally.
+This is used in `assert_take_snapshot_authorized_caller` inside `lib.rs`. Instructions that need IDs use `use common::program_ids as constants;` locally.
