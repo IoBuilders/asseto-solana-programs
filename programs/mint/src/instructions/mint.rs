@@ -104,9 +104,6 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct MintTokens<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-
     pub authority: Signer<'info>,
 
     #[account(

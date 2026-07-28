@@ -4,7 +4,7 @@ import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID } from "../../utils/address_utils";
-import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
+import { MintWriteContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
 import { getEvent, getEvents } from "../event_helper";
@@ -22,7 +22,7 @@ export function getMintProgram(): Program<Mint> {
 
 // ── mint ───────────────────────────────────────────────────────────────────────
 
-export type MintTokensContext = MintWriteWithPayerContext & {
+export type MintTokensContext = MintWriteContext & {
   destination: PublicKey;
 };
 
@@ -51,7 +51,6 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
   return await mintProgram.methods
     .mint(effectiveArgs.amount)
     .accountsStrict({
-      payer: callContext.payer ?? callContext.authority.publicKey,
       authority: callContext.authority.publicKey,
       mint: callContext.mint,
       destination: callContext.destination,

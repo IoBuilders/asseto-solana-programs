@@ -2,7 +2,7 @@
 
 Program ID: `BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ`
 
-Controls token minting. Owns the `["mint_authority", mint]` PDA that was set as the Token-2022 mint authority during `deploy_mint`. Minting is role-gated: the `authority` signer must hold `ROLE_ISSUER` on this mint (checked against its `access-control` `Roles` PDA via `require_role`). `payer` is a separate signer required alongside `authority` but currently funds nothing in this instruction and carries no authorization role itself.
+Controls token minting. Owns the `["mint_authority", mint]` PDA that was set as the Token-2022 mint authority during `deploy_mint`. Minting is role-gated: the `authority` signer must hold `ROLE_ISSUER` on this mint (checked against its `access-control` `Roles` PDA via `require_role`).
 
 The `mint_authority` PDA also serves as one of the three accepted callers for `freeze`'s block/unblock instructions.
 
@@ -22,7 +22,6 @@ amount: u64  // raw token units (accounting for decimals)
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `payer` | yes | yes | Signer | Required alongside `authority`; currently funds nothing in this instruction |
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ISSUER` on this mint |
 | `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
@@ -115,8 +114,6 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`; signs the self-CPI that emits `Issued` (once per destination) |
 | `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
 | *(remaining_accounts)* | varies | no | — | Two per destination — see layout above |
-
-No `payer` account: unlike `mint`, `batch_mint` doesn't require a separate rent-paying signer.
 
 ### Execution
 
