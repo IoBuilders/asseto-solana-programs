@@ -10,6 +10,8 @@ use instructions::*;
 use state::MaxSupply;
 
 pub use common::program_ids::*;
+use common::state::AssetClassVersion;
+use std::cell::Ref;
 
 declare_id!("64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm");
 
@@ -28,12 +30,21 @@ declare_id!("64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm");
 pub fn require_within_max_supply(
     mint_account: &AccountInfo,
     max_supply_pda: &AccountInfo,
+    asset_class_version: Ref<AssetClassVersion>,
     amount_to_mint: u64,
 ) -> Result<()> {
     use spl_token_2022::extension::StateWithExtensions;
     use spl_token_2022::state::Mint;
 
+    let enabled = common::is_functionality_enabled(
+        asset_class_version,
+        common::functionalities::CAP_MAX_SUPPLY,
+    )?;
+
     if max_supply_pda.data_is_empty() {
+        if enabled {
+            return Err(error!(ErrorCode::MaxSupplyNotSet));
+        }
         return Ok(());
     }
 

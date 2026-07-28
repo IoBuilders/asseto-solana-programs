@@ -8,4 +8,6 @@ pub enum ErrorCode {
     MaxSupplyBelowTotalSupply,
     #[msg("Minting this amount would push the total supply past the max supply")]
     MaxSupplyExceeded,
+    #[msg("Max supply is not set")]
+    MaxSupplyNotSet,
 }
