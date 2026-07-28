@@ -25,6 +25,7 @@ import {
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
 import {
+  CAP_MAX_SUPPLY,
   COUPON_CREATE_COUPON,
   DEACTIVATE_DEACTIVATE,
   MINT_MINT,
@@ -223,6 +224,23 @@ describe("mint", () => {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "MaxSupplyExceeded", "error code should be MaxSupplyExceeded");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("mint: fails with MaxSupplyNotSet when the cap functionality is enabled but no max supply PDA exists", async () => {
+    const destination = await createTokenAccount({ mint, owner: authority.publicKey });
+
+    // Cap functionality enabled, but `set_max_supply` was never called for this mint.
+    await setAssetClassVersionForMint(mint, { functionalities: [MINT_MINT, CAP_MAX_SUPPLY] });
+
+    try {
+      await mintTokens({ mint, destination, authority });
+      assert.fail("Expected MaxSupplyNotSet error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "MaxSupplyNotSet", "error code should be MaxSupplyNotSet");
     }
   });
 
@@ -546,6 +564,26 @@ describe("batch_mint", () => {
     for (const destination of destinations) {
       const account = await getTokenAccount(destination);
       assert.equal(account.amount.toString(), "0", "no destination should have received tokens");
+    }
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  it("batch_mint: fails with MaxSupplyNotSet when the cap functionality is enabled but no max supply PDA exists", async () => {
+    const destinationA = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const destinationB = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const destinations = [destinationA, destinationB];
+    const amounts = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
+
+    // Cap functionality enabled, but `set_max_supply` was never called for this mint.
+    await setAssetClassVersionForMint(mint, { functionalities: [MINT_MINT, CAP_MAX_SUPPLY] });
+
+    try {
+      await batchMintTokens({ mint, authority, destinations }, { amounts });
+      assert.fail("Expected MaxSupplyNotSet error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "MaxSupplyNotSet", "error code should be MaxSupplyNotSet");
     }
   });
 

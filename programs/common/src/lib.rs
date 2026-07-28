@@ -82,6 +82,15 @@ pub fn require_functionality(
     asset_class_version: Ref<AssetClassVersion>,
     functionality: u16,
 ) -> Result<()> {
+    let enabled = is_functionality_enabled(asset_class_version, functionality)?;
+    require!(enabled, CommonError::FunctionalityNotSupportedError);
+    Ok(())
+}
+
+pub fn is_functionality_enabled(
+    asset_class_version: Ref<AssetClassVersion>,
+    functionality: u16,
+) -> Result<bool> {
     require!(
         asset_class_version.state == state::ASSET_CLASS_VERSION_STATE_FINALIZED,
         CommonError::AssetClassVersionNotFinalized
@@ -90,8 +99,7 @@ pub fn require_functionality(
     let enabled = bitmask::is_set(&asset_class_version.mask, functionality)
         .map_err(|_| error!(CommonError::FunctionalityOutOfBounds))?;
 
-    require!(enabled, CommonError::FunctionalityNotSupportedError);
-    Ok(())
+    Ok(enabled)
 }
 
 pub fn require_role(roles_pda: Ref<Roles>, role: u16) -> Result<()> {

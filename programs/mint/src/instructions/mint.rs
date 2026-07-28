@@ -36,6 +36,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
     require_within_max_supply(
         &ctx.accounts.mint.to_account_info(),
         &ctx.accounts.max_supply_pda.to_account_info(),
+        ctx.accounts.asset_class_version_pda.load()?,
         amount,
     )?;
 
