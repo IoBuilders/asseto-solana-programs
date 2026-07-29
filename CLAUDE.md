@@ -20,6 +20,37 @@ See `.claude/skills/add-new-instruction/SKILL.md` §5/§9 for the fuller referen
 
 ---
 
+## Development Commands
+
+Toolchain versions are pinned (`rust-toolchain.toml`, `Anchor.toml` `[toolchain]`) — Rust `1.89.0`, Solana CLI `3.1.14`, Anchor CLI `1.0.2`, Surfpool `1.3.0` (local validator), Node `24.16`.
+
+```bash
+# Build every program in the workspace, regenerate IDLs/types under target/
+anchor build
+
+# Rust unit tests
+cargo test
+
+# Full TypeScript integration suite (boots a local Surfpool validator per Anchor.toml [surfpool])
+anchor test
+
+# Single suite — TEST_FILE = filename under tests/ without .ts (requires a prior `anchor build`)
+TEST_FILE=<name> anchor test --skip-build
+
+# Single test by name within a suite — GREP = substring of the "describe + it" title
+TEST_FILE=<name> GREP="<partial test name>" anchor test --skip-build
+
+# TS/JS lint
+npm run lint       # check
+npm run lint:fix   # write
+```
+
+Program IDs stay stable across builds via committed keypairs (`target/deploy/*-keypair.json`). Each program's `declare_id!` must match its keypair — verify with `anchor keys list`, fix drift with `anchor keys sync`.
+
+A funded local wallet is required once for tests: `solana-keygen new --no-bip39-passphrase --force -o test-wallet.json` (path referenced by `Anchor.toml` as the provider wallet).
+
+---
+
 ## Skills
 
 This project ships task recipes in `.claude/skills/`. **Before starting any task that matches one of these — list the folder and read the matching `SKILL.md` first**, even if the session was launched from a parent directory and Claude Code didn't auto-load them.
@@ -56,7 +87,8 @@ asseto-solana-programs/
 │   ├── treasury/             — coupon payouts: stores per-mint payment-token config + `pay_coupon` (Merkle-proves the holder's snapshot balance, then transfer_checked from treasury TA, signed by `treasury_authority` PDA)
 │   ├── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`); multi-step asset-class version deploy (`init_asset_class_version` → `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` → `finalize_asset_class_version`) storing a large functionality bit-mask
 │   ├── cap/                  — supply cap: `set_max_supply` records a per-mint maximum supply PDA + exports `require_within_max_supply` (linked-in check, no CPI) that `mint`/`batch_mint` call before issuing
-│   └── access-control/       — per-mint role bit-mask: `initialize` (auxiliary, CPI-only from `deploy`) bootstraps the deployer's `Roles` PDA with `ROLE_ADMIN`; `grant_roles` / `revoke_roles` set/clear role bits for an `(mint, account)` pair; grant/revoke are admin-gated (signer must hold `ROLE_ADMIN`) + functionality-gated, only while not paused / not deactivated
+│   ├── access-control/       — per-mint role bit-mask: `initialize` (auxiliary, CPI-only from `deploy`) bootstraps the deployer's `Roles` PDA with `ROLE_ADMIN`; `grant_roles` / `revoke_roles` set/clear role bits for an `(mint, account)` pair; grant/revoke are admin-gated (signer must hold `ROLE_ADMIN`) + functionality-gated, only while not paused / not deactivated
+│   └── document/             — ERC-1643 document management: `set_document` upserts a `["document", mint, name]` PDA (URI + integrity hash), resizing it to fit the `uri` on every call; `remove_document` closes it, refunding rent to the signer
 └── tests/                    — one .ts file per program
 ```
 
@@ -108,6 +140,7 @@ No program has a `constants.rs`: program IDs all come from `common::program_ids`
 | `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
 | `access-control` | `GpyjQqBWux3JYqxKCXFrDbWZmhFWBJWVaVivkBW2DL2w` |
 | `cap` | `64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm` |
+| `document` | `DzYjHw2JUBT8RdNqT8P5soRxJhmL6obibRUs5sMJ2Khi` |
 
 ### ID sharing pattern
 
@@ -177,6 +210,7 @@ Auxiliary instructions cannot be called by any external wallet. `take_snapshot` 
 | `["asset_class_version", config_id, version]` | `factory` | Per-version `AssetClassVersion` PDA — **zero-copy**, fixed-capacity `[u8; FUNCTIONALITIES_BYTES_MASK]` functionality bit-mask + state; created `Draft` by `init_asset_class_version` with an empty (all-zero) mask (each version is independent — nothing inherited from the previous one), bits freely turned on/off by `enable_asset_class_version_functionalities` / `disable_asset_class_version_functionalities` while `Draft`, sealed `Ready` (immutable) by `finalize_asset_class_version` |
 | `["roles", mint, account]` | `access-control` | Per-`(mint, account)` `Roles` PDA — **zero-copy**, fixed-capacity `[u8; ROLES_BYTES_MASK]` role bit-mask; bit `i` = role `i` granted. Bootstrapped for the deployer by `initialize` (CPI from `deploy_mint`, grants `ROLE_ADMIN`); created/updated by `grant_roles` (sets bits), cleared by `revoke_roles`. Seeds are the `"roles"` prefix (`pda_seeds::ROLES`) + the raw `mint` + `account` pubkeys. The same PDA at `["roles", mint, authority]` doubles as the role-check account, loaded as `AccountLoader<Roles>` and read by `require_role`. Mirrored by `common::state::Roles` so `common` can load it without depending on `access-control` |
 | `["max_supply", mint]` | `cap` | Typed `MaxSupply` PDA (maximum total supply in raw mint units) — created/overwritten by `set_max_supply`; read by `mint`/`batch_mint` via `cap::require_within_max_supply`. Absent = no cap |
+| `["document", mint, name]` | `document` | Per-`(mint, name)` `Document` PDA (URI + integrity hash) — created and resized to fit `uri` by `set_document`, closed by `remove_document`. `mint` is stored in the account (not just the seeds) so `getProgramAccounts` + `memcmp(offset=8, mint)` can enumerate a mint's documents off-chain |
 
 Always use `seeds::program` when referencing a PDA owned by another program:
 ```rust
@@ -230,3 +264,5 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 - [`docs/factory.md`](docs/factory.md)
 - [`docs/access-control.md`](docs/access-control.md)
 - [`docs/cap.md`](docs/cap.md)
+- [`docs/document.md`](docs/document.md)
+- [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
