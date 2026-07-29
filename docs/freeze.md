@@ -57,7 +57,9 @@ pub enum ErrorCode {
 
 ## Exported Verification Functions
 
-These functions are called by `transfer` (and any future operational program) to gate transfers.
+These functions gate transfers. They are called by `transfer-hook::execute`
+(which runs the compliance suite on every `transfer_checked`) and by any other
+program that needs the same checks.
 
 ### `require_unfrozen_account`
 
@@ -77,7 +79,18 @@ pub fn require_unfrozen_balance(
 ) -> Result<()>
 ```
 
-Reads the current token balance from `token_account` and the frozen balance from `frozen_balance_pda`. Computes `available = account_balance.saturating_sub(frozen_balance)` and returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `available < amount`. If `frozen_balance_pda` is empty (no partial freeze), frozen balance is treated as zero.
+Reads the current token balance from `token_account` and the frozen balance from `frozen_balance_pda`. Computes `available = account_balance.saturating_sub(frozen_balance)` and returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `available < amount`. If `frozen_balance_pda` is empty (no partial freeze), frozen balance is treated as zero. This is the **pre-debit** form (balance read before the transfer moves tokens).
+
+### `require_frozen_balance_covered`
+
+```rust
+pub fn require_frozen_balance_covered(
+    token_account: &AccountInfo,
+    frozen_balance_pda: &AccountInfo,
+) -> Result<()>
+```
+
+**Post-debit** variant of `require_unfrozen_balance`, for use inside `transfer-hook::execute`. Token-2022 invokes the hook *after* moving tokens, so the source is already debited. The pre-debit invariant `balance_pre - frozen >= amount` is algebraically `balance_post >= frozen`, so this compares the (post-debit) balance directly against the locked amount and needs no `amount` argument. Returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `account_balance < frozen_balance`. For a batch the hook fires once per leg after that leg's debit, so checking `balance_post >= frozen` at every leg keeps the cumulative movement within the lock.
 
 ---
 

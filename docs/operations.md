@@ -122,9 +122,9 @@ The fixed accounts (the per-source token accounts are passed via `remaining_acco
 
 Force-transfers `amount` tokens from the `from` token account to the `to` token account via the permanent delegate, without the holder's consent. Used to move tokens under legal/regulatory instruction (court order, lost-key recovery, mis-delivery). No snapshot CPIs run — like `transfer::transfer`, it is snapshot-agnostic.
 
-> **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`, and that hook's double-introspection requires a matching `transfer::verify_transfer` as the *previous* top-level instruction. **A `controller_transfer` transaction must therefore prepend `transfer::verify_transfer` with the same `(source, destination, mint, amount)`** — the hook accepts `operations::controller_transfer` at index N (see [`transfer-hook.md`](transfer-hook.md) step 5), but still rejects a bare one at index 0 with `NoPreviousInstruction`.
+> **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`. The hook recognises a permanent-delegate transfer — the authority is the `["permanent_delegate", mint]` PDA — and **bypasses the whitelist / frozen compliance checks** (see [`transfer-hook.md`](transfer-hook.md)), so a controller can seize tokens from frozen or non-whitelisted accounts. No `verify_transfer` pre-instruction and no holder signature are required: this is a genuine unilateral seizure path, gated only by the controller role + functionality.
 >
-> Because `verify_transfer` declares `source_owner` as a `Signer`, that pre-instruction makes the holder co-sign the transaction. A controller transfer bypasses the *holder's* compliance state but, as wired today, still requires the holder's signature — it is not a unilateral seizure path.
+> Token-2022 still resolves the hook's whole `ExtraAccountMetaList`, so `controller_transfer` must forward every compliance PDA even though the hook won't read them (they may be empty — expected for a seizure).
 
 ### Parameters
 
@@ -138,7 +138,7 @@ amount: u64  // raw token units to transfer
 - `require_active` — mint must not be deactivated.
 - `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)` — the mint's asset-class version must be finalized and enable controller transfers.
 
-`controller_transfer` itself does **not** check pause, whitelist / transfer-control mode, or frozen-account / frozen-balance markers — its only gates are the controller role and the asset-class functionality bit. Note that the required `transfer::verify_transfer` pre-instruction *does* run those checks, and Token-2022 rejects the inner `transfer_checked` on a paused mint, so in practice they still apply to the transaction as a whole.
+`controller_transfer` itself does **not** check pause, whitelist / transfer-control mode, or frozen-account / frozen-balance markers, and neither does the hook for this path (it bypasses compliance for permanent-delegate transfers) — its only gates are the controller role and the asset-class functionality bit. Pause still applies: Token-2022 rejects the inner `transfer_checked` on a paused mint regardless.
 
 ### Accounts
 
@@ -155,9 +155,15 @@ amount: u64  // raw token units to transfer
 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; forwarded to Token-2022 for hook resolution |
 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
 | `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
-| `deploy_program` | no | no | UncheckedAccount | address constrained to `DEPLOY_PROGRAM_ID`; hook metalist index 5 |
-| `factory_program` | no | no | UncheckedAccount | address constrained to `FACTORY_PROGRAM_ID`; hook metalist index 7 |
-| `instructions_sysvar` | no | no | UncheckedAccount | address constrained to the Instructions sysvar; hook metalist index 9 |
+| `deploy_program` | no | no | UncheckedAccount | address constrained to `DEPLOY_PROGRAM_ID`; forwarded (metalist index 5) |
+| `factory_program` | no | no | UncheckedAccount | address constrained to `FACTORY_PROGRAM_ID`; forwarded (metalist index 7) |
+| `deactivate_program` | no | no | UncheckedAccount | address constrained to `DEACTIVATE_PROGRAM_ID`; forwarded (metalist index 9) |
+| `transfer_control_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_CONTROL_PROGRAM_ID`; forwarded (metalist index 11) |
+| `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`; forwarded (may be empty) |
+| `source_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, from]`; forwarded (may be empty — seizure) |
+| `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, to]`; forwarded (may be empty — seizure) |
+| `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, from]`; forwarded (may be present — seizure from frozen) |
+| `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, from]`; forwarded (may be empty) |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` and forwarded to the hook |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
@@ -166,12 +172,11 @@ amount: u64  // raw token units to transfer
 
 ### Execution
 
-0. *(caller-supplied pre-instruction)* `transfer::verify_transfer(amount)` at index N-1, so the hook's introspection passes
 1. `require_role(authority_roles_pda.load()?, ROLE_CONTROLLER)`
 2. `require_active(&deactivate_pda)` + `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)`
 3. Read `decimals` off the mint (needed for `transfer_checked`)
 4. CPI → `freeze::unblock_account(from)` then `freeze::unblock_account(to)`, both signed with `["permanent_delegate", mint, bump]`
-5. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the hook accounts appended in metalist order (`extra_account_meta_list`, `transfer_hook_program`, `deploy_program`, `asset_configuration_pda`, `factory_program`, `asset_class_version_pda`, `instructions_sysvar`)
+5. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the 13 hook metalist accounts appended in order (`extra_account_meta_list`, `transfer_hook_program`, then `deploy_program`, `asset_configuration_pda`, `factory_program`, `asset_class_version_pda`, `deactivate_program`, `deactivate_pda`, `transfer_control_program`, `transfer_control_mode_pda`, `source_whitelist_pda`, `destination_whitelist_pda`, `freeze_program`, `source_frozen_pda`, `source_frozen_balance_pda`). The hook detects the permanent-delegate authority and bypasses compliance.
 6. CPI → `freeze::block_account(from)` then `freeze::block_account(to)`, both signed with `["permanent_delegate", mint, bump]`
 7. Emit `ControllerTransferred` via `emit_cpi!`
 

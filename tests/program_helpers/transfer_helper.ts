@@ -1,4 +1,4 @@
-import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
 import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
@@ -8,6 +8,8 @@ import {
   TRANSFER_HOOK_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
   FACTORY_PROGRAM_ID,
+  DEACTIVATE_PROGRAM_ID,
+  TRANSFER_CONTROL_PROGRAM_ID,
 } from "../utils/address_utils";
 import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
@@ -21,82 +23,11 @@ export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
 }
 
-export type VerifyTransferInstructionContext = BaseWriteContext &
-  MintContext & {
-    sourceOwner: PublicKey;
-    source: PublicKey;
-    destination: PublicKey;
-  };
-
-export type VerifyTransferInstructionArgs = {
-  amount?: anchor.BN;
-};
-
-function getDefaultVerifyTransferInstructionArgs(): Required<VerifyTransferInstructionArgs> {
-  return {
-    amount: new anchor.BN(1),
-  };
-}
-
-export async function buildVerifyTransferInstruction(
-  callContext: VerifyTransferInstructionContext,
-  args: VerifyTransferInstructionArgs
-): Promise<TransactionInstruction> {
-  const effectiveArgs: Required<VerifyTransferInstructionArgs> = {
-    ...getDefaultVerifyTransferInstructionArgs(),
-    ...args,
-  };
-
-  return await getTransferProgram()
-    .methods.verifyTransfer(effectiveArgs.amount)
-    .accountsStrict({
-      mint: callContext.mint,
-      sourceOwner: callContext.sourceOwner,
-      source: callContext.source,
-      destination: callContext.destination,
-      deactivatePda: deactivatePda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
-      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
-    })
-    .instruction();
-}
-
-export async function verifyTransfer(
-  callContext: VerifyTransferInstructionContext,
-  args?: VerifyTransferInstructionArgs
-): Promise<string> {
-  const effectiveArgs: Required<VerifyTransferInstructionArgs> = {
-    ...getDefaultVerifyTransferInstructionArgs(),
-    ...args,
-  };
-
-  return await getTransferProgram()
-    .methods.verifyTransfer(effectiveArgs.amount)
-    .accountsStrict({
-      mint: callContext.mint,
-      sourceOwner: callContext.sourceOwner,
-      source: callContext.source,
-      destination: callContext.destination,
-      deactivatePda: deactivatePda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
-      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
-    })
-    .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
-}
-
 export type TransferContext = BaseWriteContext &
   MintContext & {
     sourceOwner: PublicKey;
     source: PublicKey;
     destination: PublicKey;
-    preInstructions?: TransactionInstruction[];
   };
 
 export type TransferArgs = {
@@ -115,13 +46,11 @@ export async function transfer(callContext: TransferContext, args?: TransferArgs
     ...args,
   };
 
-  let preInstructions: TransactionInstruction[];
-  if (callContext.preInstructions) {
-    preInstructions = callContext.preInstructions;
-  } else {
-    const verifyIx = await buildVerifyTransferInstruction(callContext, effectiveArgs);
-    preInstructions = [verifyIx];
-  }
+  // Compliance now lives in transfer-hook::execute (run by Token-2022 during the
+  // inner transfer_checked), so no verify_transfer pre-instruction is needed.
+  // The unblock ×2 → transfer_checked → hook → block ×2 chain exceeds the default
+  // 200k CU budget, so raise it (the old two-instruction flow did the same).
+  const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })];
 
   await getTransferProgram()
     .methods.transfer(effectiveArgs.amount)
@@ -153,29 +82,33 @@ export async function getTransferAccounts(callContext: Omit<TransferContext, "de
       assetConfiguration.assetClassConfigId,
       assetConfiguration.assetClassVersionId
     ),
-    instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+    deactivateProgram: DEACTIVATE_PROGRAM_ID,
+    deactivatePda: deactivatePda(callContext.mint),
+    transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
+    transferControlModePda: transferControlModePda(callContext.mint),
+    sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
+    destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
+    sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
+    sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
     token2022Program: TOKEN_2022_PROGRAM_ID,
   };
 }
 
-// ── batch_verify_transfer / batch_transfer (one source → many destinations) ──
+// ── batch_transfer (one source → many destinations) ─────────────────────────
 
 export type BatchTransferContext = BaseWriteContext &
   MintContext & {
     sourceOwner: PublicKey;
     source: PublicKey;
     destinations: PublicKey[];
-    preInstructions?: TransactionInstruction[];
   };
 
 export type BatchTransferArgs = {
   // The `amounts` instruction argument. Defaults to `1` per destination.
   amounts?: anchor.BN[];
-  // Overrides batch_verify_transfer's remaining accounts. Defaults to
-  // `[destination, whitelistPda]` per destination. Provide to exercise error paths.
-  verifyRemainingAccounts?: AccountMeta[];
-  // Overrides batch_transfer's remaining accounts. Defaults to `[destination (writable)]`
-  // per destination. Provide to exercise error paths.
+  // Overrides batch_transfer's remaining accounts. Defaults to
+  // `[destination (writable), destinationWhitelistPda]` per destination.
+  // Provide to exercise error paths.
   transferRemainingAccounts?: AccountMeta[];
 };
 
@@ -183,45 +116,23 @@ function defaultBatchAmounts(callContext: BatchTransferContext, args?: BatchTran
   return args?.amounts ?? callContext.destinations.map(() => new anchor.BN(1));
 }
 
-export async function buildBatchVerifyTransferInstruction(
-  callContext: BatchTransferContext,
-  args?: BatchTransferArgs
-): Promise<TransactionInstruction> {
-  const amounts = defaultBatchAmounts(callContext, args);
-
-  const remainingAccounts: AccountMeta[] =
-    args?.verifyRemainingAccounts ??
-    callContext.destinations.flatMap((destination) => [
-      { pubkey: destination, isWritable: false, isSigner: false },
-      { pubkey: whitelistPda(callContext.mint, destination), isWritable: false, isSigner: false },
-    ]);
-
-  return await getTransferProgram()
-    .methods.batchVerifyTransfer(amounts)
-    .accountsStrict({
-      sourceOwner: callContext.sourceOwner,
-      source: callContext.source,
-      mint: callContext.mint,
-      deactivatePda: deactivatePda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-}
-
 export async function batchTransfer(callContext: BatchTransferContext, args?: BatchTransferArgs): Promise<void> {
   const amounts = defaultBatchAmounts(callContext, args);
 
-  const preInstructions = callContext.preInstructions ?? [
-    await buildBatchVerifyTransferInstruction(callContext, { ...args, amounts }),
-  ];
+  // Each leg runs its own unblock → transfer_checked → hook → block chain, so the
+  // budget scales with the number of destinations.
+  const computeUnits = Math.min(1_400_000, 250_000 + 200_000 * callContext.destinations.length);
+  const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits })];
 
+  // Two remaining accounts per destination: the destination token account
+  // (writable) followed by its whitelist PDA — the hook resolves the latter
+  // from the destination on every leg.
   const transferRemainingAccounts: AccountMeta[] =
     args?.transferRemainingAccounts ??
-    callContext.destinations.map((destination) => ({ pubkey: destination, isWritable: true, isSigner: false }));
+    callContext.destinations.flatMap((destination) => [
+      { pubkey: destination, isWritable: true, isSigner: false },
+      { pubkey: whitelistPda(callContext.mint, destination), isWritable: false, isSigner: false },
+    ]);
 
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
@@ -243,7 +154,13 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
-      instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      deactivateProgram: DEACTIVATE_PROGRAM_ID,
+      deactivatePda: deactivatePda(callContext.mint),
+      transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
+      transferControlModePda: transferControlModePda(callContext.mint),
+      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
+      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
+      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
       token2022Program: TOKEN_2022_PROGRAM_ID,
     })
     .remainingAccounts(transferRemainingAccounts)

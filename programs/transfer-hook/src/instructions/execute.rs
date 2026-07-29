@@ -1,92 +1,51 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::instruction::Instruction;
-use common::{pda_seeds, require_functionality};
-use solana_instructions_sysvar::{load_current_index_checked, load_instruction_at_checked};
-
-use crate::constants;
-use crate::errors::TransferHookError;
 use common::program_ids::{
-    DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGRAM_ID,
+    DEACTIVATE_PROGRAM_ID, DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, FREEZE_PROGRAM_ID,
+    OPERATIONS_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID,
 };
 use common::state::{AssetClassVersion, AssetConfiguration};
+use common::{pda_seeds, pda_utils, require_active, require_functionality};
+use freeze::{require_frozen_balance_covered, require_unfrozen_account};
+use spl_token_2022::extension::{
+    transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
+};
+use spl_token_2022::state::Account as TokenAccountState;
+use transfer_control::verify_transfer_control_mode;
 
-pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
-    msg!("transfer-hook execute: amount={}", amount);
+use crate::errors::TransferHookError;
 
-    // ── Double-introspection check ───────────────────────────────────────────
-    // See docs/transfer-hook.md ("Why the double introspection") for the
-    // wrapper-attack this closes.
-    let sysvar = ctx.accounts.instructions_sysvar.to_account_info();
-    let current_idx = load_current_index_checked(&sysvar)
-        .map_err(|_| error!(TransferHookError::InstructionsSysvarUnreadable))?;
-    require!(current_idx > 0, TransferHookError::NoPreviousInstruction);
+pub fn execute(ctx: Context<Execute>, _amount: u64) -> Result<()> {
+    require_transferring(&ctx.accounts.source_token.to_account_info())?;
 
-    let expected = ExpectedTransfer {
-        source: ctx.accounts.source_token.key(),
-        mint: ctx.accounts.mint.key(),
-        destination: ctx.accounts.destination_token.key(),
-        amount,
-    };
-
-    let prev_ix = load_instruction_at_checked((current_idx - 1) as usize, &sysvar)
-        .map_err(|_| error!(TransferHookError::InstructionsSysvarUnreadable))?;
-    let curr_ix = load_instruction_at_checked(current_idx as usize, &sysvar)
-        .map_err(|_| error!(TransferHookError::InstructionsSysvarUnreadable))?;
-
-    require!(
-        prev_ix.program_id == TRANSFER_PROGRAM_ID,
-        TransferHookError::PrevInstructionWrongProgram
-    );
-
-    let curr_is_batch = curr_ix.program_id == TRANSFER_PROGRAM_ID
-        && curr_ix.data.len() >= 8
-        && curr_ix.data[0..8] == constants::BATCH_TRANSFER_DISCRIMINATOR;
-
-    if curr_is_batch {
-        assert_matches_batch_verify_transfer(&prev_ix, &expected)?;
-        assert_matches_batch_transfer(&curr_ix, &expected)?;
-        // verify (N-1) and transfer (N) must describe the IDENTICAL ordered
-        // batch. Per-leg existence alone lets several transfer legs collapse
-        // onto one verified leg, so verify's summed balance / partial-freeze
-        // check would cover less than what is actually moved.
-        assert_batch_pair_identical(&prev_ix, &curr_ix)?;
-    } else {
-        assert_matches_anchor_transfer_ix(
-            &prev_ix,
-            &constants::VERIFY_TRANSFER_DISCRIMINATOR,
-            &TRANSFER_LAYOUT,
-            &expected,
-            IntrospectionTarget::PrevVerifyTransfer,
-        )?;
-
-        // N must be transfer::transfer, operations::controller_transfer OR
-        // Token-2022::transfer_checked.
-        if curr_ix.program_id == TRANSFER_PROGRAM_ID {
-            assert_matches_anchor_transfer_ix(
-                &curr_ix,
-                &constants::TRANSFER_DISCRIMINATOR,
-                &TRANSFER_LAYOUT,
-                &expected,
-                IntrospectionTarget::CurrentTransfer,
-            )?;
-        } else if curr_ix.program_id == OPERATIONS_PROGRAM_ID {
-            assert_matches_anchor_transfer_ix(
-                &curr_ix,
-                &constants::CONTROLLER_TRANSFER_DISCRIMINATOR,
-                &CONTROLLER_TRANSFER_LAYOUT,
-                &expected,
-                IntrospectionTarget::CurrentControllerTransfer,
-            )?;
-        } else if curr_ix.program_id == anchor_spl::token_2022::ID {
-            assert_matches_token2022_transfer_checked(&curr_ix, &expected)?;
-        } else {
-            msg!(
-            "introspection: top-level instruction's program is none of transfer, operations or token-2022 (program_id={})",
-            curr_ix.program_id
-        );
-            return err!(TransferHookError::CurrentInstructionUnknownProgram);
-        }
+    // SECURITY: only operations::controller_transfer can present the
+    // permanent_delegate PDA as the transfer authority (Token-2022 verifies the
+    // authority signed, and only operations can invoke_signed those seeds), so
+    // this bypass of the compliance suite is unreachable by a normal holder.
+    if pda_utils::is_caller_pda(
+        ctx.accounts.owner.key,
+        &pda_seeds::permanent_delegate_seeds(ctx.accounts.mint.key),
+        &OPERATIONS_PROGRAM_ID,
+    ) {
+        return Ok(());
     }
+
+    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+
+    verify_transfer_control_mode(
+        &ctx.accounts.transfer_control_mode_pda.to_account_info(),
+        &[
+            &ctx.accounts.source_whitelist_pda.to_account_info(),
+            &ctx.accounts.destination_whitelist_pda.to_account_info(),
+        ],
+    )?;
+
+    require_unfrozen_account(&ctx.accounts.source_frozen_pda.to_account_info())?;
+
+    // The hook runs post-debit, so this asserts balance_post >= frozen.
+    require_frozen_balance_covered(
+        &ctx.accounts.source_token.to_account_info(),
+        &ctx.accounts.source_frozen_balance_pda.to_account_info(),
+    )?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -96,241 +55,45 @@ pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
     Ok(())
 }
 
-struct ExpectedTransfer {
-    source: Pubkey,
-    mint: Pubkey,
-    destination: Pubkey,
-    amount: u64,
-}
-
-// `Copy` so it can be passed into multiple `require!` calls and helpers without cloning.
-#[derive(Clone, Copy)]
-enum IntrospectionTarget {
-    PrevVerifyTransfer,
-    CurrentTransfer,
-    CurrentControllerTransfer,
-    CurrentTokenTransferChecked,
-}
-
-impl IntrospectionTarget {
-    fn err_wrong_method(self) -> TransferHookError {
-        match self {
-            Self::PrevVerifyTransfer => TransferHookError::PrevInstructionNotVerifyTransfer,
-            Self::CurrentTransfer
-            | Self::CurrentControllerTransfer
-            | Self::CurrentTokenTransferChecked => {
-                TransferHookError::CurrentInstructionNotTransferOrTransferChecked
-            }
-        }
-    }
-
-    fn err_args_mismatch(self) -> TransferHookError {
-        match self {
-            Self::PrevVerifyTransfer => TransferHookError::PrevInstructionArgumentMismatch,
-            Self::CurrentTransfer
-            | Self::CurrentControllerTransfer
-            | Self::CurrentTokenTransferChecked => {
-                TransferHookError::CurrentInstructionArgumentMismatch
-            }
-        }
-    }
-}
-
-/// Positions of `(source, destination, mint)` within an introspected
-/// instruction's account list. Every accepted instruction shares the same data
-/// layout (8-byte Anchor discriminator + `u64` amount) but orders its accounts
-/// differently, so the indices travel alongside the discriminator.
-struct AccountLayout {
-    source: usize,
-    destination: usize,
-    mint: usize,
-}
-
-/// `transfer::verify_transfer` and `transfer::transfer` — indices 0–3 are
-/// `source_owner`, `source`, `destination`, `mint` in both.
-const TRANSFER_LAYOUT: AccountLayout = AccountLayout {
-    source: 1,
-    destination: 2,
-    mint: 3,
-};
-
-/// `operations::controller_transfer` — the holder does not sign, so there is no
-/// `source_owner` at index 0 and the mint precedes the two token accounts.
-const CONTROLLER_TRANSFER_LAYOUT: AccountLayout = AccountLayout {
-    source: 4,
-    destination: 5,
-    mint: 3,
-};
-
-fn assert_matches_anchor_transfer_ix(
-    ix: &Instruction,
-    expected_discriminator: &[u8; 8],
-    layout: &AccountLayout,
-    expected: &ExpectedTransfer,
-    target: IntrospectionTarget,
-) -> Result<()> {
-    require!(ix.data.len() >= 16, target.err_args_mismatch());
+fn require_transferring(source_token: &AccountInfo) -> Result<()> {
+    let data = source_token.try_borrow_data()?;
+    let state = StateWithExtensions::<TokenAccountState>::unpack(&data)
+        .map_err(|_| error!(TransferHookError::NotTransferring))?;
+    let extension = state
+        .get_extension::<TransferHookAccount>()
+        .map_err(|_| error!(TransferHookError::NotTransferring))?;
     require!(
-        &ix.data[0..8] == expected_discriminator.as_slice(),
-        target.err_wrong_method()
-    );
-    let amount = u64::from_le_bytes(ix.data[8..16].try_into().unwrap());
-    require!(amount == expected.amount, target.err_args_mismatch());
-
-    require_account(ix, layout.source, &expected.source, target)?;
-    require_account(ix, layout.destination, &expected.destination, target)?;
-    require_account(ix, layout.mint, &expected.mint, target)?;
-    Ok(())
-}
-
-fn assert_matches_token2022_transfer_checked(
-    ix: &Instruction,
-    expected: &ExpectedTransfer,
-) -> Result<()> {
-    let target = IntrospectionTarget::CurrentTokenTransferChecked;
-    require!(ix.data.len() >= 10, target.err_args_mismatch());
-    require!(
-        ix.data[0] == constants::TOKEN_2022_TRANSFER_CHECKED_TAG,
-        target.err_wrong_method()
-    );
-    let amount = u64::from_le_bytes(ix.data[1..9].try_into().unwrap());
-    require!(amount == expected.amount, target.err_args_mismatch());
-
-    require_account(ix, 0, &expected.source, target)?;
-    require_account(ix, 1, &expected.mint, target)?;
-    require_account(ix, 2, &expected.destination, target)?;
-    Ok(())
-}
-
-fn require_account(
-    ix: &Instruction,
-    idx: usize,
-    expected: &Pubkey,
-    target: IntrospectionTarget,
-) -> Result<()> {
-    require!(
-        ix.accounts.len() > idx && ix.accounts[idx].pubkey == *expected,
-        target.err_args_mismatch()
+        bool::from(extension.transferring),
+        TransferHookError::NotTransferring
     );
     Ok(())
 }
 
-// Borsh layout of the `Vec<u64> amounts` arg: [disc(8)][len: u32 LE][len × u64].
-fn batch_len(data: &[u8]) -> Option<usize> {
-    if data.len() < 12 {
-        return None;
-    }
-    let n = u32::from_le_bytes(data[8..12].try_into().ok()?) as usize;
-    if data.len() != 12usize.checked_add(n.checked_mul(8)?)? {
-        return None;
-    }
-    Some(n)
-}
-
-fn batch_amount_at(data: &[u8], i: usize) -> u64 {
-    let off = 12 + i * 8;
-    u64::from_le_bytes(data[off..off + 8].try_into().unwrap())
-}
-
-fn assert_matches_batch_transfer(ix: &Instruction, expected: &ExpectedTransfer) -> Result<()> {
-    let n = batch_len(&ix.data)
-        .ok_or_else(|| error!(TransferHookError::CurrentInstructionArgumentMismatch))?;
-    require!(
-        n > 0 && ix.accounts.len() >= n + 3,
-        TransferHookError::CurrentInstructionArgumentMismatch
-    );
-    require!(
-        ix.accounts[1].pubkey == expected.source && ix.accounts[2].pubkey == expected.mint,
-        TransferHookError::CurrentInstructionArgumentMismatch
-    );
-
-    let dest_start = ix.accounts.len() - n;
-    for i in 0..n {
-        if ix.accounts[dest_start + i].pubkey == expected.destination
-            && batch_amount_at(&ix.data, i) == expected.amount
-        {
-            return Ok(());
-        }
-    }
-    err!(TransferHookError::CurrentInstructionArgumentMismatch)
-}
-
-fn assert_matches_batch_verify_transfer(
-    ix: &Instruction,
-    expected: &ExpectedTransfer,
-) -> Result<()> {
-    require!(
-        ix.data.len() >= 8 && ix.data[0..8] == constants::BATCH_VERIFY_TRANSFER_DISCRIMINATOR,
-        TransferHookError::PrevInstructionNotVerifyTransfer
-    );
-    let n = batch_len(&ix.data)
-        .ok_or_else(|| error!(TransferHookError::PrevInstructionArgumentMismatch))?;
-    require!(
-        n > 0 && ix.accounts.len() >= 2 * n + 3,
-        TransferHookError::PrevInstructionArgumentMismatch
-    );
-    require!(
-        ix.accounts[1].pubkey == expected.source && ix.accounts[2].pubkey == expected.mint,
-        TransferHookError::PrevInstructionArgumentMismatch
-    );
-
-    let dest_start = ix.accounts.len() - 2 * n;
-    for i in 0..n {
-        if ix.accounts[dest_start + 2 * i].pubkey == expected.destination
-            && batch_amount_at(&ix.data, i) == expected.amount
-        {
-            return Ok(());
-        }
-    }
-    err!(TransferHookError::PrevInstructionArgumentMismatch)
-}
-
-fn assert_batch_pair_identical(prev: &Instruction, curr: &Instruction) -> Result<()> {
-    // Identical `amounts` vectors (skip the 8-byte discriminator): same length,
-    // values, and order.
-    require!(
-        prev.data.len() >= 8 && curr.data.len() >= 8 && prev.data[8..] == curr.data[8..],
-        TransferHookError::CurrentInstructionArgumentMismatch
-    );
-    let n = batch_len(&curr.data)
-        .ok_or_else(|| error!(TransferHookError::CurrentInstructionArgumentMismatch))?;
-    require!(
-        curr.accounts.len() >= n + 3 && prev.accounts.len() >= 2 * n + 3,
-        TransferHookError::CurrentInstructionArgumentMismatch
-    );
-    // Identical destination order: transfer's trailing `n` vs verify's trailing
-    // `2n` (destinations at even offsets of the (destination, whitelist) pairs).
-    let curr_dest_start = curr.accounts.len() - n;
-    let prev_dest_start = prev.accounts.len() - 2 * n;
-    for i in 0..n {
-        require!(
-            curr.accounts[curr_dest_start + i].pubkey
-                == prev.accounts[prev_dest_start + 2 * i].pubkey,
-            TransferHookError::CurrentInstructionArgumentMismatch
-        );
-    }
-    Ok(())
-}
-
+/// Accounts for `execute`.
+///
+/// Indices 0–4 are fixed by the SPL Transfer Hook interface. Indices 5+ are the
+/// ExtraAccountMetaList entries, in the order declared by
+/// `initialize_extra_account_meta_list`. Every compliance PDA is resolved and
+/// forwarded by Token-2022 from that list.
 #[derive(Accounts)]
 pub struct Execute<'info> {
-    /// CHECK: Source token account (index 0).
+    // Indices 0–4 are the SPL-interface-fixed accounts Token-2022 passes as the
+    // transfer's own accounts; the hook only reads them.
+    /// CHECK: transfer's source token account; balance read for the frozen-balance check.
     pub source_token: UncheckedAccount<'info>,
-    /// CHECK: Mint (index 1).
+    /// CHECK: transfer's mint; used as a seed component.
     pub mint: UncheckedAccount<'info>,
-    /// CHECK: Destination token account (index 2).
+    /// CHECK: transfer's destination token account; used as a seed component.
     pub destination_token: UncheckedAccount<'info>,
-    /// CHECK: Source account owner/authority (index 3).
+    /// CHECK: transfer authority; compared against the permanent-delegate PDA for the bypass.
     pub owner: UncheckedAccount<'info>,
-    /// CHECK: ExtraAccountMetaList PDA (index 4).
+    /// CHECK: the mint's ExtraAccountMetaList; canonicity enforced by Token-2022.
     pub extra_account_meta_list: UncheckedAccount<'info>,
 
-    /// CHECK: deploy program (index 5). Address verified by constraint;
-    /// resolves `asset_configuration_pda`'s external PDA in the metalist.
+    /// CHECK: address verified by constraint; resolves asset_configuration_pda in the metalist.
     #[account(address = DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// PDA that contains the configuration for this mint (index 6).
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = DEPLOY_PROGRAM_ID,
@@ -338,12 +101,10 @@ pub struct Execute<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: factory program (index 7). Address verified by constraint;
-    /// resolves `asset_class_version_pda`'s external PDA in the metalist.
+    /// CHECK: address verified by constraint; resolves asset_class_version_pda in the metalist.
     #[account(address = FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
 
-    /// Asset-class version PDA this mint is hooked to (index 8).
     #[account(
         seeds = [
             pda_seeds::ASSET_CLASS_VERSION,
@@ -355,7 +116,63 @@ pub struct Execute<'info> {
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
-    /// CHECK: Instructions sysvar (index 9); address verified by the metalist's literal-pubkey entry.
-    #[account(address = solana_instructions_sysvar::ID)]
-    pub instructions_sysvar: UncheckedAccount<'info>,
+    /// CHECK: deactivate program (index 9); resolves deactivate_pda in the metalist.
+    #[account(address = DEACTIVATE_PROGRAM_ID)]
+    pub deactivate_program: UncheckedAccount<'info>,
+
+    /// CHECK: Deactivation marker (index 10); seeds verified, emptiness checked by require_active.
+    #[account(
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
+        seeds::program = DEACTIVATE_PROGRAM_ID,
+        bump,
+    )]
+    pub deactivate_pda: UncheckedAccount<'info>,
+
+    /// CHECK: transfer-control program (index 11); resolves the mode + whitelist PDAs.
+    #[account(address = TRANSFER_CONTROL_PROGRAM_ID)]
+    pub transfer_control_program: UncheckedAccount<'info>,
+
+    /// CHECK: Transfer-control mode (index 12); may be empty (no mode active).
+    #[account(
+        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
+        seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub transfer_control_mode_pda: UncheckedAccount<'info>,
+
+    /// CHECK: Source whitelist marker (index 13); seeded by the source token account.
+    #[account(
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), source_token.key().as_ref()],
+        seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub source_whitelist_pda: UncheckedAccount<'info>,
+
+    /// CHECK: Destination whitelist marker (index 14); seeded by the destination token account.
+    #[account(
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), destination_token.key().as_ref()],
+        seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub destination_whitelist_pda: UncheckedAccount<'info>,
+
+    /// CHECK: freeze program (index 15); resolves the frozen PDAs in the metalist.
+    #[account(address = FREEZE_PROGRAM_ID)]
+    pub freeze_program: UncheckedAccount<'info>,
+
+    /// CHECK: Source frozen-account marker (index 16); emptiness checked by require_unfrozen_account.
+    #[account(
+        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), source_token.key().as_ref()],
+        seeds::program = FREEZE_PROGRAM_ID,
+        bump,
+    )]
+    pub source_frozen_pda: UncheckedAccount<'info>,
+
+    /// CHECK: Source partial-freeze balance (index 17); may be empty (no partial freeze).
+    #[account(
+        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), source_token.key().as_ref()],
+        seeds::program = FREEZE_PROGRAM_ID,
+        bump,
+    )]
+    pub source_frozen_balance_pda: UncheckedAccount<'info>,
 }

@@ -3,6 +3,7 @@ use anchor_lang::solana_program::instruction::AccountMeta;
 use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token_2022::Token2022;
 use common::program_ids as constants;
+use common::state::{AssetClassVersion, AssetConfiguration};
 use common::{pda_seeds, pda_utils};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use spl_token_2022::{
@@ -63,35 +64,29 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         decimals,
     )?;
 
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
+    // Forwarded to transfer-hook::execute. Order is load-bearing: it must match
+    // the ExtraAccountMetaList (see docs/transfer.md).
+    for meta in [
         ctx.accounts.extra_account_meta_list.key(),
-        false,
-    ));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.transfer_hook_program.key(),
-        false,
-    ));
-    // Extras from the ExtraAccountMetaList (hook indices 5..=9).
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.deploy_program.key(),
-        false,
-    ));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.asset_configuration_pda.key(),
-        false,
-    ));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.factory_program.key(),
-        false,
-    ));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
         ctx.accounts.asset_class_version_pda.key(),
-        false,
-    ));
-    transfer_ix.accounts.push(AccountMeta::new_readonly(
-        ctx.accounts.instructions_sysvar.key(),
-        false,
-    ));
+        ctx.accounts.deactivate_program.key(),
+        ctx.accounts.deactivate_pda.key(),
+        ctx.accounts.transfer_control_program.key(),
+        ctx.accounts.transfer_control_mode_pda.key(),
+        ctx.accounts.source_whitelist_pda.key(),
+        ctx.accounts.destination_whitelist_pda.key(),
+        ctx.accounts.freeze_program.key(),
+        ctx.accounts.source_frozen_pda.key(),
+        ctx.accounts.source_frozen_balance_pda.key(),
+    ] {
+        transfer_ix
+            .accounts
+            .push(AccountMeta::new_readonly(meta, false));
+    }
 
     invoke(
         &transfer_ix,
@@ -106,7 +101,15 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
             ctx.accounts.asset_configuration_pda.to_account_info(),
             ctx.accounts.factory_program.to_account_info(),
             ctx.accounts.asset_class_version_pda.to_account_info(),
-            ctx.accounts.instructions_sysvar.to_account_info(),
+            ctx.accounts.deactivate_program.to_account_info(),
+            ctx.accounts.deactivate_pda.to_account_info(),
+            ctx.accounts.transfer_control_program.to_account_info(),
+            ctx.accounts.transfer_control_mode_pda.to_account_info(),
+            ctx.accounts.source_whitelist_pda.to_account_info(),
+            ctx.accounts.destination_whitelist_pda.to_account_info(),
+            ctx.accounts.freeze_program.to_account_info(),
+            ctx.accounts.source_frozen_pda.to_account_info(),
+            ctx.accounts.source_frozen_balance_pda.to_account_info(),
         ],
     )?;
 
@@ -140,12 +143,10 @@ pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
 
 /// Accounts for `transfer`.
 ///
-/// Order matches `VerifyTransfer` for the first four entries
-/// (`source_owner`, `source`, `destination`, `mint`) so the transfer hook can
-/// later cross-check both instructions describe the same transfer via
-/// `Instructions`-sysvar introspection. The remaining accounts are this
-/// instruction's own dependencies (freeze CPI signing) plus the accounts that
-/// must be forwarded to the hook (its ExtraAccountMetaList entries).
+/// Indices 0–3 (`source_owner`, `source`, `destination`, `mint`) plus this
+/// program's own freeze-CPI dependencies, followed by every account the transfer
+/// hook's `ExtraAccountMetaList` references — Token-2022 forwards them to
+/// `transfer-hook::execute`, which enforces compliance.
 #[derive(Accounts)]
 pub struct TransferTokens<'info> {
     /// 0 — Token holder authorising the transfer.
@@ -153,19 +154,16 @@ pub struct TransferTokens<'info> {
     pub source_owner: Signer<'info>,
 
     /// 1 — Source token account.
-    ///
     /// CHECK: Writable; owner verified by Token-2022 during `transfer_checked`.
     #[account(mut)]
     pub source: UncheckedAccount<'info>,
 
     /// 2 — Destination token account.
-    ///
     /// CHECK: Writable; validated by Token-2022 during `transfer_checked`.
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
 
     /// 3 — The Token-2022 mint.
-    ///
     /// CHECK: Validated by Token-2022 during CPI; decimals read in instruction body.
     pub mint: UncheckedAccount<'info>,
 
@@ -196,34 +194,91 @@ pub struct TransferTokens<'info> {
     #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by constraint.
+    /// CHECK: Address verified by constraint; used for freeze CPIs and forwarded to the hook.
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by constraint.
+    /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = asset_configuration_pda.bump,
     )]
-    pub asset_configuration_pda: UncheckedAccount<'info>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: Address verified by constraint.
+    /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
 
-    /// CHECK: No address constraint here; the hook's metalist pins the canonical
-    /// derivation (seeded from `asset_configuration_pda`'s asset class config/version ids),
-    /// and Token-2022 verifies our forwarded extras against it.
-    pub asset_class_version_pda: UncheckedAccount<'info>,
+    #[account(
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
-    /// CHECK: Address pinned by constraint and re-verified by the hook's metalist.
-    #[account(address = solana_instructions_sysvar::ID)]
-    pub instructions_sysvar: UncheckedAccount<'info>,
+    /// CHECK: Address verified by constraint; forwarded to the hook.
+    #[account(address = constants::DEACTIVATE_PROGRAM_ID)]
+    pub deactivate_program: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook (require_active reads it).
+    #[account(
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
+        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
+        bump,
+    )]
+    pub deactivate_pda: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by constraint; forwarded to the hook.
+    #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]
+    pub transfer_control_program: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook (may be empty — no mode active).
+    #[account(
+        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub transfer_control_mode_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook (must exist in whitelist mode).
+    #[account(
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), source.key().as_ref()],
+        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub source_whitelist_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook (must exist in whitelist mode).
+    #[account(
+        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), destination.key().as_ref()],
+        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
+        bump,
+    )]
+    pub destination_whitelist_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook (must be empty for the transfer to proceed).
+    #[account(
+        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), source.key().as_ref()],
+        seeds::program = constants::FREEZE_PROGRAM_ID,
+        bump,
+    )]
+    pub source_frozen_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook (may be empty — no partial freeze).
+    #[account(
+        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), source.key().as_ref()],
+        seeds::program = constants::FREEZE_PROGRAM_ID,
+        bump,
+    )]
+    pub source_frozen_balance_pda: UncheckedAccount<'info>,
 
     pub token_2022_program: Program<'info, Token2022>,
 }
