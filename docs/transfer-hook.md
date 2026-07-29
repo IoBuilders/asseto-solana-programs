@@ -6,29 +6,30 @@ Implements the [SPL Transfer Hook Interface](https://spl.solana.com/transfer-hoo
 Token-2022 invokes `execute` automatically on every `transfer_checked` call for
 mints that have this program registered in their `TransferHook` extension.
 
-Two responsibilities:
+This is where the whole transfer compliance suite lives. Two responsibilities:
 
-1. **Introspection gate.** Reads the `Instructions` sysvar and refuses the
-   transfer unless the previous (N-1) and current (N) top-level instructions
-   form one of two recognised pairs, both with arguments matching the hooked
-   transfer:
-   - **Single** — N-1 is `transfer::verify_transfer` and N is one of two
-     known-good entrypoints (`operations::controller_transfer`, or a bare
-     top-level `Token-2022::TransferChecked`).
-   - **Batch** — N-1 is `transfer::batch_verify_transfer` and N is
-     `transfer::batch_transfer`. The hook fires once per leg, so each leg is
-     matched individually against both instructions, and the two are also
-     required to describe the *identical ordered* batch.
+1. **Compliance gate.** Runs every transfer rule against the accounts Token-2022
+   forwards from the `ExtraAccountMetaList`: mint not deactivated, transfer-mode
+   / whitelist (source and destination), source not fully frozen, and the source's
+   partial-freeze lock still covered after the debit.
+2. **Functionality gate.** Reads the mint's `asset_configuration_pda` to locate
+   its `asset_class_version_pda` and requires the `TRANSFER_HOOK_EXECUTE` bit to
+   be enabled.
 
-   This is the only compliance enforcement the hook does; the actual rule checks
-   (deactivation, transfer-mode, whitelist, frozen account, frozen balance)
-   live in `transfer::verify_transfer` / `transfer::batch_verify_transfer` so
-   the metalist stays small
-   enough for Token-2022's 32 KiB heap to resolve it (see
-   [`transfer-hook-heap-oom.md`](transfer-hook-heap-oom.md)).
-2. **Functionality gate.** Reads the mint's `asset_configuration_pda` to
-   locate its `asset_class_version_pda` and requires the
-   `TRANSFER_HOOK_EXECUTE` bit to be enabled.
+There is no instruction introspection and no `Instructions` sysvar read: the hook
+does not care what top-level instruction it was reached from, which is what makes
+transfers composable. Every path — a bare `Token-2022::transfer_checked`,
+`transfer::batch_transfer`, `operations::controller_transfer`, or a third-party
+program CPI'ing any of them — passes through the same checks here. Earlier
+revisions did introspect, because the compliance accounts did not fit
+Token-2022's 32 KiB heap at the time (see
+[Metalist contents](#metalist-contents), which is still the binding constraint).
+
+The one exemption is the **permanent-delegate bypass**: when the transfer
+authority is the `["permanent_delegate", mint]` PDA, `execute` returns
+successfully without running any check, because only `operations` can sign those
+seeds and `operations::controller_transfer` is itself fully gated (see
+[Permanent-delegate bypass](#permanent-delegate-bypass)).
 
 The hook writes **no state at all** — it only reads and either passes or
 aborts the transfer.
@@ -99,6 +100,26 @@ seed-based entries and verifies the caller-supplied accounts against them before
 invoking the hook, each forwarded PDA is guaranteed canonical by the time
 `execute` runs.
 
+> **Metalist size is a hard budget — measure before adding entries.** Resolving
+> this list (TLV-decoding the PDA, deriving each seeded entry with
+> `find_program_address`, building the CPI's `Vec<AccountMeta>` and
+> `Vec<AccountInfo>`) happens *inside Token-2022*, on a heap the SDK hard-codes to
+> 32 KiB — `solana-program-entrypoint`'s default bump allocator, which Token-2022
+> does not override. `ComputeBudgetProgram.requestHeapFrame` does **not** lift it:
+> the runtime maps the larger region, but the allocator was compiled believing it
+> has 32 KiB and never looks past that boundary. Only the SPL maintainers can
+> change that, so the list is the only lever we have.
+>
+> A 16-entry list once exceeded it, and the failure mode is unmistakable and
+> unhelpful: `Error: memory allocation failed, out of memory` logged by
+> `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` with plenty of CU left, and the
+> hook never invoked at all. Two things bought back the room the compliance
+> entries now use — the hook stopped writing per-holder balance snapshots (six
+> entries: the snapshot program, `snapshot_counter`, sender/receiver snapshot PDAs,
+> the `transfer_hook_authority` payer and the system program; balances are
+> committed to one Merkle root per snapshot instead), and transfers stopped
+> thawing/re-freezing accounts around the movement.
+
 ---
 
 ## Instruction: `execute` (SPL Transfer Hook Interface)
@@ -143,127 +164,86 @@ in order.
 
 ### Execution
 
-The hook reads the `Instructions` sysvar to know which top-level instruction
-is being processed. The sysvar exposes only top-level instructions, so the
-checks effectively gate the *outer* transaction shape.
-
-1. Read `current_idx` via `load_current_index_checked(&instructions_sysvar)`.
-   - Failure → `InstructionsSysvarUnreadable`.
-   - `current_idx == 0` → `NoPreviousInstruction` (no slot before the transfer).
-2. Build `ExpectedTransfer { source: source_token.key(), mint: mint.key(),
-   destination: destination_token.key(), amount }`.
-3. Load `prev_ix = instruction[current_idx - 1]` and `curr_ix = instruction[current_idx]`.
-4. **Previous instruction must belong to `transfer`:**
-   `prev_ix.program_id == TRANSFER_PROGRAM_ID` (else
-   `PrevInstructionWrongProgram`). *Which* `transfer` instruction it has to be
-   is decided by step 5 — the batch and single paths expect different ones.
-5. **Dispatch on the current instruction's shape.** N is what tells the hook
-   which pair it is looking at. It is the batch pair when
-   `curr_ix.program_id == TRANSFER_PROGRAM_ID` and
-   `curr_ix.data[0..8] == BATCH_TRANSFER_DISCRIMINATOR`; otherwise it is the
-   single pair.
-   - **Batch pair** (N-1 = `batch_verify_transfer`, N = `batch_transfer`).
-     Because one batch fires the hook once per leg, neither instruction can be
-     described by a single fixed triple — so instead the hook parses the Borsh
-     `Vec<u64> amounts` (`[disc(8)][len: u32 LE][len × u64]`, length-validated
-     against the data size) and requires the hooked
-     `(source, destination, amount)` to appear as some leg `i` in **both**:
-     - `batch_verify_transfer` (N-1): discriminator must be
-       `BATCH_VERIFY_TRANSFER_DISCRIMINATOR` (else
-       `PrevInstructionNotVerifyTransfer`); `source` @1, `mint` @2, and the
-       `(destination, whitelist)` pairs as the trailing `2n` accounts → match
-       `accounts[len-2n+2i] == destination && amounts[i] == amount`
-       (else `PrevInstructionArgumentMismatch`).
-     - `batch_transfer` (N): `source` @1, `mint` @2, destinations as the
-       trailing `n` accounts → match `accounts[len-n+i] == destination &&
-       amounts[i] == amount` (else `CurrentInstructionArgumentMismatch`).
-     - **Pair identity** — the two must additionally describe the *same
-       ordered* batch: identical `amounts` bytes (`data[8..]`) and identical
-       destination order (N's trailing `n` vs the even offsets of N-1's
-       trailing `2n`). Per-leg existence alone is not sufficient: without
-       this, several transfer legs could collapse onto one verified leg, so
-       `batch_verify_transfer`'s *summed* balance / partial-freeze check would
-       cover less than what actually moves.
-
-     Every executed leg is checked independently (the hook runs `n` times), so
-     any leg not present in the verified batch reverts the whole transaction.
-   In every non-batch case N-1 is checked against
-   `VERIFY_TRANSFER_DISCRIMINATOR` (Anchor layout: 8-byte discriminator +
-   `u64` amount; accounts 1/2/3 = source / destination / mint; errors
-   `PrevInstructionNotVerifyTransfer` / `PrevInstructionArgumentMismatch`).
-   N is then matched per entrypoint:
-
-   - **`operations::controller_transfer`** — `curr_ix.program_id ==
-     OPERATIONS_PROGRAM_ID`. N-1 is `verify_transfer` as above; N shares the
-     same Anchor *data* layout but a different **account** layout —
-     `controller_transfer` has no `source_owner` at index 0, so
-     source / destination / mint sit at indices 4 / 5 / 3 rather than
-     1 / 2 / 3. The two layouts are declared side by side as
-     `TRANSFER_LAYOUT` / `CONTROLLER_TRANSFER_LAYOUT` in `execute.rs`;
-     reordering the accounts of either introspected instruction requires
-     updating its layout here.
-   - **Bare `Token-2022::TransferChecked`** — `curr_ix.program_id ==
-     TOKEN_2022_PROGRAM_ID`. N-1 is `verify_transfer` as above; N uses the SPL
-     layout — 1-byte tag (`12`), 8-byte amount, 1-byte decimals; accounts at
-     indices 0/1/2 = source / mint / destination (tag mismatch →
-     `CurrentInstructionNotTransferOrTransferChecked`, accounts/amount →
-     `CurrentInstructionArgumentMismatch`).
-   - Else → `CurrentInstructionUnknownProgram`.
-6. `require_functionality(asset_class_version_pda, TRANSFER_HOOK_EXECUTE)` —
-   the asset-class version this mint is pinned to must have the hook's
-   execute bit enabled.
+1. `require_transferring(&source_token)` — unpack the source token account's
+   `TransferHookAccount` extension and require its `transferring` flag. Token-2022
+   sets that flag only for the duration of a transfer, so this is what stops
+   anyone from calling `execute` directly to probe or grief. Failure (unpack error
+   or flag unset) → `NotTransferring`.
+2. **Permanent-delegate bypass** — if `owner` (the transfer authority) is the
+   `["permanent_delegate", mint]` PDA of `operations`, return `Ok(())` now,
+   skipping steps 3–6. See [below](#permanent-delegate-bypass).
+3. `require_active(&deactivate_pda)` — the mint must not be deactivated.
+4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda,
+   &[&source_whitelist_pda, &destination_whitelist_pda])` — a no-op when
+   `transfer_control_mode_pda` is empty (no mode active); in whitelist mode both
+   markers must exist, else `NotWhitelisted`.
+5. `freeze::require_unfrozen_account(&source_frozen_pda)` — the source must not be
+   fully frozen, else `AccountFrozen`.
+6. `freeze::require_frozen_balance_covered(&source_token, &source_frozen_balance_pda)`
+   — the partial-freeze lock must still be covered. The hook runs **post-debit**,
+   so this asserts `balance_post >= frozen` (the pre-debit `available >= amount`
+   restated), else `InsufficientUnfrozenBalance`.
+7. `require_functionality(asset_class_version_pda, TRANSFER_HOOK_EXECUTE)` — the
+   asset-class version this mint is pinned to must have the hook's execute bit
+   enabled.
 
 Then it returns. The hook performs no CPI and mutates no account, so it adds
 nothing to the transfer's write set beyond what Token-2022 itself touches.
 
+The `amount` argument is unused: every check reads state directly, and the
+post-debit balance check needs no amount.
+
 Source ownership is intentionally **not** re-checked here: Token-2022's
 `transfer_checked` enforces `source.owner == authority` before invoking the
-hook.
+hook. Pause is not checked either — Token-2022 rejects a transfer on a paused
+mint before the hook runs.
 
 ---
 
-## Why the double introspection (and not just N-1)
+## Why compliance lives here (and not in a pre-instruction)
 
-Restricting the legal entrypoints at index N (in addition to checking N-1)
-closes a wrapper-attack hole that pure "previous = verify_transfer" leaves
-open: a third-party program could otherwise sit at top level, internally call
-`verify_transfer` via CPI, mutate state, then CPI into the transfer — all
-hidden inside one top-level instruction. The `Instructions` sysvar only
-exposes *top-level* instructions, so the hook would only see "the wrapper" at
-N and "verify_transfer" at N-1 (signed earlier by the user) and let the
-transfer through despite arbitrary state mutations between the verify and
-the actual transfer. Forcing N to be exactly one of the three whitelisted
-entrypoints (`transfer::batch_transfer`, `operations::controller_transfer`, bare
-`Token-2022::TransferChecked`) denies any wrapper from sitting between the user
-and the real transfer instruction.
+Enforcing the rules inside `execute` means they hold for **every** way tokens can
+move, with no cooperation required from the caller. A bare
+`Token-2022::transfer_checked`, `transfer::batch_transfer`, a third-party program
+CPI'ing either one — all of them go through this code, because Token-2022 invokes
+the hook from inside the transfer itself. There is no transaction layout to get
+right, nothing for an integrator to forget, and no ordering assumption that a
+future wrapper could break.
 
-`transfer::batch_transfer` needs one guarantee the single-leg entrypoints get for
-free. Its paired `batch_verify_transfer` checks the *sum* of the legs against
-the source's unfrozen balance, so matching each hooked leg against *some* leg
-of the verified batch is not enough — two transfer legs of 100 could both point
-at a single verified leg of 100, moving 200 against a 100-token check. Hence
-the pair-identity check in step 5: same amounts, same order, same destinations.
+The previous design achieved the same guarantee the hard way: the compliance
+suite lived in a `transfer::verify_transfer` instruction, and the hook read the
+`Instructions` sysvar to require it at index N-1 with matching arguments, plus a
+whitelist of legal instructions at index N to stop a wrapper from interposing.
+That was forced by Token-2022's 32 KiB heap — the metalist could not carry the
+compliance PDAs at the time — and it cost composability (mandatory two-instruction
+layout), a TOCTOU window between the check and the movement, and a large
+argument-matching surface that had to be exhaustively right to be safe.
 
-`operations::controller_transfer` is on that list because a controller
-force-transfer is itself a top-level, fully-gated entrypoint (controller role +
-`OPERATIONS_CONTROLLER_TRANSFER` functionality), just with a different authority
-than a holder-initiated transfer. It is not a wrapper: the hook pins its
-discriminator, so nothing else in `operations` can reach the transfer path.
+Moving the checks back into the hook removes all of that: no sysvar read, no
+discriminator or layout constants to keep in sync with other programs (`constants.rs`
+is gone), no pre-instruction, and the check now runs against the same accounts
+Token-2022 has already verified against the metalist. It became affordable because
+the metalist had shrunk elsewhere — see the size note under
+[Metalist contents](#metalist-contents).
 
-The bare `Token-2022::TransferChecked` entrypoint is permitted for
-composability, and since the mint no longer carries `DefaultAccountState(Frozen)`
-it is a genuinely usable path rather than the dead letter it used to be. Token
-accounts now start `Initialized`, so nothing rejects a direct top-level
-`transfer_checked` before the hook runs.
+### Permanent-delegate bypass
 
-This does **not** weaken compliance. The gate has always been the
-double-introspection check, not the account state: a bare `transfer_checked` still
-only succeeds if the immediately-prior top-level instruction is
-`transfer::verify_transfer` with matching `source` / `destination` / `mint` /
-`amount`, and that `verify_transfer` runs the full rule set (deactivation,
-transfer mode, whitelist, frozen-account marker, unfrozen balance). What was
-removed is a redundant belt-and-braces layer, not a rule. Callers composing on
-this path must therefore still prepend their own `verify_transfer`.
+`execute` returns early, running no compliance check at all, when the transfer
+authority is the `["permanent_delegate", mint]` PDA owned by `operations`. This is
+what makes `operations::controller_transfer` a genuine seizure path: a controller
+can move tokens out of a frozen or non-whitelisted account, or into one.
+
+It is not a hole a holder can reach. Token-2022 verifies that the authority signed
+the transfer, and only `operations` can produce that signature via
+`invoke_signed` on those seeds — so the only way to enter this branch is through
+`operations::controller_transfer`, which is itself gated on `ROLE_CONTROLLER`,
+`require_active` and the `OPERATIONS_CONTROLLER_TRANSFER` functionality bit (see
+[`operations.md`](operations.md)).
+
+Note the bypass precedes *all* the checks, including deactivation and
+`TRANSFER_HOOK_EXECUTE`; `controller_transfer` runs its own `require_active` and
+its own functionality gate instead, so a deactivated mint still blocks the seizure —
+just one level up.
 
 ---
 
@@ -291,5 +271,5 @@ All program IDs are imported from `common::program_ids`:
 use common::program_ids::{DEPLOY_PROGRAM_ID, FREEZE_PROGRAM_ID, /* … */};
 ```
 
-The hook no longer has a `constants.rs` (it held introspection discriminators,
-now removed) and no longer reads the `Instructions` sysvar.
+The hook no longer has a `constants.rs` — it held the discriminators of the
+instructions the removed introspection check compared against.

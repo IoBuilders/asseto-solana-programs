@@ -119,7 +119,7 @@ pub struct MetadataField {
 
 **8 — `initialize_mint2`**
 - Mint authority: `temp_mint_authority` (this program's PDA — temporary).
-- Freeze authority: **`None`**. Freezing is enforced by `freeze`'s marker PDAs, read by `transfer::verify_transfer`, not by Token-2022 account state, so no authority would ever sign. There is no `freeze_authority` account in this instruction.
+- Freeze authority: **`None`**. Freezing is enforced by `freeze`'s marker PDAs, read by `transfer-hook::execute`, not by Token-2022 account state, so no authority would ever sign. There is no `freeze_authority` account in this instruction.
 
   This is **irreversible by design**: a mint's freeze authority can only be set here, and `set_authority` for `AuthorityType::FreezeAccount` requires the *current* freeze authority to sign — with none set, nothing can ever establish one (Token-2022 returns `MintCannotFreeze`). Mints deployed by this program can therefore never acquire a token-level freeze, only the marker-PDA kind. Adding one back would require a new mint.
 - Decimals: from params.

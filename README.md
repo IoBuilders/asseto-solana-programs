@@ -96,13 +96,13 @@ Use `--skip-build` once you've already run a fresh `anchor build`.
 │   ├── deploy/               — deploys mints; records deployer
 │   ├── mint/                 — controls token minting
 │   ├── metadata-update/      — controls metadata updates
-│   ├── freeze/               — management freeze/unfreeze via marker PDAs; enforced read-side by `transfer::verify_transfer`
+│   ├── freeze/               — management freeze/unfreeze via marker PDAs; enforced read-side by `transfer-hook::execute`
 │   ├── operations/           — burn via permanent delegate + permissioned-burn authority
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist / clearing mode
-│   ├── transfer/             — transfer compliance gate: `verify_transfer` (pre-check) + Token-2022's own `transfer_checked` for the movement; `batch_transfer` for one source → N destinations
-│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double-introspection + functionality check
+│   ├── transfer/             — `batch_transfer` only (one source → N destinations); the singular transfer is Token-2022's own `transfer_checked`, submitted by the client
+│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate holding the whole transfer compliance suite + functionality check
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot`
@@ -123,7 +123,7 @@ programs/<name>/src/
     └── <instruction>.rs
 ```
 
-Exception: `transfer-hook` also has `constants.rs` for instruction discriminators (not program IDs).
+No program has a `constants.rs`: program IDs all come from `common::program_ids`.
 
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
 - `program_ids` — all 16 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
@@ -245,7 +245,7 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
 | `PermissionedBurn` | `["permissioned_burn", mint]` | `operations` | Burning requires this authority as an extra signer, so the plain Token-2022 `Burn` is rejected and `operations::burn` / `batch_burn` are the only burn path |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::batch_transfer`, `operations::controller_transfer` or `Token-2022::transfer_checked`, all with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules live in `transfer::verify_transfer`, not in the hook. |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook holds the full compliance suite (deactivation, transfer-mode, whitelist, frozen account, post-debit partial-freeze cover) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. It does not introspect the transaction, so every transfer path is gated identically — the one exemption is the `permanent_delegate` authority, which skips every check so `operations::controller_transfer` can seize tokens. |
 
 ---
 
@@ -289,7 +289,6 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 - [`docs/treasury.md`](docs/treasury.md)
 - [`docs/factory.md`](docs/factory.md)
 - [`docs/access-control.md`](docs/access-control.md)
-- [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
 
 ---
 

@@ -1,13 +1,13 @@
 ---
 name: write-tests
-description: Use when writing tests in the asseto-solana-programs workspace — either adding a new test case to an existing `tests/<name>.ts` file or (rarer) scaffolding a new test file for a program. Triggers on "add a test for X", "write a test for the Y instruction", "cover Z with a test", "create the test file for W". Covers: the helper shape in program_helpers/, how program clients are typed and accessed, the `AnchorError` vs `SendTransactionError` decision (the subtle part), transfer pre-instructions, and running a single suite or single test.
+description: Use when writing tests in the asseto-solana-programs workspace — either adding a new test case to an existing `tests/<name>.ts` file or (rarer) scaffolding a new test file for a program. Triggers on "add a test for X", "write a test for the Y instruction", "cover Z with a test", "create the test file for W". Covers: the helper shape in program_helpers/, how program clients are typed and accessed, the `AnchorError` vs `SendTransactionError` decision (the subtle part), the transfer helpers and their hook accounts, and running a single suite or single test.
 ---
 
 # Writing Tests
 
 ## Start by reading a sibling
 
-Before writing anything, open one or two existing `tests/<x>.ts` files and scan them. This skill captures *why* the patterns look the way they do; the sibling file shows the current exact shape. `pause.ts` is the simplest happy-path+error pattern to copy from; `transfer.ts` is the most comprehensive (hook, snapshots, pre-instructions).
+Before writing anything, open one or two existing `tests/<x>.ts` files and scan them. This skill captures *why* the patterns look the way they do; the sibling file shows the current exact shape. `pause.ts` is the simplest happy-path+error pattern to copy from; `transfer.ts` is the most comprehensive (hook-enforced compliance, planted state, batch remaining accounts).
 
 ## 1. Run a single suite or test
 
@@ -55,7 +55,7 @@ All shared test logic lives here. Import from the relevant helper rather than re
 | `deploy_helper.ts` | `deployMint(context, args?)` |
 | `mint_helper.ts` | `mintTokens(context, args?)` |
 | `spl_token_helper.ts` | `createTokenAccount`, `getTokenAccount`, `getMint`, `createMint`, `mintTo` |
-| `transfer_helper.ts` | `transfer(context, args?)`, `buildVerifyTransferIx(...)` |
+| `transfer_helper.ts` | `splTransfer(context, args?)`, `buildSplTransferCheckedInstruction(...)`, `batchTransfer(context, args?)` |
 | `freeze_helper.ts` | `freezeAccount`, `unfreezeAccount`, `partiallyFreezeAccount`, `removePartialFreeze` |
 | `pause_helper.ts` | `pauseMint`, `unpauseMint` |
 | `deactivate_helper.ts` | `deactivateMint` |
@@ -194,33 +194,42 @@ it("pause: fails with MissingRole when authority doesn't have required role", as
 
 ## 10. Transfer-specific patterns
 
-### Using `transfer()` from `transfer_helper.ts`
+### Using `splTransfer()` from `transfer_helper.ts`
 
-The helper builds and sends the full verify + transfer instruction pair automatically:
+A transfer is a single instruction — Token-2022's own `transfer_checked` with the
+transfer hook's 15 accounts appended. The helper builds and sends it, and raises the
+compute budget:
 
 ```ts
-import { transfer } from "./program_helpers/transfer_helper";
+import { splTransfer } from "./program_helpers/transfer_helper";
 
-await transfer(
-  { deployer, mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+await splTransfer(
+  { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
   { amount: TRANSFER_AMOUNT }
 );
 ```
 
-When you need a custom/malformed verify instruction for error tests, build it manually with `buildVerifyTransferIx` and pass it as a pre-instruction yourself via the Anchor methods builder.
+There is no verify pre-instruction to build or malform — all compliance runs inside
+`transfer-hook::execute`, so error cases are set up by planting state (whitelist
+marker, frozen PDA, deactivate marker) and then calling `splTransfer` normally. Use
+`buildSplTransferCheckedInstruction` if a test needs the instruction rather than a
+sent transaction, and `splTransferWithoutHookAccounts` for the "hook block omitted"
+error case.
+
+`batchTransfer()` covers `transfer::batch_transfer`; its `transferRemainingAccounts`
+option overrides the per-leg `(destination, whitelistPda)` pairs for error paths.
 
 ### Compute budget on raw transfer calls
 
-If you build the transfer instruction manually (instead of using the `transfer()` helper), always attach:
+If you build a transfer instruction manually instead of using the helpers, attach:
 
 ```ts
-.preInstructions([
-  anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-  anchor.web3.ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
-])
+.preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
 ```
 
-The CU limit covers the hook CPI chain; the heap frame is required because the metalist resolution path needs more than the default 32 KiB.
+Metalist resolution plus the hook's compliance suite does not fit the default 200 K CU.
+Do **not** bother with `requestHeapFrame`: Token-2022's allocator is compiled against a
+hard-coded 32 KiB heap and ignores it (see `docs/transfer-hook.md`).
 
 ## 11. Assertion style — `AnchorError` vs `SendTransactionError`
 
@@ -230,7 +239,7 @@ This is the part that most often breaks a test. Pick based on **where the error 
 |---|---|---|
 | Directly in the instruction you called | `AnchorError` | `assert.instanceOf(err, AnchorError)` → `err.error.errorCode.code === "SomeCode"` |
 | Via Anchor CPI into a sibling program | `AnchorError` — Anchor parses it from logs | same |
-| Inside `transfer-hook::execute` (Token-2022 invoked) | `SendTransactionError` — Anchor can't parse from that depth | check `.logs` for substring, or `AnchorError.parse(sendErr.logs)` |
+| Inside `transfer-hook::execute` (Token-2022 invoked) | `AnchorError` when the call went through Anchor's `.rpc()` or a helper that re-parses the logs (`splTransfer`, `batchTransfer`) — otherwise `SendTransactionError` | assert the code as usual; for a raw `sendAndConfirm`, run `AnchorError.parse(sendErr.logs)` yourself |
 | Token-2022 native error (owner mismatch, paused, etc.) | `SendTransactionError` | inspect `.logs` for Token-2022 substring |
 
 Canonical templates:

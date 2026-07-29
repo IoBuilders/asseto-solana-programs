@@ -7,9 +7,9 @@ Controls all programmatic freezing. Freezing is expressed purely as marker PDAs 
 Exposes one category of instructions:
 - **Management** (`freeze_account`, `batch_freeze_account`, `unfreeze_account`, `batch_unfreeze_account`, `freeze_account_partial`, `batch_freeze_account_partial`, `unfreeze_account_partial`, `batch_unfreeze_account_partial`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
 
-Enforcement is entirely read-side: `transfer::verify_transfer` reads these marker PDAs through the two verification functions below and rejects the transfer. A frozen account is therefore still `Initialized` (not `Frozen`) as far as Token-2022 is concerned.
+Enforcement is entirely read-side: `transfer-hook::execute` reads these marker PDAs through the verification functions below and aborts the transfer. A frozen account is therefore still `Initialized` (not `Frozen`) as far as Token-2022 is concerned.
 
-Also exports two verification functions used by `transfer` to gate transfers.
+Also exports three verification functions; `require_unfrozen_account` and `require_frozen_balance_covered` are the pair the transfer hook links in.
 
 ---
 
@@ -26,7 +26,7 @@ pub struct FrozenAccountStatus {
 // Seeds: ["frozen_account", mint, account]
 ```
 
-Marker PDA. Exists if and only if the account has been frozen at the management level by `freeze_account`. Its mere existence blocks transfers out of the account (checked by `require_unfrozen_account` in `transfer`).
+Marker PDA. Exists if and only if the account has been frozen at the management level by `freeze_account`. Its mere existence blocks transfers out of the account (checked by `require_unfrozen_account` in `transfer-hook::execute`).
 
 ### `FrozenBalance`
 
@@ -40,7 +40,7 @@ pub struct FrozenBalance {
 // Seeds: ["frozen_balance", mint, account]
 ```
 
-Records the amount of tokens locked in a partial freeze. Created or updated by `freeze_account_partial`. `require_unfrozen_balance` in `transfer` reads this to enforce that the unfrozen balance covers the transfer amount.
+Records the amount of tokens locked in a partial freeze. Created or updated by `freeze_account_partial`. `require_frozen_balance_covered` in `transfer-hook::execute` reads this to enforce that the balance left after the transfer still covers the locked amount.
 
 ---
 

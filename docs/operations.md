@@ -118,7 +118,7 @@ Both signer seeds are derived once before the loop and reused for every leg.
 
 Force-transfers `amount` tokens from the `from` token account to the `to` token account via the permanent delegate, without the holder's consent. Used to move tokens under legal/regulatory instruction (court order, lost-key recovery, mis-delivery). No snapshot CPIs run — like every other transfer path, it is snapshot-agnostic.
 
-> **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`. The hook recognises a permanent-delegate transfer — the authority is the `["permanent_delegate", mint]` PDA — and **bypasses the whitelist / frozen compliance checks** (see [`transfer-hook.md`](transfer-hook.md)), so a controller can seize tokens from frozen or non-whitelisted accounts. No `verify_transfer` pre-instruction and no holder signature are required: this is a genuine unilateral seizure path, gated only by the controller role + functionality.
+> **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`. The hook recognises a permanent-delegate transfer — the authority is the `["permanent_delegate", mint]` PDA — and **returns without running any compliance check** (see [`transfer-hook.md`](transfer-hook.md#permanent-delegate-bypass)), so a controller can seize tokens from frozen or non-whitelisted accounts and into them. No pre-instruction and no holder signature are required: this is a genuine unilateral seizure path, gated only by the controller role + functionality.
 >
 > Token-2022 still resolves the hook's whole `ExtraAccountMetaList`, so `controller_transfer` must forward every compliance PDA even though the hook won't read them (they may be empty — expected for a seizure).
 
@@ -149,9 +149,16 @@ amount: u64  // raw token units to transfer
 | `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs the transfer CPI |
 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; forwarded to Token-2022 for hook resolution |
 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
+| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID`; hook metalist index 15 |
 | `deploy_program` | no | no | UncheckedAccount | address constrained to `DEPLOY_PROGRAM_ID`; hook metalist index 5 |
 | `factory_program` | no | no | UncheckedAccount | address constrained to `FACTORY_PROGRAM_ID`; hook metalist index 7 |
-| `instructions_sysvar` | no | no | UncheckedAccount | address constrained to the Instructions sysvar; hook metalist index 9 |
+| `deactivate_program` | no | no | UncheckedAccount | address constrained to `DEACTIVATE_PROGRAM_ID`; hook metalist index 9 |
+| `transfer_control_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_CONTROL_PROGRAM_ID`; hook metalist index 11 |
+| `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; forwarded, may be empty |
+| `source_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, from]`; forwarded, may be empty (seizure from a non-whitelisted account) |
+| `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, to]`; forwarded, may be empty (seizure to a non-whitelisted account) |
+| `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, from]`, `seeds::program = FREEZE_PROGRAM_ID`; forwarded, may **exist** (seizure from a frozen account) |
+| `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, from]`, `seeds::program = FREEZE_PROGRAM_ID`; forwarded, may be empty |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` and forwarded to the hook |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
@@ -163,7 +170,7 @@ amount: u64  // raw token units to transfer
 1. `require_role(authority_roles_pda.load()?, ROLE_CONTROLLER)`
 2. `require_active(&deactivate_pda)` + `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)`
 3. Read `decimals` off the mint (needed for `transfer_checked`)
-4. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the hook accounts appended in metalist order (`extra_account_meta_list`, `transfer_hook_program`, `deploy_program`, `asset_configuration_pda`, `factory_program`, `asset_class_version_pda`, `instructions_sysvar`)
+4. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the hook accounts appended in metalist order (`extra_account_meta_list`, `transfer_hook_program`, `deploy_program`, `asset_configuration_pda`, `factory_program`, `asset_class_version_pda`, `deactivate_program`, `deactivate_pda`, `transfer_control_program`, `transfer_control_mode_pda`, `source_whitelist_pda`, `destination_whitelist_pda`, `freeze_program`, `source_frozen_pda`, `source_frozen_balance_pda`) — this order is load-bearing and independent of the order the accounts are declared in the struct
 5. Emit `ControllerTransferred` via `emit_cpi!`
 
 `PermissionedBurn` constrains burning only — it places no requirement on transfers, so `controller_transfer` needs no permissioned-burn signer.
