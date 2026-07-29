@@ -94,16 +94,21 @@ The canonical form when the caller is one of this program's PDAs:
 let mint_key = ctx.accounts.mint.key();
 let authority_seeds: &[&[u8]] = &[b"<seed>", mint_key.as_ref(), &[ctx.bumps.<authority>]];
 
-freeze::cpi::block_account(
+snapshot::cpi::take_snapshot(
     CpiContext::new_with_signer(
-        ctx.accounts.freeze_program.to_account_info(),
-        BlockAccount { /* field = to_account_info() per struct field */ },
+        constants::SNAPSHOT_PROGRAM_ID,
+        TakeSnapshot { /* field = to_account_info() per struct field */ },
         &[authority_seeds],
     ),
+    merkle_root,
 )?;
 ```
 
+See [`coupon::create_coupon`](../../../programs/coupon/src/instructions/create_coupon.rs) for the full worked version.
+
 If the target crate exposes `cpi::accounts::*`, import those. Avoid hand-rolling `invoke_signed` unless the target is Token-2022 or System directly.
+
+When the target is Token-2022 and the mint needs more than one signing authority, pass every seed set in one `invoke_signed` — e.g. `operations::burn` signs with both the permanent-delegate and permissioned-burn PDAs, since the `PermissionedBurn` extension requires both. Adding an extra `AccountInfo` to the infos array is *not* enough: an account the instruction's own `AccountMeta` list doesn't reference is never passed to the callee.
 
 ## 7. Errors
 
@@ -131,6 +136,6 @@ Once the docs above are written, the handler and `#[derive(Accounts)]` struct sh
 
 - **No function-level doc comment restating what the docs already say.** If `docs/<x>.md` describes the instruction, a `///` comment above `pub fn <name>` that says the same thing in Rust prose is pure duplication — delete it.
 - **No field-level doc comments that restate the field name/type/seeds** (e.g. `/// The Token-2022 mint.` above `pub mint: UncheckedAccount<'info>`, or `/// Deactivation marker PDA — must not exist...` above a `deactivate_pda` field whose seeds and `require_active` call already say that). The `/// CHECK:` comment (§5) is the only doc comment expected on most fields.
-- **Do** keep a comment when it encodes something the compiler won't catch and the docs don't already state as clearly in-line at the point of use — e.g. a load-bearing account-ordering invariant (`transfer::verify_transfer` / `transfer::transfer` must agree on indices 0–3), a non-obvious arithmetic or padding rationale, or a workaround for a specific runtime constraint (BPF stack limits, heap limits).
+- **Do** keep a comment when it encodes something the compiler won't catch and the docs don't already state as clearly in-line at the point of use — e.g. a load-bearing account-ordering invariant (`transfer::batch_transfer` forwards the hook's accounts in `ExtraAccountMetaList` order, which is not the order they are declared in the struct, so the forwarding list may not be reshuffled), a non-obvious arithmetic or padding rationale, or a workaround for a specific runtime constraint (BPF stack limits, heap limits).
 - Section-marker comments like `// ── Auth + state checks ──` inside a handler body are fine to keep or drop at your judgement — they're navigational, not explanatory duplication.
 - If you're ever unsure whether a comment is "why" (keep) or "what" (cut), ask: does removing it lose information not already in `docs/<x>.md` or obvious from the code itself? If no, cut it.

@@ -6,10 +6,10 @@ use common::program_ids::{
 use common::state::{AssetClassVersion, AssetConfiguration};
 use common::{pda_seeds, pda_utils, require_active, require_functionality};
 use freeze::{require_frozen_balance_covered, require_unfrozen_account};
-use spl_token_2022::extension::{
+use spl_token_2022_interface::extension::{
     transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
 };
-use spl_token_2022::state::Account as TokenAccountState;
+use spl_token_2022_interface::state::Account as TokenAccountState;
 use transfer_control::verify_transfer_control_mode;
 
 use crate::errors::TransferHookError;

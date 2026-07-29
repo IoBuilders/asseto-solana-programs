@@ -297,7 +297,7 @@ pub struct PaymentTokenSet {
 
 `pay_coupon` originally CPI'd `snapshot::get_holderbalance_snapshot_at(coupon.snapshot_id)`, which read a per-holder `["snapshot_holderbalance", mint, holder_token_account]` PDA maintained by the transfer hook, with a fallback to the live token-account balance when the holder had not transacted since the snapshot.
 
-That design costs one account per holder per mint, written on every transfer by the hook — which runs inside Token-2022's constrained heap (see [`transfer-hook-heap-oom.md`](transfer-hook-heap-oom.md)). `take_snapshot` now commits the whole holder set as one 32-byte Merkle root in a single immutable PDA, and `pay_coupon` verifies against it. What this buys:
+That design costs one account per holder per mint, written on every transfer by the hook — which resolves its accounts inside Token-2022's 32 KiB heap (see [`transfer-hook.md`](transfer-hook.md#metalist-contents)). `take_snapshot` now commits the whole holder set as one 32-byte Merkle root in a single immutable PDA, and `pay_coupon` verifies against it. What this buys:
 
 - **Constant on-chain state per snapshot** instead of O(holders) PDAs, and no per-transfer snapshot writes.
 - **No cross-program CPI in the payout path** — one less program to keep in the account list, less compute, a smaller `PayCoupon` account struct.

@@ -10,7 +10,7 @@ Governs who may transfer tokens for a given mint. One mode is currently supporte
 
 If no mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
 
-Also exports `verify_transfer_control_mode`, a helper function used by `mint` and `transfer` to enforce the active mode against one or more whitelist PDAs.
+Also exports `verify_transfer_control_mode`, a helper function used by `mint` and `transfer-hook` to enforce the active mode against one or more whitelist PDAs.
 
 ---
 
@@ -66,7 +66,7 @@ pub fn verify_transfer_control_mode(
 - Otherwise, Borsh-deserializes `TransferControlMode` from the account data (via `try_deserialize`, which also checks the discriminator).
 - If `mode == TransferMode::Whitelist`, every account in `whitelist_pdas` is checked with `data_is_empty()`; an empty account (not whitelisted) errors with `TransferControlError::NotWhitelisted`.
 
-Called by `mint::mint` (with the single `destination_whitelist_pda`) and `transfer::verify_transfer` (with both `source_whitelist_pda` and `destination_whitelist_pda`).
+Called by `mint::mint` (with the single `destination_whitelist_pda`) and `transfer-hook::execute` (with both `source_whitelist_pda` and `destination_whitelist_pda`).
 
 ---
 

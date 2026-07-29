@@ -3,7 +3,7 @@ import * as pdaUtils from "../../utils/pda_utils";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
-import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID } from "../../utils/address_utils";
+import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import { MintWriteContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
@@ -11,7 +11,6 @@ import { getEvent, getEvents } from "../event_helper";
 import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
-import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { maxSupplyPda } from "../cap/cap_pda_helper";
@@ -57,11 +56,9 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mintAuthority: mintAuthorityPda(callContext.mint),
-      freezeAuthority: freezeAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
       maxSupplyPda: maxSupplyPda(callContext.mint),
-      freezeProgram: FREEZE_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: mintEventAuthorityPda(),
@@ -131,10 +128,8 @@ export async function batchMintTokens(
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       mintAuthority: mintAuthorityPda(callContext.mint),
-      freezeAuthority: freezeAuthorityPda(callContext.mint),
       maxSupplyPda: maxSupplyPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
-      freezeProgram: FREEZE_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId

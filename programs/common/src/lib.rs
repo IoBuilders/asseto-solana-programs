@@ -59,9 +59,9 @@ pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()> {
 /// Returns `Err(CommonError::MintPaused)` if the mint is paused.
 /// Returns Err if the mint has no Pausable extension — something that should never happen for a correctly deployed mint.
 pub fn require_not_paused(mint_account: &AccountInfo) -> Result<()> {
-    use spl_token_2022::extension::pausable::PausableConfig;
-    use spl_token_2022::extension::{BaseStateWithExtensions, StateWithExtensions};
-    use spl_token_2022::state::Mint;
+    use spl_token_2022_interface::extension::pausable::PausableConfig;
+    use spl_token_2022_interface::extension::{BaseStateWithExtensions, StateWithExtensions};
+    use spl_token_2022_interface::state::Mint;
 
     let mint_data = mint_account.try_borrow_data()?;
     let mint_state = StateWithExtensions::<Mint>::unpack(&mint_data)?;

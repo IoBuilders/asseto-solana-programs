@@ -2,17 +2,15 @@ import * as anchor from "@anchor-lang/core";
 import { SendTransactionError } from "@solana/web3.js";
 import { Keypair } from "@solana/web3.js";
 import {
-  AccountState,
-  getDefaultAccountState,
   getMetadataPointerState,
   getPermanentDelegate,
   getPausableConfig,
+  getPermissionedBurn,
 } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
-import { permanentDelegatePda } from "./program_helpers/operations/operations_pda_helper";
+import { permanentDelegatePda, permissionedBurnPda } from "./program_helpers/operations/operations_pda_helper";
 import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
-import { freezeAuthorityPda } from "./program_helpers/freeze/freeze_pda_helper";
 import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "./program_helpers/metadata_update/metadata_update_pda_helper";
 import { deployMint, getMintDeployedEvent, getAssetConfiguration } from "./program_helpers/deploy_helper";
@@ -51,14 +49,14 @@ describe("deploy", () => {
     );
     const mintAuthority = mintAuthorityPda(mint);
     const permanentDelegateAuthority = permanentDelegatePda(mint);
+    const permissionedBurnAuthority = permissionedBurnPda(mint);
     const metadataUpdateAuthority = metadataUpdateAuthorityPda(mint);
     const pausableAuthority = pausableAuthorityPda(mint);
-    const freezeAuthority = freezeAuthorityPda(mint);
     const mintInfo = await getMint(mint);
     const assetConfigurationAccount = await getAssetConfiguration(mint);
     const metadataPointerState = getMetadataPointerState(mintInfo);
     const permanentDelegateState = getPermanentDelegate(mintInfo);
-    const defaultAccountState = getDefaultAccountState(mintInfo);
+    const permissionedBurnState = getPermissionedBurn(mintInfo);
     const pausableState = getPausableConfig(mintInfo);
     const metadata = await getTokenMetadata(mint);
 
@@ -66,11 +64,10 @@ describe("deploy", () => {
     assert.isTrue(mintInfo.isInitialized, "mint should be initialized");
     assert.equal(mintInfo.decimals, MINT_DECIMALS);
     assert.equal(mintInfo.supply.toString(), "0");
-    assert.equal(
-      mintInfo.freezeAuthority?.toBase58(),
-      freezeAuthority.toBase58(),
-      "freeze authority should be the locked PDA"
-    );
+    // Deployed with no freeze authority at all, and it can never be added later:
+    // `set_authority` needs the current freeze authority to sign. Freezing is
+    // enforced by `freeze`'s marker PDAs, read by `transfer-hook::execute`.
+    assert.isNull(mintInfo.freezeAuthority ?? null, "mint should have no freeze authority");
     assert.equal(
       mintInfo.mintAuthority?.toBase58(),
       mintAuthority.toBase58(),
@@ -92,8 +89,12 @@ describe("deploy", () => {
       "permanent delegate authority mismatch"
     );
 
-    // ── Assertions: DefaultAccountState ───────────────────────────────────────
-    assert.equal(defaultAccountState?.state, AccountState.Frozen, "default account state should be Frozen");
+    // ── Assertions: PermissionedBurn ──────────────────────────────────────────
+    assert.equal(
+      permissionedBurnState?.authority?.toBase58(),
+      permissionedBurnAuthority.toBase58(),
+      "permissioned burn authority mismatch"
+    );
 
     // ── Assertions: Pausable ───────────────────────────────────────────────────
     assert.equal(pausableState?.authority?.toBase58(), pausableAuthority.toBase58(), "pausable authority mismatch");

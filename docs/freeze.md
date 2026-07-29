@@ -2,13 +2,14 @@
 
 Program ID: `8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd`
 
-Controls the Token-2022 freeze authority and all programmatic freezing. Owns the `["freeze_authority", mint]` PDA set as the mint's freeze authority during `deploy_mint`.
+Controls all programmatic freezing. Freezing is expressed purely as marker PDAs owned by this program — no Token-2022 account state is ever changed, and no instruction here signs a Token-2022 CPI. This program owns no Token-2022 authority: mints are deployed with their freeze authority set to `None`, irreversibly (see [deploy.md](deploy.md)), so a token-level freeze is not available to it.
 
-Exposes two categories of instructions:
-- **Auxiliary** (`block_account`, `unblock_account`): called exclusively via CPI by `mint`, `operations`, and `transfer` as part of their token operation flows. These do not emit events.
+Exposes one category of instructions:
 - **Management** (`freeze_account`, `batch_freeze_account`, `unfreeze_account`, `batch_unfreeze_account`, `freeze_account_partial`, `batch_freeze_account_partial`, `unfreeze_account_partial`, `batch_unfreeze_account_partial`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
 
-Also exports two verification functions used by `transfer` to gate transfers.
+Enforcement is entirely read-side: `transfer-hook::execute` reads these marker PDAs through the verification functions below and aborts the transfer. A frozen account is therefore still `Initialized` (not `Frozen`) as far as Token-2022 is concerned.
+
+Also exports three verification functions; `require_unfrozen_account` and `require_frozen_balance_covered` are the pair the transfer hook links in.
 
 ---
 
@@ -25,7 +26,7 @@ pub struct FrozenAccountStatus {
 // Seeds: ["frozen_account", mint, account]
 ```
 
-Marker PDA. Exists if and only if the account has been frozen at the management level by `freeze_account`. Its mere existence blocks transfers out of the account (checked by `require_unfrozen_account` in `transfer`).
+Marker PDA. Exists if and only if the account has been frozen at the management level by `freeze_account`. Its mere existence blocks transfers out of the account (checked by `require_unfrozen_account` in `transfer-hook::execute`).
 
 ### `FrozenBalance`
 
@@ -39,7 +40,7 @@ pub struct FrozenBalance {
 // Seeds: ["frozen_balance", mint, account]
 ```
 
-Records the amount of tokens locked in a partial freeze. Created or updated by `freeze_account_partial`. `require_unfrozen_balance` in `transfer` reads this to enforce that the unfrozen balance covers the transfer amount.
+Records the amount of tokens locked in a partial freeze. Created or updated by `freeze_account_partial`. `require_frozen_balance_covered` in `transfer-hook::execute` reads this to enforce that the balance left after the transfer still covers the locked amount.
 
 ---
 
@@ -91,45 +92,6 @@ pub fn require_frozen_balance_covered(
 ```
 
 **Post-debit** variant of `require_unfrozen_balance`, for use inside `transfer-hook::execute`. Token-2022 invokes the hook *after* moving tokens, so the source is already debited. The pre-debit invariant `balance_pre - frozen >= amount` is algebraically `balance_post >= frozen`, so this compares the (post-debit) balance directly against the locked amount and needs no `amount` argument. Returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `account_balance < frozen_balance`. For a batch the hook fires once per leg after that leg's debit, so checking `balance_post >= frozen` at every leg keeps the cumulative movement within the lock.
-
----
-
-## Instruction: `block_account` (Auxiliary)
-
-No parameters. Freezes `token_account` at the token level via a Token-2022 CPI signed by this program's `freeze_authority` PDA.
-
-### Authorization
-
-The `calling_authority` must be one of three allowed PDAs (verified by key comparison at runtime):
-- `["mint_authority", mint]` owned by `mint`
-- `["permanent_delegate", mint]` owned by `operations`
-- `["transfer", mint]` owned by `transfer`
-
-No external wallet can produce these signatures. Only the owning program can via `invoke_signed`.
-
-### Accounts
-
-| Account              | Mut | Signer | Type               | Notes                                                      |
-|----------------------|-----|--------|--------------------|------------------------------------------------------------|
-| `calling_authority`  | no  | yes    | Signer             | One of the three allowed PDAs (runtime check)              |
-| `freeze_authority`   | no  | no     | UncheckedAccount   | seeds `["freeze_authority", mint]` (owned by this program) |
-| `mint`               | no  | no     | UncheckedAccount   | The Token-2022 mint                                        |
-| `token_account`      | yes | no     | UncheckedAccount   | Token account to block (freeze)                            |
-| `token_2022_program` | no  | no     | Program<Token2022> |                                                            |
-
-### Execution
-
-`invoke_signed` → `freeze_account(token_account, mint, freeze_authority)` signed with seeds `["freeze_authority", mint, bump]`.
-
----
-
-## Instruction: `unblock_account` (Auxiliary)
-
-No parameters. Thaws `token_account` at the token level via a Token-2022 CPI signed by this program's `freeze_authority` PDA. Same accounts and authorization model as `block_account`.
-
-### Execution
-
-`invoke_signed` → `thaw_account(token_account, mint, freeze_authority)` signed with seeds `["freeze_authority", mint, bump]`.
 
 ---
 
@@ -522,12 +484,12 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 
 ## Emitting events
 
-The four management instructions emit their events with `emit_cpi!` (not `emit!`), which records each event as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on the corresponding accounts struct (injecting the `event_authority` and `program` accounts listed above) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`). The auxiliary `block_account` / `unblock_account` instructions do not emit events.
+The management instructions emit their events with `emit_cpi!` (not `emit!`), which records each event as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on the corresponding accounts struct (injecting the `event_authority` and `program` accounts listed above) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`).
 
 ---
 
 ## Program IDs
 
-Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file, and via `use common::program_ids::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGRAM_ID};` in `lib.rs` where the `assert_authorized_caller` function uses them directly. There is no per-program `constants.rs`.
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.
 
-`mint`, `operations`, and `transfer` all depend on `freeze` for CPI calls — the circular dependency that previously required hardcoding IDs is resolved by sourcing them all from `common::program_ids` instead.
+No program CPIs into `freeze`. Only `transfer` depends on this crate, and only to link the two verification functions above — plain function calls, not CPI. `mint` and `operations` have no `freeze` dependency in their `Cargo.toml`.

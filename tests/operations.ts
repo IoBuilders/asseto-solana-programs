@@ -28,7 +28,7 @@ import { OPERATIONS_BURN, OPERATIONS_CONTROLLER_TRANSFER, TRANSFER_HOOK_EXECUTE 
 import { beforeEach } from "mocha";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN, ROLE_CONTROLLER } from "./utils/roles";
-import { transfer } from "./program_helpers/transfer_helper";
+import { splTransfer } from "./program_helpers/transfer_helper";
 import { setFrozenAccountPda } from "./program_helpers/freeze/freeze_pda_helper";
 import { setTransferControlModeMarker } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
@@ -217,7 +217,7 @@ describe("operations", () => {
 
       const signature = await batchBurnTokens({ mint, authority, sources }, { amounts });
 
-      // ── Each source was reduced by its corresponding amount and re-frozen ──
+      // ── Each source was reduced by its corresponding amount ────────────────
       for (let i = 0; i < sources.length; i++) {
         const account = await getTokenAccount(sources[i]);
         assert.equal(
@@ -225,7 +225,6 @@ describe("operations", () => {
           initialBalances[i].sub(amounts[i]).toString(),
           `source ${i} balance should be reduced by its burned amount`
         );
-        assert.isTrue(account.isFrozen, `source ${i} should be re-frozen after burning`);
       }
 
       // ── Total supply dropped by the sum of all burned amounts ──────────────
@@ -401,9 +400,9 @@ describe("operations", () => {
       await setRoles(mint, authority!.publicKey, [ROLE_CONTROLLER]);
     });
 
-    // `controller_transfer` is now a unilateral permanent-delegate seizure: the
-    // holder of `from` no longer co-signs (there is no verify_transfer
-    // pre-instruction), so only the controller `authority` signs.
+    // `controller_transfer` is a unilateral permanent-delegate seizure: the holder
+    // of `from` never signs, so `fromOwner` is only kept so the tests below can
+    // contrast the seizure with a normal holder-signed transfer.
     async function createFundedAccounts(initialBalance: anchor.BN) {
       const fromOwner = Keypair.generate();
       const from = await createTokenAccount({ mint, owner: fromOwner.publicKey });
@@ -435,7 +434,7 @@ describe("operations", () => {
 
       const { signature } = await callControllerTransfer(authority!, accounts, transferAmount);
 
-      // ── Balances moved, both accounts re-frozen ────────────────────────────
+      // ── Balances moved ─────────────────────────────────────────────────────
       const fromAfter = await getTokenAccount(from);
       const toAfter = await getTokenAccount(to);
       assert.equal(
@@ -571,7 +570,7 @@ describe("operations", () => {
 
       // A normal holder transfer is rejected by the hook with AccountFrozen…
       try {
-        await transfer(
+        await splTransfer(
           { mint, source: from, sourceOwner: fromOwner.publicKey, destination: to, signers: [fromOwner] },
           { amount: seizeAmount }
         );
@@ -607,7 +606,7 @@ describe("operations", () => {
 
       // A normal holder transfer is rejected by the hook with NotWhitelisted…
       try {
-        await transfer(
+        await splTransfer(
           { mint, source: from, sourceOwner: fromOwner.publicKey, destination: to, signers: [fromOwner] },
           { amount: seizeAmount }
         );

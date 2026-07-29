@@ -5,8 +5,7 @@ use cap::require_within_max_supply;
 use common::pda_utils;
 use common::state::Roles as RolesCommon;
 use common::{pda_seeds, require_active, require_functionality, require_role, roles};
-use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use spl_token_2022::instruction::mint_to;
+use spl_token_2022_interface::instruction::mint_to;
 use transfer_control::verify_transfer_control_mode;
 
 use crate::events::Issued;
@@ -46,20 +45,7 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         &ctx.bumps.mint_authority,
     );
 
-    // ── 1. Unblock destination (CPI to freeze) ─────────────────────────
-    freeze::cpi::unblock_account(CpiContext::new_with_signer(
-        constants::FREEZE_PROGRAM_ID,
-        UnblockAccount {
-            calling_authority: ctx.accounts.mint_authority.to_account_info(),
-            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            token_account: ctx.accounts.destination.to_account_info(),
-            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-        },
-        &[mint_authority_signer_seeds.as_slice()],
-    ))?;
-
-    // ── 2. Mint tokens (CPI to Token-2022) ──────────────────────────────────
+    // ── Mint tokens (CPI to Token-2022) ──────────────────────────────────
     invoke_signed(
         &mint_to(
             &token_program_id,
@@ -84,19 +70,6 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
         to: ctx.accounts.destination.key(),
         value: amount,
     });
-
-    // ── 3. Re-block destination (CPI to freeze) ────────────────────────
-    freeze::cpi::block_account(CpiContext::new_with_signer(
-        constants::FREEZE_PROGRAM_ID,
-        BlockAccount {
-            calling_authority: ctx.accounts.mint_authority.to_account_info(),
-            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            token_account: ctx.accounts.destination.to_account_info(),
-            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-        },
-        &[mint_authority_signer_seeds.as_slice()],
-    ))?;
 
     Ok(())
 }
@@ -136,14 +109,6 @@ pub struct MintTokens<'info> {
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
 
-    /// CHECK: PDA address verified by seeds/bump constraint.
-    #[account(
-        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub freeze_authority: UncheckedAccount<'info>,
-
     /// CHECK: Address verified by seeds/bump; contents read by verify_transfer_control_mode.
     #[account(
         seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
@@ -167,10 +132,6 @@ pub struct MintTokens<'info> {
         bump,
     )]
     pub max_supply_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint.
-    #[account(address = constants::FREEZE_PROGRAM_ID)]
-    pub freeze_program: UncheckedAccount<'info>,
 
     #[account(
         seeds = [

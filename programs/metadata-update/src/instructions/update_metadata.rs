@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{program::invoke, program::invoke_signed};
 use anchor_spl::token_2022::Token2022;
 use solana_system_interface::instruction as system_instruction;
-use spl_token_2022::{
+use spl_token_2022_interface::{
     extension::{BaseStateWithExtensions, StateWithExtensions},
     state::Mint as MintState,
 };

@@ -2,11 +2,10 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::AccountMeta;
 use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token_2022::Token2022;
+use common::pda_seeds;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration};
-use common::{pda_seeds, pda_utils};
-use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use spl_token_2022::{
+use spl_token_2022_interface::{
     extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
 };
 
@@ -35,41 +34,11 @@ pub fn batch_transfer<'info>(
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
 
-    let transfer_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
-        pda_seeds::transfer_seeds(&mint_key),
-        &ctx.bumps.transfer_authority,
-    );
-
-    freeze::cpi::unblock_account(CpiContext::new_with_signer(
-        constants::FREEZE_PROGRAM_ID,
-        UnblockAccount {
-            calling_authority: ctx.accounts.transfer_authority.to_account_info(),
-            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            token_account: ctx.accounts.source.to_account_info(),
-            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-        },
-        &[transfer_authority_signer_seeds.as_slice()],
-    ))?;
-
     for (i, &amount) in amounts.iter().enumerate() {
         let destination = &ctx.remaining_accounts[i * 2];
         let destination_whitelist_pda = &ctx.remaining_accounts[i * 2 + 1];
 
-        // ── 1. Unblock destination (CPI to freeze) ────────────────────────────
-        freeze::cpi::unblock_account(CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            UnblockAccount {
-                calling_authority: ctx.accounts.transfer_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: destination.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[transfer_authority_signer_seeds.as_slice()],
-        ))?;
-
-        // ── 2. Transfer ───────────────────────────────────────────────────────
+        // ── Transfer ───────────────────────────────────────────────────────
         let mut transfer_ix = transfer_checked(
             &token_program_id,
             &ctx.accounts.source.key(),
@@ -129,32 +98,7 @@ pub fn batch_transfer<'info>(
                 ctx.accounts.source_frozen_balance_pda.to_account_info(),
             ],
         )?;
-
-        // ── 3. Re-block destination (CPI to freeze) ───────────────────────────
-        freeze::cpi::block_account(CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            BlockAccount {
-                calling_authority: ctx.accounts.transfer_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: destination.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[transfer_authority_signer_seeds.as_slice()],
-        ))?;
     }
-
-    freeze::cpi::block_account(CpiContext::new_with_signer(
-        constants::FREEZE_PROGRAM_ID,
-        BlockAccount {
-            calling_authority: ctx.accounts.transfer_authority.to_account_info(),
-            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            token_account: ctx.accounts.source.to_account_info(),
-            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-        },
-        &[transfer_authority_signer_seeds.as_slice()],
-    ))?;
 
     Ok(())
 }
@@ -180,21 +124,6 @@ pub struct BatchTransferTokens<'info> {
     /// CHECK: Validated by Token-2022 during CPI; decimals read in instruction body.
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: PDA address verified by seeds/bump constraint.
-    #[account(
-        seeds = [pda_seeds::TRANSFER, mint.key().as_ref()],
-        bump,
-    )]
-    pub transfer_authority: UncheckedAccount<'info>,
-
-    /// CHECK: PDA address verified by seeds/bump constraint.
-    #[account(
-        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub freeze_authority: UncheckedAccount<'info>,
-
     /// CHECK: Address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::EXTRA_ACCOUNT_METAS, mint.key().as_ref()],
@@ -207,7 +136,7 @@ pub struct BatchTransferTokens<'info> {
     #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by constraint; used for freeze CPIs and forwarded to the hook.
+    /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 

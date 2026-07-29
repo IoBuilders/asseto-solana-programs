@@ -1,7 +1,8 @@
-import { Keypair, PublicKey, Signer } from "@solana/web3.js";
+import { Keypair, PublicKey, Signer, Transaction } from "@solana/web3.js";
 import {
   Account,
   createAccount,
+  createBurnInstruction,
   createMint as splCreateMint,
   getAccount,
   getMint as splGetMint,
@@ -100,6 +101,33 @@ export async function mintTo(args: MintToArgs): Promise<void> {
   );
 }
 
+export type SplBurnArgs = {
+  mint: PublicKey;
+  tokenAccount: PublicKey;
+  amount: bigint;
+  // Owner (or delegate) of `tokenAccount`; must sign. Defaults to the provider wallet.
+  owner?: Signer;
+};
+
+/**
+ * Token-2022's own plain `Burn` — no permissioned-burn authority, no delegate.
+ *
+ * This is the instruction the `PermissionedBurn` extension is meant to make
+ * unusable: it has only three account slots (account, mint, owner) and therefore
+ * no way to carry the mint's permissioned-burn authority as a co-signer. On a mint
+ * deployed by `deploy_mint` it is expected to fail; see `tests/burn.ts`.
+ */
+export async function splBurn(args: SplBurnArgs): Promise<void> {
+  const provider = getProvider();
+  const owner = args.owner ?? provider.wallet.payer;
+
+  const transaction = new Transaction().add(
+    createBurnInstruction(args.tokenAccount, args.mint, owner.publicKey, args.amount, [], TOKEN_2022_PROGRAM_ID)
+  );
+
+  await provider.sendAndConfirm!(transaction, [owner], { commitment: "confirmed" });
+}
+
 // Token-2022 layout: base Mint occupies bytes 0..82, byte 165 is the account-type
 // tag, and TLV extension entries begin at 166. Each entry is
 // type(u16 LE) + length(u16 LE) + value. `PausableConfig`'s value is
@@ -145,9 +173,8 @@ const MINT_SUPPLY_OFFSET = 36;
  * plant-based equivalent of running the `mint` instruction, with no CPI. Credits
  * the token account's `amount` field and bumps the mint's `supply` by the same
  * amount, both incremented so repeated calls and total-supply reads stay
- * consistent. The token account's `state` (left Frozen by the mint's
- * DefaultAccountState) and every other field are untouched, matching the state
- * the real mint instruction leaves behind.
+ * consistent. The token account's `state` and every other field are untouched,
+ * matching the state the real mint instruction leaves behind.
  */
 export async function mintTokensViaSurfpool(
   mint: PublicKey,

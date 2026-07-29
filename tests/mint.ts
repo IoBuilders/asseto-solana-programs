@@ -81,7 +81,6 @@ describe("mint", () => {
     assert.equal(balanceAfter.toString(), mintAmount.toString(), "destination balance should equal the minted amount");
     assert.equal(supplyBefore.toString(), "0", "total supply should be zero before minting");
     assert.equal(supplyAfter.toString(), mintAmount.toString(), "total supply should equal the minted amount");
-    assert.isTrue(accountAfter.isFrozen, "destination account should be re-frozen after minting");
 
     const issued = await getIssuedEvent(signature);
     assert.isNotNull(issued, "an Issued event should be emitted");
@@ -297,7 +296,7 @@ describe("batch_mint", () => {
 
     const signature = await batchMintTokens({ mint, authority, destinations }, { amounts });
 
-    // ── Each destination received its corresponding amount and was re-frozen ──
+    // ── Each destination received its corresponding amount ────────────────────
     for (let i = 0; i < destinations.length; i++) {
       const account = await getTokenAccount(destinations[i]);
       assert.equal(
@@ -305,7 +304,6 @@ describe("batch_mint", () => {
         amounts[i].toString(),
         `destination ${i} balance should equal its minted amount`
       );
-      assert.isTrue(account.isFrozen, `destination ${i} should be re-frozen after minting`);
     }
 
     // ── Total supply equals the sum of all amounts ────────────────────────────

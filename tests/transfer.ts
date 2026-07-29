@@ -20,12 +20,9 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
-import { batchTransfer, transfer } from "./program_helpers/transfer_helper";
+import { batchTransfer, splTransfer, splTransferWithoutHookAccounts } from "./program_helpers/transfer_helper";
 import { beforeEach } from "mocha";
-import {
-  ASSET_CLASS_VERSION_STATE_DRAFT,
-  setAssetClassVersionForMint,
-} from "./program_helpers/factory/factory_pda_helper";
+import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
 import {
   DEACTIVATE_DEACTIVATE,
   FREEZE_FREEZE_ACCOUNT,
@@ -90,7 +87,7 @@ describe("transfer", () => {
       const supplyBefore = (await getMint(mint)).supply;
 
       // ── Call transfer ──────────────────────────────────────────────────────
-      await transfer(
+      await splTransfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_AMOUNT }
       );
@@ -117,62 +114,32 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
+    it("transfer: fails when the hook accounts are not appended", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      // Re-seed the asset-class version WITHOUT finalizing it.
-      await setAssetClassVersionForMint(mint, {
-        state: ASSET_CLASS_VERSION_STATE_DRAFT,
-        functionalities: [TRANSFER_HOOK_EXECUTE],
-      });
-
+      // A bare `transfer_checked`, with no ExtraAccountMetaList block appended.
+      // With compliance living in the hook, this is the client-side mistake that
+      // matters: Token-2022 can't resolve the metalist, so it rejects the transfer
+      // rather than moving tokens with the compliance suite skipped.
+      let failed = false;
       try {
-        await transfer(
+        await splTransferWithoutHookAccounts(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
-        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "AssetClassVersionNotFinalized",
-          "error code should be AssetClassVersionNotFinalized"
-        );
+      } catch {
+        failed = true;
       }
-    });
 
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails with FunctionalityNotSupportedError when the transfer_hook_execute functionality is not enabled", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      // Create a destination token account (owned by destinationOwner).
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Re-seed the asset-class version WITHOUT the transfer_hook_execute functionality.
-      await setAssetClassVersionForMint(mint, { functionalities: [] });
-
-      try {
-        await transfer(
-          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-          { amount: TRANSFER_AMOUNT }
-        );
-        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "FunctionalityNotSupportedError",
-          "error code should be FunctionalityNotSupportedError"
-        );
-      }
+      assert.isTrue(failed, "transfer_checked without the hook accounts must be rejected");
+      assert.equal(
+        (await getTokenAccount(source)).amount.toString(),
+        MINT_AMOUNT.toString(),
+        "source balance must be unchanged"
+      );
+      assert.equal((await getTokenAccount(destination)).amount.toString(), "0", "destination must receive nothing");
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -187,7 +154,7 @@ describe("transfer", () => {
       const rogueKeypair = Keypair.generate();
 
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner: rogueKeypair.publicKey, destination, signers: [rogueKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -217,7 +184,7 @@ describe("transfer", () => {
       await setMintPaused(mint, true);
 
       try {
-        await transfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await splTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected mint-is-paused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
@@ -250,7 +217,7 @@ describe("transfer", () => {
       await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -277,7 +244,7 @@ describe("transfer", () => {
       );
 
       // ── Retry same transfer — succeeds (available = 60 >= 50) ────────────────
-      await transfer(
+      await splTransfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_AMOUNT }
       );
@@ -312,7 +279,7 @@ describe("transfer", () => {
       await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       // ── Transfer 40 tokens — succeeds (available = 100 - 50 = 50 >= 40) ──────
-      await transfer(
+      await splTransfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: FIRST_TRANSFER }
       );
@@ -327,7 +294,7 @@ describe("transfer", () => {
 
       // ── Transfer 20 tokens — fails (available = 60 - 50 = 10 < 20) ───────────
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: SECOND_TRANSFER }
         );
@@ -386,13 +353,13 @@ describe("transfer", () => {
 
       // (3) Any positive outbound transfer must fail — saturating_sub clamps available to 0.
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_ATTEMPT }
         );
         assert.fail("Expected InsufficientUnfrozenBalance error but transfer succeeded");
       } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError raised by verify_transfer");
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError raised by the transfer hook");
         const anchorErr = err as AnchorError;
         assert.equal(
           anchorErr.error.errorCode.code,
@@ -404,7 +371,7 @@ describe("transfer", () => {
       // (4) Recovery path — after unfreeze_account_partial, the 20 remaining tokens transact normally.
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
       await clearFrozenBalancePda(mint, source);
-      await transfer(
+      await splTransfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_ATTEMPT }
       );
@@ -419,8 +386,8 @@ describe("transfer", () => {
   });
 
   // Compliance is enforced inside transfer-hook::execute now, so these run a full
-  // `transfer` and assert the hook aborts it (the error surfaces from the nested
-  // transfer_checked → hook CPI as an AnchorError with the same code).
+  // `transfer_checked` and assert the hook aborts it (the error surfaces from the
+  // nested transfer_checked → hook CPI as an AnchorError with the same code).
   describe("compliance (enforced by transfer-hook)", async () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("transfer: fails with NotWhitelisted when whitelist mode is active and source is not whitelisted", async () => {
@@ -441,7 +408,7 @@ describe("transfer", () => {
       const destBefore = (await getTokenAccount(destination)).amount;
 
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -486,7 +453,7 @@ describe("transfer", () => {
       const destBefore = (await getTokenAccount(destination)).amount;
 
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -522,7 +489,7 @@ describe("transfer", () => {
 
       // ── Transfer must now be rejected with AccountFrozen ──────────────────
       try {
-        await transfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await splTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected AccountFrozen error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -544,7 +511,7 @@ describe("transfer", () => {
 
       // ── Transfer must now be rejected with Deactivated ─────────────────────
       try {
-        await transfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await splTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

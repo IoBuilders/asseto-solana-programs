@@ -43,13 +43,13 @@ asseto-solana-programs/
 │   ├── deploy/               — deploys mints; records the asset-class config/version ids in `asset_configuration_pda`; bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
 │   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated). Both enforce the `cap` supply cap before issuing
 │   ├── metadata-update/      — controls metadata updates
-│   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
-│   ├── operations/           — permanent-delegate operations: burn (`burn` + `batch_burn`) + force-transfer (`controller_transfer`)
+│   ├── freeze/               — management freeze/unfreeze (full + partial), expressed purely as marker PDAs; enforced read-side by `transfer-hook::execute`, no Token-2022 CPI
+│   ├── operations/           — permanent-delegate operations: burn (`burn` + `batch_burn`, co-signed by the `permissioned_burn` PDA) + force-transfer (`controller_transfer`)
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers
-│   ├── transfer/             — custom transfer endpoint: `transfer` (unblock → transfer_checked → re-block) + `batch_transfer` (one source holder → N destinations via `remaining_accounts`, 2 per leg). Single instruction; compliance is enforced by the hook during the inner transfer_checked
-│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate that enforces ALL compliance itself (deactivation, transfer-mode/whitelist, frozen account, post-debit frozen balance) + `TRANSFER_HOOK_EXECUTE` functionality check. Bypasses compliance for `operations::controller_transfer` (authority = permanent_delegate PDA). Writes nothing
+│   ├── transfer/             — a single instruction, `batch_transfer` (one source holder → N destinations via `remaining_accounts`, 2 accounts per leg); the singular path has no instruction here at all — the client submits Token-2022's own `transfer_checked` with the hook's accounts appended. No compliance logic: it only forwards the hook block per leg
+│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate holding the whole compliance suite (deactivation, transfer-mode/whitelist, frozen account, post-debit partial-freeze cover) + `TRANSFER_HOOK_EXECUTE` functionality check. No introspection, no sysvar; bypasses every check when the authority is the `permanent_delegate` PDA. Writes nothing
 │   ├── snapshot/             — snapshot counter + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
@@ -71,14 +71,14 @@ programs/<name>/src/
     └── <instruction>.rs
 ```
 
-Exception: `transfer-hook` also has `constants.rs` for instruction discriminators (not program IDs).
+No program has a `constants.rs`: program IDs all come from `common::program_ids`. (`transfer-hook` used to keep one for the instruction discriminators its introspection check compared against; that check is gone.)
 
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
 - `program_ids` — all 16 program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
 - `state::AssetConfiguration` — struct for the `asset_configuration_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] AssetConfiguration` wrapping the same fields for `Account<AssetConfiguration>` usage.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
-- `functionalities` — flat append-only `u16` ids, one per instruction across the whole workspace (`BOND_UPDATE_BOND_TERMS = 0` … `CAP_MAX_SUPPLY = 22`), excluding `factory` itself. A unit test asserts ids are sequential from 0.
+- `functionalities` — flat append-only `u16` ids, one per instruction across the whole workspace (`BOND_UPDATE_BOND_TERMS = 0` … `OPERATIONS_CONTROLLER_TRANSFER = 23`), excluding `factory` itself. A unit test asserts ids are sequential from 0.
 - `require_functionality()` — checks a `factory` `AssetClassVersion`'s mask has a given functionality bit set; takes a `Ref<AssetClassVersion>` from the caller's `AccountLoader<common::state::AssetClassVersion>` (zero-copy typed load) and reads `.mask` via `bitmask::is_set`; errors `AssetClassVersionNotFinalized` if the version isn't sealed `Ready`, `FunctionalityNotSupportedError` if the bit is unset, `FunctionalityOutOfBounds` if the functionality id exceeds the mask.
 - `bitmask` — generic `[u8; N]` bit-mask primitives (`set_bits` / `clear_bits` / `is_set`) reused by every program with a bit-mask (`factory` functionalities, `access-control` roles, `require_functionality`). Bounds are derived from the mask slice length; only the shared `MASK_CHUNK_BITS = 8` lives here — per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`) stay with their structs.
 - `roles` — flat append-only `u16` role ids (`ROLE_ADMIN = 0` … `ROLE_CAP = 10`) + `ROLES_MASK_OFFSET`; mirror of `functionalities` for `access-control`. Beyond `access-control`'s own `ROLE_ADMIN` gating, management instructions in other programs are role-gated too (`pause`/`unpause` → `ROLE_PAUSER`; `freeze` management → `ROLE_FREEZE_MANAGER`; `metadata-update` → `ROLE_CUSTOM_DATA_MANAGER`; `cap::set_max_supply` → `ROLE_CAP`). A unit test asserts ids are sequential from 0.
@@ -139,7 +139,7 @@ Every program exposes instructions in one of three categories:
 | **Operational** | Token holders / participants | Program-specific access controls |
 | **Auxiliary** | Other programs via CPI only | Requires a specific known PDA as `Signer` (only the authorized program can produce it via `invoke_signed`) |
 
-Auxiliary instructions cannot be called by any external wallet. `block_account` / `unblock_account` in `freeze` accept three callers: `mint_authority` (mint), `permanent_delegate` (operations), and `transfer` (transfer). `take_snapshot` in `snapshot` accepts only one caller: `coupon_authority` (coupon) — every snapshot is anchored to a coupon. `initialize` in `access-control` accepts only one caller: the `temp_mint_authority` PDA (deploy) — the admin bootstrap runs exactly once, during `deploy_mint`.
+Auxiliary instructions cannot be called by any external wallet. `take_snapshot` in `snapshot` accepts only one caller: `coupon_authority` (coupon) — every snapshot is anchored to a coupon. `initialize` in `access-control` accepts only one caller: the `temp_mint_authority` PDA (deploy) — the admin bootstrap runs exactly once, during `deploy_mint`.
 
 ---
 
@@ -151,15 +151,14 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["temp_mint_authority", mint]` | `deploy` | Ephemeral signing key during `deploy_mint` only |
 | `["mint_authority", mint]` | `mint` | Token-2022 mint authority |
 | `["metadata_update_authority", mint]` | `metadata-update` | Token-2022 metadata update authority |
-| `["freeze_authority", mint]` | `freeze` | Token-2022 freeze authority |
 | `["frozen_account", mint, account]` | `freeze` | Marker: account fully frozen |
 | `["frozen_balance", mint, account]` | `freeze` | Stores locked balance for partial freeze |
 | `["permanent_delegate", mint]` | `operations` | Token-2022 PermanentDelegate authority |
+| `["permissioned_burn", mint]` | `operations` | Token-2022 PermissionedBurn authority; co-signs every burn alongside `permanent_delegate` |
 | `["pausable_authority", mint]` | `pause` | Token-2022 Pausable authority |
 | `["deactivate", mint]` | `deactivate` | Marker: mint permanently deactivated |
 | `["transfer_control_mode", mint]` | `transfer-control` | Stores the active `TransferMode` (currently only `Whitelist`) + bump; created once by `initialize` (no close/update path) |
 | `["whitelist", mint, account]` | `transfer-control` | Marker: account is whitelisted |
-| `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority (set on the mint by `deploy_mint`); not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
 | `["snapshot_counter", mint]` | `snapshot` | Id of the **next** snapshot for the mint (0-based; after N snapshots `count == N`). Created by `take_snapshot` |
@@ -194,9 +193,9 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 | `PermanentDelegate` | `["permanent_delegate", mint]` | `operations` | Burn/transfer from any account |
 | `MetadataPointer` | None (immutable) | — | Points to mint itself |
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
-| `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` | All new accounts start frozen; thawed/re-frozen transiently during mint/burn/transfer |
+| `PermissionedBurn` | `["permissioned_burn", mint]` | `operations` | Burning requires this authority as an extra signer, so the plain Token-2022 `Burn` is rejected and `operations::burn` / `batch_burn` are the only burn path |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook enforces ALL compliance itself (deactivation, transfer-mode/whitelist, frozen account, post-debit frozen balance) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. It bypasses the whitelist/frozen checks when the transfer authority is the `["permanent_delegate", mint]` PDA (an `operations::controller_transfer` seizure). No instruction introspection — see [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) for the history (checks used to live in `transfer::verify_transfer` behind an introspection gate to fit the 32 KiB heap). |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook holds the full compliance suite (deactivation, transfer-mode, whitelist, frozen account, post-debit partial-freeze cover) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. It reads no `Instructions` sysvar, so every path (bare `transfer_checked`, `transfer::batch_transfer`, `operations::controller_transfer`, or a CPI from any program) is gated identically — the one exemption is the `permanent_delegate` authority, which skips every check. Its `ExtraAccountMetaList` is capped by Token-2022's 32 KiB heap — see [`docs/transfer-hook.md`](docs/transfer-hook.md#metalist-contents) before adding entries. |
 
 ---
 
@@ -231,4 +230,3 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 - [`docs/factory.md`](docs/factory.md)
 - [`docs/access-control.md`](docs/access-control.md)
 - [`docs/cap.md`](docs/cap.md)
-- [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that once drove the verify_transfer + introspection design, and why compliance later moved back into the hook (composability)

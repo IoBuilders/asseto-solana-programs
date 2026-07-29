@@ -11,10 +11,6 @@ declare_id!("Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q");
 pub mod transfer {
     use super::*;
 
-    pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
-        transfer_tokens::transfer(ctx, amount)
-    }
-
     pub fn batch_transfer<'info>(
         ctx: Context<'info, BatchTransferTokens<'info>>,
         amounts: Vec<u64>,

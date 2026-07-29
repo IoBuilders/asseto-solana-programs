@@ -1,6 +1,4 @@
 use anchor_lang::prelude::*;
-use common::program_ids::{MINT_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_PROGRAM_ID};
-use common::{pda_seeds, pda_utils};
 
 pub mod errors;
 pub mod events;
@@ -14,14 +12,6 @@ declare_id!("8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd");
 #[program]
 pub mod freeze {
     use super::*;
-
-    pub fn block_account(ctx: Context<BlockAccount>) -> Result<()> {
-        block_account::block_account(ctx)
-    }
-
-    pub fn unblock_account(ctx: Context<UnblockAccount>) -> Result<()> {
-        unblock_account::unblock_account(ctx)
-    }
 
     pub fn freeze_account(ctx: Context<FreezeAccount>) -> Result<()> {
         freeze_account::freeze_account(ctx)
@@ -65,28 +55,6 @@ pub mod freeze {
     }
 }
 
-pub(crate) fn assert_authorized_caller(mint_key: &Pubkey, caller: &Pubkey) -> Result<()> {
-    use crate::errors::ErrorCode;
-
-    require!(
-        pda_utils::is_caller_pda(
-            caller,
-            &pda_seeds::mint_authority_seeds(mint_key),
-            &MINT_PROGRAM_ID
-        ) || pda_utils::is_caller_pda(
-            caller,
-            &pda_seeds::permanent_delegate_seeds(mint_key),
-            &OPERATIONS_PROGRAM_ID
-        ) || pda_utils::is_caller_pda(
-            caller,
-            &pda_seeds::transfer_seeds(mint_key),
-            &TRANSFER_PROGRAM_ID
-        ),
-        ErrorCode::Unauthorized
-    );
-    Ok(())
-}
-
 pub fn require_unfrozen_account(frozen_account_pda: &AccountInfo) -> Result<()> {
     require!(
         frozen_account_pda.data_is_empty(),
@@ -101,8 +69,8 @@ pub fn require_unfrozen_balance(
     frozen_balance_pda: &AccountInfo,
 ) -> Result<()> {
     use crate::errors::ErrorCode;
-    use spl_token_2022::extension::StateWithExtensions;
-    use spl_token_2022::state::Account as TokenAccountState;
+    use spl_token_2022_interface::extension::StateWithExtensions;
+    use spl_token_2022_interface::state::Account as TokenAccountState;
 
     // ── Read the current token account balance ────────────────────────────────
     let token_data = token_account.try_borrow_data()?;
@@ -140,8 +108,8 @@ pub fn require_frozen_balance_covered(
     frozen_balance_pda: &AccountInfo,
 ) -> Result<()> {
     use crate::errors::ErrorCode;
-    use spl_token_2022::extension::StateWithExtensions;
-    use spl_token_2022::state::Account as TokenAccountState;
+    use spl_token_2022_interface::extension::StateWithExtensions;
+    use spl_token_2022_interface::state::Account as TokenAccountState;
 
     let token_data = token_account.try_borrow_data()?;
     let token_state = StateWithExtensions::<TokenAccountState>::unpack(&token_data)

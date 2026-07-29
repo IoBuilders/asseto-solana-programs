@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { DEPLOY_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, TRANSFER_PROGRAM_ID } from "./address_utils";
+import { DEPLOY_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "./address_utils";
 
 // ── deploy ─────────────────────────────────────────────────────────────────────
 
@@ -17,12 +17,6 @@ export function tempMintAuthorityPda(mint: PublicKey): PublicKey {
 
 export function deployEventAuthorityPda(): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], DEPLOY_PROGRAM_ID)[0];
-}
-
-// ── transfer ───────────────────────────────────────────────────────────────────
-
-export function transferAuthorityPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("transfer"), mint.toBuffer()], TRANSFER_PROGRAM_ID)[0];
 }
 
 // ── transfer-hook ──────────────────────────────────────────────────────────────

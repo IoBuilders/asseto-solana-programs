@@ -44,7 +44,7 @@ Sets up the following Token-2022 extensions, each governed by a distinct program
 | `MetadataPointer` | n/a (points to mint itself) | none — immutable |
 | Metadata update | `["metadata_update_authority", mint]` | `metadata-update` (`METADATA_UPDATE_PROGRAM_ID`) |
 | `Pausable` | `["pausable_authority", mint]` | `pause` (`PAUSE_PROGRAM_ID`) |
-| `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` (`FREEZE_PROGRAM_ID`) |
+| `PermissionedBurn` | `["permissioned_burn", mint]` | `operations` (`OPERATIONS_PROGRAM_ID`) |
 
 ### Parameters
 
@@ -76,9 +76,9 @@ pub struct MetadataField {
 | `temp_mint_authority` | no | no | UncheckedAccount | PDA seeds `["temp_mint_authority", mint]`; no storage; used as transient signer for steps 9–12 and the `access_control::initialize` CPI in step 15 |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]`, `seeds::program = MINT_PROGRAM_ID` |
 | `permanent_delegate_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]`, `seeds::program = OPERATIONS_PROGRAM_ID` |
+| `permissioned_burn_authority` | no | no | UncheckedAccount | seeds `["permissioned_burn", mint]`, `seeds::program = OPERATIONS_PROGRAM_ID` |
 | `metadata_update_authority` | no | no | UncheckedAccount | seeds `["metadata_update_authority", mint]`, `seeds::program = METADATA_UPDATE_PROGRAM_ID` |
 | `pausable_authority` | no | no | UncheckedAccount | seeds `["pausable_authority", mint]`, `seeds::program = PAUSE_PROGRAM_ID` |
-| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID` |
 | `transfer_hook_authority` | no | no | UncheckedAccount | seeds `["transfer_hook_authority", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
 | `extra_account_meta_list` | yes | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; created via CPI in step 14 |
 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
@@ -91,7 +91,7 @@ pub struct MetadataField {
 ### 15-Step Execution
 
 **1 — Size calculation**
-- `base_size` = `ExtensionType::try_calculate_account_len` for the five fixed extensions (PermanentDelegate, MetadataPointer, Pausable, DefaultAccountState, TransferHook).
+- `base_size` = `ExtensionType::try_calculate_account_len` for the five fixed extensions (PermanentDelegate, MetadataPointer, Pausable, TransferHook, PermissionedBurn). This list must match exactly the set of extensions actually initialized in steps 3–7: `initialize_mint2` (step 8) rejects the mint unless the allocated length equals the length recomputed from the extensions already written.
 - `metadata_tlv_size` = `TokenMetadata { name, symbol, uri, additional_metadata }.tlv_size_of()`.
 - Prefund lamports for `base_size + metadata_tlv_size`, but allocate only `base_size` bytes — Token-2022 reallocates in-place when `initialize_token_metadata` is called.
 
@@ -105,8 +105,9 @@ pub struct MetadataField {
 **4 — `initialize_permanent_delegate`**
 - Delegate: `permanent_delegate_authority` PDA.
 
-**5 — `initialize_default_account_state(Frozen)`**
-- All new token accounts for this mint are created in Frozen state.
+**5 — `initialize_permissioned_burn`**
+- Authority: `permissioned_burn_authority` PDA (owned by `operations`).
+- Makes the plain Token-2022 `Burn` instruction unusable on this mint: burning requires the extension's own `Burn`/`BurnChecked`, which carries an extra signer slot for this authority. Only `operations` can produce that signature, so `operations::burn` / `batch_burn` become the sole burn path — see [operations.md](operations.md).
 
 **6 — `initialize_pausable`**
 - Authority: `pausable_authority` PDA.
@@ -118,7 +119,9 @@ pub struct MetadataField {
 
 **8 — `initialize_mint2`**
 - Mint authority: `temp_mint_authority` (this program's PDA — temporary).
-- Freeze authority: `freeze_authority` PDA (owned by `freeze`).
+- Freeze authority: **`None`**. Freezing is enforced by `freeze`'s marker PDAs, read by `transfer-hook::execute`, not by Token-2022 account state, so no authority would ever sign. There is no `freeze_authority` account in this instruction.
+
+  This is **irreversible by design**: a mint's freeze authority can only be set here, and `set_authority` for `AuthorityType::FreezeAccount` requires the *current* freeze authority to sign — with none set, nothing can ever establish one (Token-2022 returns `MintCannotFreeze`). Mints deployed by this program can therefore never acquire a token-level freeze, only the marker-PDA kind. Adding one back would require a new mint.
 - Decimals: from params.
 
 **9 — `initialize_token_metadata`** (signed by `temp_mint_authority`)

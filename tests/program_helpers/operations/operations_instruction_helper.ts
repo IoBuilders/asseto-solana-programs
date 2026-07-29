@@ -6,23 +6,23 @@ import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import {
   SYSTEM_PROGRAM_ID,
-  FREEZE_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
   FACTORY_PROGRAM_ID,
   DEACTIVATE_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
+  FREEZE_PROGRAM_ID,
 } from "../../utils/address_utils";
 import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
 import { getEvent, getEvents } from "../event_helper";
 import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
-import { permanentDelegatePda, operationsEventAuthorityPda } from "./operations_pda_helper";
-import { freezeAuthorityPda, frozenAccountPda, frozenBalancePda } from "../freeze/freeze_pda_helper";
+import { permanentDelegatePda, permissionedBurnPda, operationsEventAuthorityPda } from "./operations_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
+import { frozenAccountPda, frozenBalancePda } from "../freeze/freeze_pda_helper";
 
 export function getOperationsProgram(): Program<Operations> {
   return anchor.workspace.Operations as Program<Operations>;
@@ -67,8 +67,7 @@ export async function burnTokens(
       assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
-      freezeAuthority: freezeAuthorityPda(callContext.mint),
-      freezeProgram: FREEZE_PROGRAM_ID,
+      permissionedBurnAuthority: permissionedBurnPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -139,8 +138,7 @@ export async function batchBurnTokens(
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       operationsAuthority: permanentDelegatePda(callContext.mint),
-      freezeAuthority: freezeAuthorityPda(callContext.mint),
-      freezeProgram: FREEZE_PROGRAM_ID,
+      permissionedBurnAuthority: permissionedBurnPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -166,9 +164,6 @@ export async function getControllerRedemptionEvents(signature: string): Promise<
 export type ControllerTransferContext = MintWriteContext & {
   from: PublicKey;
   to: PublicKey;
-  // Owner of `from`. No longer an account of `controller_transfer` nor a required
-  // signer — kept optional for backwards compatibility with existing callers.
-  sourceOwner?: PublicKey;
 };
 
 type ControllerTransferArgs = {
@@ -188,8 +183,7 @@ export async function controllerTransfer(
   // Compliance lives in transfer-hook::execute, which bypasses the whitelist /
   // frozen checks for permanent-delegate transfers. Token-2022 still resolves the
   // whole metalist, so every forwarded PDA must be supplied (may be empty).
-  // The unblock ×2 → transfer_checked → hook → block ×2 chain exceeds the default
-  // 200k CU budget, so raise it.
+  // Metalist resolution plus the hook CPI exceeds the default 200k CU budget.
   const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })];
 
   const signature = await getOperationsProgram()
@@ -202,7 +196,6 @@ export async function controllerTransfer(
       from: callContext.from,
       to: callContext.to,
       operationsAuthority: permanentDelegatePda(callContext.mint),
-      freezeAuthority: freezeAuthorityPda(callContext.mint),
       extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       freezeProgram: FREEZE_PROGRAM_ID,
