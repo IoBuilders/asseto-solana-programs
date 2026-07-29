@@ -3,7 +3,10 @@
 Program ID: `iShebeGRBZYSBMQYGAg8DbLnbaW2eDvX1Zt8EG9G1ZV`
 
 Controls Token-2022 embedded metadata. Owns the `["metadata_update_authority", mint]` PDA that was set
-as the metadata update authority during `deploy_mint`. Only an account holding `ROLE_CUSTOM_DATA_MANAGER` may call these instructions.
+as the metadata update authority during `deploy_mint`. `update_metadata_field` requires `ROLE_ADMIN` when
+updating a core identity field (`name` / `symbol`) and `ROLE_CUSTOM_DATA_MANAGER` when updating `uri` or
+any custom key. `remove_metadata_field` always requires `ROLE_CUSTOM_DATA_MANAGER`, since only custom keys
+can be removed.
 
 ---
 
@@ -12,7 +15,7 @@ as the metadata update authority during `deploy_mint`. Only an account holding `
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Pays rent when account must grow (defaults to `authority`) |
-| `authority` | no | yes | Signer | Must hold `ROLE_CUSTOM_DATA_MANAGER` (verified via `authority_roles_pda`) |
+| `authority` | no | yes | Signer | Must hold the role required for the field being touched — `ROLE_ADMIN` or `ROLE_CUSTOM_DATA_MANAGER` for `update_metadata_field`, always `ROLE_CUSTOM_DATA_MANAGER` for `remove_metadata_field` (verified via `authority_roles_pda`) |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint whose metadata is being modified |
 | `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
@@ -92,7 +95,7 @@ _        => Field::Key(key)   // custom field; created if it doesn't exist
 
 ### Execution
 
-1. `require_role(authority_roles_pda, ROLE_CUSTOM_DATA_MANAGER)`
+1. `require_role(authority_roles_pda, role)` — `role` is `ROLE_ADMIN` for `name` / `symbol`, `ROLE_CUSTOM_DATA_MANAGER` for `uri` or any custom key
 2. `require_not_paused(&mint)`
 3. `require_active(&deactivate_pda)`
 4. `require_functionality(asset_class_version_pda, METADATA_UPDATE_UPDATE_METADATA_FIELD)`
