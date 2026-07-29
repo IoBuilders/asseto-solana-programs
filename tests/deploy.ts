@@ -2,15 +2,14 @@ import * as anchor from "@anchor-lang/core";
 import { SendTransactionError } from "@solana/web3.js";
 import { Keypair } from "@solana/web3.js";
 import {
-  AccountState,
-  getDefaultAccountState,
   getMetadataPointerState,
   getPermanentDelegate,
   getPausableConfig,
+  getPermissionedBurn,
 } from "@solana/spl-token";
 import { assert } from "chai";
 import * as pdaUtils from "./utils/pda_utils";
-import { permanentDelegatePda } from "./program_helpers/operations/operations_pda_helper";
+import { permanentDelegatePda, permissionedBurnPda } from "./program_helpers/operations/operations_pda_helper";
 import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
 import { freezeAuthorityPda } from "./program_helpers/freeze/freeze_pda_helper";
 import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
@@ -51,6 +50,7 @@ describe("deploy", () => {
     );
     const mintAuthority = mintAuthorityPda(mint);
     const permanentDelegateAuthority = permanentDelegatePda(mint);
+    const permissionedBurnAuthority = permissionedBurnPda(mint);
     const metadataUpdateAuthority = metadataUpdateAuthorityPda(mint);
     const pausableAuthority = pausableAuthorityPda(mint);
     const freezeAuthority = freezeAuthorityPda(mint);
@@ -58,7 +58,7 @@ describe("deploy", () => {
     const assetConfigurationAccount = await getAssetConfiguration(mint);
     const metadataPointerState = getMetadataPointerState(mintInfo);
     const permanentDelegateState = getPermanentDelegate(mintInfo);
-    const defaultAccountState = getDefaultAccountState(mintInfo);
+    const permissionedBurnState = getPermissionedBurn(mintInfo);
     const pausableState = getPausableConfig(mintInfo);
     const metadata = await getTokenMetadata(mint);
 
@@ -92,8 +92,12 @@ describe("deploy", () => {
       "permanent delegate authority mismatch"
     );
 
-    // ── Assertions: DefaultAccountState ───────────────────────────────────────
-    assert.equal(defaultAccountState?.state, AccountState.Frozen, "default account state should be Frozen");
+    // ── Assertions: PermissionedBurn ──────────────────────────────────────────
+    assert.equal(
+      permissionedBurnState?.authority?.toBase58(),
+      permissionedBurnAuthority.toBase58(),
+      "permissioned burn authority mismatch"
+    );
 
     // ── Assertions: Pausable ───────────────────────────────────────────────────
     assert.equal(pausableState?.authority?.toBase58(), pausableAuthority.toBase58(), "pausable authority mismatch");

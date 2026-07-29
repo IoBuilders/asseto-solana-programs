@@ -26,7 +26,6 @@ anchor-spl = "1.0.2"
 spl-token-2022-interface = "=3.0.1"
 common = { path = "../common" }
 cap = { path = "../cap", features = ["cpi"] }
-freeze = { path = "../freeze", features = ["cpi"] }
 snapshot = { path = "../snapshot", features = ["cpi"] }
 transfer-control = { path = "../transfer-control", features = ["cpi"] }
 

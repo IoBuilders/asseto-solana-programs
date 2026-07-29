@@ -6,7 +6,6 @@ import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import {
   SYSTEM_PROGRAM_ID,
-  FREEZE_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   DEPLOY_PROGRAM_ID,
@@ -17,8 +16,7 @@ import { getEvent, getEvents } from "../event_helper";
 import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
-import { permanentDelegatePda, operationsEventAuthorityPda } from "./operations_pda_helper";
-import { freezeAuthorityPda } from "../freeze/freeze_pda_helper";
+import { permanentDelegatePda, permissionedBurnPda, operationsEventAuthorityPda } from "./operations_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { buildVerifyTransferInstruction } from "../transfer_helper";
 
@@ -65,8 +63,7 @@ export async function burnTokens(
       assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
-      freezeAuthority: freezeAuthorityPda(callContext.mint),
-      freezeProgram: FREEZE_PROGRAM_ID,
+      permissionedBurnAuthority: permissionedBurnPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -137,8 +134,7 @@ export async function batchBurnTokens(
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       operationsAuthority: permanentDelegatePda(callContext.mint),
-      freezeAuthority: freezeAuthorityPda(callContext.mint),
-      freezeProgram: FREEZE_PROGRAM_ID,
+      permissionedBurnAuthority: permissionedBurnPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -216,10 +212,8 @@ export async function controllerTransfer(
       from: callContext.from,
       to: callContext.to,
       operationsAuthority: permanentDelegatePda(callContext.mint),
-      freezeAuthority: freezeAuthorityPda(callContext.mint),
       extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-      freezeProgram: FREEZE_PROGRAM_ID,
       deployProgram: DEPLOY_PROGRAM_ID,
       factoryProgram: FACTORY_PROGRAM_ID,
       instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,

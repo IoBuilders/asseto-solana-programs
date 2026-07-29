@@ -145,9 +145,8 @@ const MINT_SUPPLY_OFFSET = 36;
  * plant-based equivalent of running the `mint` instruction, with no CPI. Credits
  * the token account's `amount` field and bumps the mint's `supply` by the same
  * amount, both incremented so repeated calls and total-supply reads stay
- * consistent. The token account's `state` (left Frozen by the mint's
- * DefaultAccountState) and every other field are untouched, matching the state
- * the real mint instruction leaves behind.
+ * consistent. The token account's `state` and every other field are untouched,
+ * matching the state the real mint instruction leaves behind.
  */
 export async function mintTokensViaSurfpool(
   mint: PublicKey,

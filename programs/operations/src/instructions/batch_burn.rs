@@ -4,8 +4,7 @@ use anchor_spl::token_2022::Token2022;
 use common::pda_utils;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{pda_seeds, require_active, require_functionality, require_role, roles};
-use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use spl_token_2022_interface::instruction::burn as spl_burn;
+use spl_token_2022_interface::extension::permissioned_burn::instruction::burn as permissioned_burn;
 
 use crate::errors::OperationsError;
 use crate::events::ControllerRedemption;
@@ -41,30 +40,27 @@ pub fn batch_burn<'info>(
         &ctx.bumps.operations_authority,
     );
 
+    let permissioned_burn_signer_seeds = pda_utils::build_pda_signer_seeds(
+        pda_seeds::permissioned_burn_seeds(&mint_key),
+        &ctx.bumps.permissioned_burn_authority,
+    );
+
     for i in 0..amounts.len() {
         let amount = amounts[i];
         let destination = &ctx.remaining_accounts[i];
         let destination_key = destination.key();
 
-        // ── 1. Unblock destination (CPI to freeze) ────────────────────────────
-        freeze::cpi::unblock_account(CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            UnblockAccount {
-                calling_authority: ctx.accounts.operations_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: destination.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[permanent_delegate_signer_seeds.as_slice()],
-        ))?;
-
-        // ── 2. Burn tokens (CPI to Token-2022) ────────────────────────────────
+        // ── Burn tokens (CPI to Token-2022) ────────────────────────────────
+        //
+        // The mint carries the PermissionedBurn extension, so the plain
+        // Token-2022 `Burn` is rejected — this variant is the one with a signer
+        // slot for the permissioned-burn authority alongside the delegate.
         invoke_signed(
-            &spl_burn(
+            &permissioned_burn(
                 &token_program_id,
                 &destination.key(),
                 &mint_key,
+                &ctx.accounts.permissioned_burn_authority.key(),
                 &ctx.accounts.operations_authority.key(),
                 &[],
                 amount,
@@ -74,8 +70,12 @@ pub fn batch_burn<'info>(
                 destination.to_account_info(),
                 ctx.accounts.mint.to_account_info(),
                 ctx.accounts.operations_authority.to_account_info(),
+                ctx.accounts.permissioned_burn_authority.to_account_info(),
             ],
-            &[permanent_delegate_signer_seeds.as_slice()],
+            &[
+                permanent_delegate_signer_seeds.as_slice(),
+                permissioned_burn_signer_seeds.as_slice(),
+            ],
         )?;
 
         emit_cpi!(ControllerRedemption {
@@ -84,19 +84,6 @@ pub fn batch_burn<'info>(
             from: destination_key,
             value: amount,
         });
-
-        // ── 3. Re-block destination (CPI to freeze) ───────────────────────────
-        freeze::cpi::block_account(CpiContext::new_with_signer(
-            constants::FREEZE_PROGRAM_ID,
-            BlockAccount {
-                calling_authority: ctx.accounts.operations_authority.to_account_info(),
-                freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                token_account: destination.to_account_info(),
-                token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-            },
-            &[permanent_delegate_signer_seeds.as_slice()],
-        ))?;
     }
 
     Ok(())
@@ -138,15 +125,10 @@ pub struct BatchBurnTokens<'info> {
 
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
-        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
+        seeds = [pda_seeds::PERMISSIONED_BURN, mint.key().as_ref()],
         bump,
     )]
-    pub freeze_authority: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint.
-    #[account(address = constants::FREEZE_PROGRAM_ID)]
-    pub freeze_program: UncheckedAccount<'info>,
+    pub permissioned_burn_authority: UncheckedAccount<'info>,
 
     #[account(
         seeds = [

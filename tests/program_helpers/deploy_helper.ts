@@ -12,7 +12,7 @@ import { Deploy } from "../../target/types/deploy";
 import { BaseWriteContext, PayerContext } from "./base_helper";
 import { getEvent } from "./event_helper";
 import * as pdaUtils from "../utils/pda_utils";
-import { permanentDelegatePda } from "./operations/operations_pda_helper";
+import { permanentDelegatePda, permissionedBurnPda } from "./operations/operations_pda_helper";
 import { pausableAuthorityPda } from "./pause/pause_pda_helper";
 import { freezeAuthorityPda } from "./freeze/freeze_pda_helper";
 import { mintAuthorityPda } from "./mint/mint_pda_helper";
@@ -83,6 +83,7 @@ export async function deployMint(
       tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint.publicKey),
       mintAuthority: mintAuthorityPda(mint.publicKey),
       permanentDelegateAuthority: permanentDelegatePda(mint.publicKey),
+      permissionedBurnAuthority: permissionedBurnPda(mint.publicKey),
       metadataUpdateAuthority: metadataUpdateAuthorityPda(mint.publicKey),
       pausableAuthority: pausableAuthorityPda(mint.publicKey),
       freezeAuthority: freezeAuthorityPda(mint.publicKey),

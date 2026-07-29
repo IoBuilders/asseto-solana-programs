@@ -38,9 +38,14 @@ pub fn freeze_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
 
 /******************************** OPERATIONS ********************************/
 pub const PERMANENT_DELEGATE: &[u8] = b"permanent_delegate";
+pub const PERMISSIONED_BURN: &[u8] = b"permissioned_burn";
 
 pub fn permanent_delegate_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![PERMANENT_DELEGATE, mint.as_ref()]
+}
+
+pub fn permissioned_burn_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![PERMISSIONED_BURN, mint.as_ref()]
 }
 
 /********************************** PAUSE ***********************************/

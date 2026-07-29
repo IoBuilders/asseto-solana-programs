@@ -7,13 +7,13 @@ use common::{pda_seeds, pda_utils};
 use solana_system_interface::instruction as system_instruction;
 use spl_token_2022_interface::{
     extension::{
-        default_account_state::instruction::initialize_default_account_state,
         metadata_pointer::instruction::initialize as initialize_metadata_pointer,
         pausable::instruction::initialize as initialize_pausable,
+        permissioned_burn::instruction::initialize as initialize_permissioned_burn,
         transfer_hook::instruction::initialize as initialize_transfer_hook_ext, ExtensionType,
     },
     instruction::{initialize_mint2, initialize_permanent_delegate, set_authority, AuthorityType},
-    state::{AccountState, Mint as MintState},
+    state::Mint as MintState,
 };
 use spl_token_metadata_interface::{
     instruction::{initialize as initialize_token_metadata, update_authority, update_field},
@@ -66,8 +66,8 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         ExtensionType::PermanentDelegate,
         ExtensionType::MetadataPointer,
         ExtensionType::Pausable,
-        ExtensionType::DefaultAccountState,
         ExtensionType::TransferHook,
+        ExtensionType::PermissionedBurn,
     ])
     .map_err(|_| error!(ErrorCode::InvalidMintAccountSize))?;
 
@@ -130,15 +130,14 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
-    // ── 5. DefaultAccountState — must precede initialize_mint2 ──────────────
-    //
-    // All new token accounts for this mint are created in the Frozen state.
-    // Because the mint has no freeze authority, these accounts can never be
-    // thawed — tokens are effectively non-transferable without the
-    // PermanentDelegate or another compliant mechanism.
+    // ── 5. PermissionedBurn — must precede initialize_mint2 ────────────────
     invoke(
-        &initialize_default_account_state(&token_program_id, &mint_key, &AccountState::Frozen)
-            .map_err(Error::from)?,
+        &initialize_permissioned_burn(
+            &token_program_id,
+            &mint_key,
+            &ctx.accounts.permissioned_burn_authority.key(),
+        )
+        .map_err(Error::from)?,
         &[ctx.accounts.mint.to_account_info()],
     )?;
 
@@ -167,9 +166,11 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
 
     // ── 8. initialize_mint2 ──────────────────────────────────────────────────
     //
-    // Token-2022 requires a non-null freeze authority when DefaultAccountState
-    // is Frozen (step 5) — freeze_authority is owned by `freeze`, which uses it
-    // to transiently thaw/re-freeze accounts during mint, burn, and transfer.
+    // The freeze authority is set to `freeze`'s PDA even though no program signs
+    // with it: freeze/unfreeze are marker-PDA based and enforced by
+    // `transfer::verify_transfer`, not by Token-2022's account state. A mint's
+    // freeze authority can only be set here, so assigning it now reserves the
+    // capability for `freeze` instead of giving it up permanently.
     invoke(
         &initialize_mint2(
             &token_program_id,
@@ -377,6 +378,14 @@ pub struct DeployMint<'info> {
         bump,
     )]
     pub permanent_delegate_authority: UncheckedAccount<'info>,
+
+    /// CHECK: PDA address verified by seeds/bump constraint.
+    #[account(
+        seeds = [pda_seeds::PERMISSIONED_BURN, mint.key().as_ref()],
+        seeds::program = constants::OPERATIONS_PROGRAM_ID,
+        bump,
+    )]
+    pub permissioned_burn_authority: UncheckedAccount<'info>,
 
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(

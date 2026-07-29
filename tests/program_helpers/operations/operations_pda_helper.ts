@@ -10,6 +10,15 @@ export function permanentDelegatePda(mint: PublicKey): PublicKey {
   )[0];
 }
 
+// ── permissioned_burn PDA ─────────────────────────────────────────────────────────────
+
+export function permissionedBurnPda(mint: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("permissioned_burn"), mint.toBuffer()],
+    OPERATIONS_PROGRAM_ID
+  )[0];
+}
+
 // ── __event_authority PDA ─────────────────────────────────────────────────────────────
 
 export function operationsEventAuthorityPda(): PublicKey {

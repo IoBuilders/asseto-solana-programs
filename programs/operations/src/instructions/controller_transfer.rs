@@ -5,7 +5,6 @@ use anchor_spl::token_2022::Token2022;
 use common::pda_utils;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{pda_seeds, require_active, require_functionality, require_role, roles};
-use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use spl_token_2022_interface::{
     extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
 };
@@ -41,32 +40,7 @@ pub fn controller_transfer(ctx: Context<ControllerTransfer>, amount: u64) -> Res
         &ctx.bumps.operations_authority,
     );
 
-    // ── 1. Unblock source and destination (CPI to freeze) ────────────────────
-    freeze::cpi::unblock_account(CpiContext::new_with_signer(
-        constants::FREEZE_PROGRAM_ID,
-        UnblockAccount {
-            calling_authority: ctx.accounts.operations_authority.to_account_info(),
-            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            token_account: ctx.accounts.from.to_account_info(),
-            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-        },
-        &[permanent_delegate_signer_seeds.as_slice()],
-    ))?;
-
-    freeze::cpi::unblock_account(CpiContext::new_with_signer(
-        constants::FREEZE_PROGRAM_ID,
-        UnblockAccount {
-            calling_authority: ctx.accounts.operations_authority.to_account_info(),
-            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            token_account: ctx.accounts.to.to_account_info(),
-            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-        },
-        &[permanent_delegate_signer_seeds.as_slice()],
-    ))?;
-
-    // ── 2. Transfer via permanent delegate (CPI to Token-2022) ───────────────
+    // ── Transfer via permanent delegate (CPI to Token-2022) ───────────────
     let mut transfer_ix = transfer_checked(
         &token_program_id,
         &ctx.accounts.from.key(),
@@ -113,31 +87,6 @@ pub fn controller_transfer(ctx: Context<ControllerTransfer>, amount: u64) -> Res
         ],
         &[permanent_delegate_signer_seeds.as_slice()],
     )?;
-
-    // ── 3. Re-block source and destination (CPI to freeze) ───────────────────
-    freeze::cpi::block_account(CpiContext::new_with_signer(
-        constants::FREEZE_PROGRAM_ID,
-        BlockAccount {
-            calling_authority: ctx.accounts.operations_authority.to_account_info(),
-            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            token_account: ctx.accounts.from.to_account_info(),
-            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-        },
-        &[permanent_delegate_signer_seeds.as_slice()],
-    ))?;
-
-    freeze::cpi::block_account(CpiContext::new_with_signer(
-        constants::FREEZE_PROGRAM_ID,
-        BlockAccount {
-            calling_authority: ctx.accounts.operations_authority.to_account_info(),
-            freeze_authority: ctx.accounts.freeze_authority.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            token_account: ctx.accounts.to.to_account_info(),
-            token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-        },
-        &[permanent_delegate_signer_seeds.as_slice()],
-    ))?;
 
     // Emitted last so it only fires when the full transfer succeeds.
     emit_cpi!(ControllerTransferred {
@@ -189,14 +138,6 @@ pub struct ControllerTransfer<'info> {
     )]
     pub operations_authority: UncheckedAccount<'info>,
 
-    /// CHECK: PDA address verified by seeds/bump constraint.
-    #[account(
-        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub freeze_authority: UncheckedAccount<'info>,
-
     /// CHECK: Address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::EXTRA_ACCOUNT_METAS, mint.key().as_ref()],
@@ -208,10 +149,6 @@ pub struct ControllerTransfer<'info> {
     /// CHECK: Address verified by constraint.
     #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint.
-    #[account(address = constants::FREEZE_PROGRAM_ID)]
-    pub freeze_program: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook so its
     /// metalist can resolve `asset_configuration_pda` as an external PDA.

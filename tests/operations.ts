@@ -213,7 +213,7 @@ describe("operations", () => {
 
       const signature = await batchBurnTokens({ mint, authority, sources }, { amounts });
 
-      // ── Each source was reduced by its corresponding amount and re-frozen ──
+      // ── Each source was reduced by its corresponding amount ────────────────
       for (let i = 0; i < sources.length; i++) {
         const account = await getTokenAccount(sources[i]);
         assert.equal(
@@ -221,7 +221,6 @@ describe("operations", () => {
           initialBalances[i].sub(amounts[i]).toString(),
           `source ${i} balance should be reduced by its burned amount`
         );
-        assert.isTrue(account.isFrozen, `source ${i} should be re-frozen after burning`);
       }
 
       // ── Total supply dropped by the sum of all burned amounts ──────────────
@@ -432,7 +431,7 @@ describe("operations", () => {
 
       const { signature } = await callControllerTransfer(authority!, accounts, transferAmount);
 
-      // ── Balances moved, both accounts re-frozen ────────────────────────────
+      // ── Balances moved ─────────────────────────────────────────────────────
       const fromAfter = await getTokenAccount(from);
       const toAfter = await getTokenAccount(to);
       assert.equal(
