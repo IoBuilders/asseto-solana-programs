@@ -33,8 +33,8 @@ pub fn require_within_max_supply(
     asset_class_version: Ref<AssetClassVersion>,
     amount_to_mint: u64,
 ) -> Result<()> {
-    use spl_token_2022::extension::StateWithExtensions;
-    use spl_token_2022::state::Mint;
+    use spl_token_2022_interface::extension::StateWithExtensions;
+    use spl_token_2022_interface::state::Mint;
 
     let enabled = common::is_functionality_enabled(
         asset_class_version,

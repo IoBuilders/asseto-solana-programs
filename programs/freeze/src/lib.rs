@@ -101,8 +101,8 @@ pub fn require_unfrozen_balance(
     frozen_balance_pda: &AccountInfo,
 ) -> Result<()> {
     use crate::errors::ErrorCode;
-    use spl_token_2022::extension::StateWithExtensions;
-    use spl_token_2022::state::Account as TokenAccountState;
+    use spl_token_2022_interface::extension::StateWithExtensions;
+    use spl_token_2022_interface::state::Account as TokenAccountState;
 
     // ── Read the current token account balance ────────────────────────────────
     let token_data = token_account.try_borrow_data()?;

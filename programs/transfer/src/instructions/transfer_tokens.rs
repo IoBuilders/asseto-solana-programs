@@ -5,7 +5,7 @@ use anchor_spl::token_2022::Token2022;
 use common::program_ids as constants;
 use common::{pda_seeds, pda_utils};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use spl_token_2022::{
+use spl_token_2022_interface::{
     extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
 };
 

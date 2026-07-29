@@ -5,7 +5,7 @@ use common::pda_utils;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{pda_seeds, require_active, require_functionality, require_role, roles};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use spl_token_2022::instruction::burn as spl_burn;
+use spl_token_2022_interface::instruction::burn as spl_burn;
 
 use crate::errors::OperationsError;
 use crate::events::ControllerRedemption;

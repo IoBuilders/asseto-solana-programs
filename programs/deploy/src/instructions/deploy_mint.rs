@@ -5,8 +5,7 @@ use anchor_spl::token_2022::Token2022;
 use common::program_ids as constants;
 use common::{pda_seeds, pda_utils};
 use solana_system_interface::instruction as system_instruction;
-use spl_pod::optional_keys::OptionalNonZeroPubkey;
-use spl_token_2022::{
+use spl_token_2022_interface::{
     extension::{
         default_account_state::instruction::initialize_default_account_state,
         metadata_pointer::instruction::initialize as initialize_metadata_pointer,
@@ -18,6 +17,7 @@ use spl_token_2022::{
 };
 use spl_token_metadata_interface::{
     instruction::{initialize as initialize_token_metadata, update_authority, update_field},
+    solana_nullable::MaybeNull,
     state::{Field, TokenMetadata},
 };
 
@@ -245,7 +245,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
 
     // ── 11. Transfer update authority to the external PDA ────────────────────
     let new_update_authority =
-        OptionalNonZeroPubkey::try_from(Some(ctx.accounts.metadata_update_authority.key()))
+        MaybeNull::try_from(Some(ctx.accounts.metadata_update_authority.key()))
             .map_err(|_| error!(ErrorCode::InvalidMintAccountSize))?;
 
     invoke_signed(

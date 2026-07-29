@@ -6,7 +6,7 @@ use common::pda_utils;
 use common::state::Roles as RolesCommon;
 use common::{pda_seeds, require_active, require_functionality, require_role, roles};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use spl_token_2022::instruction::mint_to;
+use spl_token_2022_interface::instruction::mint_to;
 use transfer_control::verify_transfer_control_mode;
 
 use crate::events::Issued;

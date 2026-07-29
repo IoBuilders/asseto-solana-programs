@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::{pda_seeds, pda_utils};
-use spl_token_2022::instruction::freeze_account;
+use spl_token_2022_interface::instruction::freeze_account;
 
 pub fn block_account(ctx: Context<BlockAccount>) -> Result<()> {
     let mint_key = ctx.accounts.mint.key();

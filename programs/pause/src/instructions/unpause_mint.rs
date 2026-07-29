@@ -4,7 +4,7 @@ use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::{pda_seeds, require_active};
 use common::{pda_utils, require_functionality, require_role, roles};
-use spl_token_2022::extension::pausable::instruction::resume as spl_resume;
+use spl_token_2022_interface::extension::pausable::instruction::resume as spl_resume;
 
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};

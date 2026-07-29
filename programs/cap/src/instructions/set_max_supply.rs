@@ -3,8 +3,8 @@ use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
-use spl_token_2022::extension::StateWithExtensions;
-use spl_token_2022::state::Mint;
+use spl_token_2022_interface::extension::StateWithExtensions;
+use spl_token_2022_interface::state::Mint;
 
 use crate::errors::ErrorCode;
 use crate::events::MaxSupplySet;

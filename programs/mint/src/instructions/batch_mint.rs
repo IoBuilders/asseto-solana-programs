@@ -8,7 +8,7 @@ use common::{
     pda_seeds, require_active, require_functionality, require_role, roles, verify_whitelist_pda,
 };
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use spl_token_2022::instruction::mint_to;
+use spl_token_2022_interface::instruction::mint_to;
 use transfer_control::verify_whitelist;
 
 use crate::errors::MintError;

@@ -3,7 +3,7 @@ use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::{pda_seeds, pda_utils, require_active, require_functionality, require_role, roles};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
-use spl_token_2022::instruction::burn as spl_burn;
+use spl_token_2022_interface::instruction::burn as spl_burn;
 
 use crate::events::ControllerRedemption;
 use common::program_ids as constants;
