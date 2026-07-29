@@ -1,4 +1,4 @@
-import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
 import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
@@ -28,7 +28,6 @@ export type TransferContext = BaseWriteContext &
     sourceOwner: PublicKey;
     source: PublicKey;
     destination: PublicKey;
-    preInstructions?: TransactionInstruction[];
   };
 
 export type TransferArgs = {
@@ -51,10 +50,7 @@ export async function transfer(callContext: TransferContext, args?: TransferArgs
   // inner transfer_checked), so no verify_transfer pre-instruction is needed.
   // The unblock ×2 → transfer_checked → hook → block ×2 chain exceeds the default
   // 200k CU budget, so raise it (the old two-instruction flow did the same).
-  const preInstructions = [
-    anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-    ...(callContext.preInstructions ?? []),
-  ];
+  const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })];
 
   await getTransferProgram()
     .methods.transfer(effectiveArgs.amount)
@@ -105,7 +101,6 @@ export type BatchTransferContext = BaseWriteContext &
     sourceOwner: PublicKey;
     source: PublicKey;
     destinations: PublicKey[];
-    preInstructions?: TransactionInstruction[];
   };
 
 export type BatchTransferArgs = {
@@ -127,10 +122,7 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
   // Each leg runs its own unblock → transfer_checked → hook → block chain, so the
   // budget scales with the number of destinations.
   const computeUnits = Math.min(1_400_000, 250_000 + 200_000 * callContext.destinations.length);
-  const preInstructions = [
-    anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits }),
-    ...(callContext.preInstructions ?? []),
-  ];
+  const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits })];
 
   // Two remaining accounts per destination: the destination token account
   // (writable) followed by its whitelist PDA — the hook resolves the latter

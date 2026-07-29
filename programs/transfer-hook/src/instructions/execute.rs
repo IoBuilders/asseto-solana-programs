@@ -4,7 +4,7 @@ use common::program_ids::{
     OPERATIONS_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID,
 };
 use common::state::{AssetClassVersion, AssetConfiguration};
-use common::{pda_seeds, require_active, require_functionality};
+use common::{pda_seeds, pda_utils, require_active, require_functionality};
 use freeze::{require_frozen_balance_covered, require_unfrozen_account};
 use spl_token_2022::extension::{
     transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
@@ -21,14 +21,11 @@ pub fn execute(ctx: Context<Execute>, _amount: u64) -> Result<()> {
     // permanent_delegate PDA as the transfer authority (Token-2022 verifies the
     // authority signed, and only operations can invoke_signed those seeds), so
     // this bypass of the compliance suite is unreachable by a normal holder.
-    let (permanent_delegate, _) = Pubkey::find_program_address(
-        &[
-            pda_seeds::PERMANENT_DELEGATE,
-            ctx.accounts.mint.key().as_ref(),
-        ],
+    if pda_utils::is_caller_pda(
+        ctx.accounts.owner.key,
+        &pda_seeds::permanent_delegate_seeds(ctx.accounts.mint.key),
         &OPERATIONS_PROGRAM_ID,
-    );
-    if ctx.accounts.owner.key() == permanent_delegate {
+    ) {
         return Ok(());
     }
 

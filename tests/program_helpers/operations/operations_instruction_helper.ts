@@ -1,4 +1,4 @@
-import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, PublicKey } from "@solana/web3.js";
 import * as pdaUtils from "../../utils/pda_utils";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
@@ -169,7 +169,6 @@ export type ControllerTransferContext = MintWriteContext & {
   // Owner of `from`. No longer an account of `controller_transfer` nor a required
   // signer — kept optional for backwards compatibility with existing callers.
   sourceOwner?: PublicKey;
-  preInstructions?: TransactionInstruction[];
 };
 
 type ControllerTransferArgs = {
@@ -191,10 +190,7 @@ export async function controllerTransfer(
   // whole metalist, so every forwarded PDA must be supplied (may be empty).
   // The unblock ×2 → transfer_checked → hook → block ×2 chain exceeds the default
   // 200k CU budget, so raise it.
-  const preInstructions = [
-    anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-    ...(callContext.preInstructions ?? []),
-  ];
+  const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })];
 
   const signature = await getOperationsProgram()
     .methods.controllerTransfer(amount)

@@ -3,6 +3,7 @@ use anchor_lang::solana_program::instruction::AccountMeta;
 use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token_2022::Token2022;
 use common::program_ids as constants;
+use common::state::{AssetClassVersion, AssetConfiguration};
 use common::{pda_seeds, pda_utils};
 use freeze::cpi::accounts::{BlockAccount, UnblockAccount};
 use spl_token_2022::{
@@ -201,21 +202,27 @@ pub struct TransferTokens<'info> {
     #[account(address = constants::DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by seeds/bump constraint.
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump,
+        bump = asset_configuration_pda.bump,
     )]
-    pub asset_configuration_pda: UncheckedAccount<'info>,
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
 
-    /// CHECK: No address constraint here; the hook's metalist pins the canonical
-    /// derivation, and Token-2022 verifies our forwarded extra against it.
-    pub asset_class_version_pda: UncheckedAccount<'info>,
+    #[account(
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::DEACTIVATE_PROGRAM_ID)]

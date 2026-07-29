@@ -63,7 +63,7 @@ amount: u64  // raw token units
 | 9 | `deploy_program` | no | no | address = `DEPLOY_PROGRAM_ID`; forwarded (metalist resolves @6) |
 | 10 | `asset_configuration_pda` | no | no | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; forwarded |
 | 11 | `factory_program` | no | no | address = `FACTORY_PROGRAM_ID`; forwarded (metalist resolves @8) |
-| 12 | `asset_class_version_pda` | no | no | forwarded; canonicity pinned by the hook's metalist |
+| 12 | `asset_class_version_pda` | no | no | seeds `["asset_class_version", config_id, version]` (from `asset_configuration_pda`), `seeds::program = FACTORY_PROGRAM_ID`; forwarded |
 | 13 | `deactivate_program` | no | no | address = `DEACTIVATE_PROGRAM_ID`; forwarded |
 | 14 | `deactivate_pda` | no | no | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; forwarded |
 | 15 | `transfer_control_program` | no | no | address = `TRANSFER_CONTROL_PROGRAM_ID`; forwarded |
