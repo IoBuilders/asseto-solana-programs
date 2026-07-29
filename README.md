@@ -96,12 +96,12 @@ Use `--skip-build` once you've already run a fresh `anchor build`.
 │   ├── deploy/               — deploys mints; records deployer
 │   ├── mint/                 — controls token minting
 │   ├── metadata-update/      — controls metadata updates
-│   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
-│   ├── operations/           — burn via permanent delegate
+│   ├── freeze/               — management freeze/unfreeze via marker PDAs; enforced read-side by `transfer::verify_transfer`
+│   ├── operations/           — burn via permanent delegate + permissioned-burn authority
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist / clearing mode
-│   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block)
+│   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (a single `transfer_checked` CPI)
 │   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double-introspection + functionality check
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms
@@ -190,7 +190,7 @@ Every program exposes instructions in one of three categories:
 | **Operational** | Token holders / participants | Program-specific access controls |
 | **Auxiliary** | Other programs via CPI only | Requires a specific known PDA as `Signer` (only the authorized program can produce it via `invoke_signed`) |
 
-Auxiliary instructions cannot be called by any external wallet. `block_account` / `unblock_account` in `freeze` accept three callers: `mint_authority` (mint), `permanent_delegate` (operations), and `transfer` (transfer). `take_snapshot` in `snapshot` accepts only one caller: `coupon_authority` (coupon) — every snapshot is anchored to a coupon.
+Auxiliary instructions cannot be called by any external wallet. `take_snapshot` in `snapshot` accepts only one caller: `coupon_authority` (coupon) — every snapshot is anchored to a coupon.
 
 ---
 
@@ -202,15 +202,14 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["temp_mint_authority", mint]` | `deploy` | Ephemeral signing key during `deploy_mint` only |
 | `["mint_authority", mint]` | `mint` | Token-2022 mint authority |
 | `["metadata_update_authority", mint]` | `metadata-update` | Token-2022 metadata update authority |
-| `["freeze_authority", mint]` | `freeze` | Token-2022 freeze authority |
 | `["frozen_account", mint, account]` | `freeze` | Marker: account fully frozen |
 | `["frozen_balance", mint, account]` | `freeze` | Stores locked balance for partial freeze |
 | `["permanent_delegate", mint]` | `operations` | Token-2022 PermanentDelegate authority |
+| `["permissioned_burn", mint]` | `operations` | Token-2022 PermissionedBurn authority; co-signs every burn alongside `permanent_delegate` |
 | `["pausable_authority", mint]` | `pause` | Token-2022 Pausable authority |
 | `["deactivate", mint]` | `deactivate` | Marker: mint permanently deactivated |
 | `["transfer_control_mode", mint]` | `transfer-control` | Stores `is_clearing` flag |
 | `["whitelist", mint, account]` | `transfer-control` | Marker: account is whitelisted |
-| `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority (set on the mint by `deploy_mint`); not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
 | `["snapshot_counter", mint]` | `snapshot` | Current snapshot index for the mint (created by `take_snapshot`) |
@@ -244,7 +243,7 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 | `PermanentDelegate` | `["permanent_delegate", mint]` | `operations` | Burn/transfer from any account |
 | `MetadataPointer` | None (immutable) | — | Points to mint itself |
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
-| `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` | All new accounts start frozen; thawed/re-frozen transiently during mint/burn/transfer |
+| `PermissionedBurn` | `["permissioned_burn", mint]` | `operations` | Burning requires this authority as an extra signer, so the plain Token-2022 `Burn` is rejected and `operations::burn` / `batch_burn` are the only burn path |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
 | `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer` or `Token-2022::transfer_checked`, both with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules live in `transfer::verify_transfer`, not in the hook. |
 

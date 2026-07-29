@@ -11,6 +11,15 @@
 - [Options to fix this](#options-to-fix-this)
 - [Resolution: option 2 implemented](#resolution-option-2-implemented)
 
+> **Historical record.** This document is the incident write-up that produced the
+> current `verify_transfer` + introspection design; the diagnosis and the options
+> weighed are preserved as they were at the time. Two things it assumes are no
+> longer true: transfers no longer thaw and re-freeze accounts around the token
+> movement, and mints no longer carry `DefaultAccountState(Frozen)` (token
+> accounts start `Initialized`, and mints have no freeze authority at all). Where
+> that changes a conclusion the sections below say so inline. For current
+> behaviour see [transfer.md](transfer.md) and [transfer-hook.md](transfer-hook.md).
+
 ## TL;DR
 
 Every test in `transfer` that actually invokes Token-2022's `transfer_checked`
@@ -67,13 +76,15 @@ not in our hook logic.
 
 ## Sequence of events inside one failing transfer
 
-Top-level transaction (depth 1) is `transfer::transfer`. Inside it:
+Top-level transaction (depth 1) is `transfer::transfer`. Inside it — this is the
+flow **as it was then**; the four leading `freeze` / thaw CPIs no longer exist, so
+today `transfer::transfer` goes straight to the `transfer_checked` at depth 2:
 
 | Depth | Program                | Step                                        |
 |-------|------------------------|---------------------------------------------|
-| 2     | `freeze`         | `unblock_account(source)`                   |
-| 3     | Token-2022             | `thaw_account` (CPI from `freeze`)    |
-| 2     | `freeze`         | `unblock_account(destination)`              |
+| 2     | `freeze`               | thaw source                                 |
+| 3     | Token-2022             | `thaw_account` (CPI from `freeze`)          |
+| 2     | `freeze`               | thaw destination                            |
 | 3     | Token-2022             | `thaw_account`                              |
 | 2     | **Token-2022**         | **`transfer_checked` ← OOMs here**          |
 | (3)   | *(`transfer-hook::execute` would be invoked here, but never is)* |
@@ -219,10 +230,15 @@ In rough order from "least invasive" to "most invasive":
 
    - **`current_index - 1` is `verify_transfer`** with matching mint /
      source / destination / amount / authority arguments.
-   - **`current_index` is `transfer.transfer`** (the only legitimate
+   - **`current_index` is `transfer.transfer`** (at the time, the only legitimate
      top-level entrypoint, since a direct top-level `Token-2022.transfer_checked`
      would always fail at the `DefaultAccountState::Frozen` check anyway)
      with arguments matching the transfer the hook is processing.
+
+   > **Since changed:** `DefaultAccountState(Frozen)` is gone, so a direct
+   > top-level `transfer_checked` is now reachable. It is still safe, because the
+   > `current_index - 1` half of the check is the actual gate — the frozen-account
+   > layer was redundant with it, never load-bearing on its own.
 
    The second check is what closes the wrapper-attack hole: without it, any
    third-party program could sit at `current_index`, run arbitrary
@@ -290,11 +306,14 @@ What landed:
   - `current_index - 1` must be `transfer::verify_transfer` with
     matching `source` / `destination` / `mint` / `amount`.
   - `current_index` must be `transfer::transfer` *or*
-    `Token-2022::TransferChecked`, also with matching args. (The bare
-    `Token-2022::TransferChecked` entrypoint is allowed for composability but
-    is effectively dead-letter today: `DefaultAccountState::Frozen` plus
-    `freeze::unblock_account` access control mean only
-    `transfer::transfer` can produce a successful transfer in practice.)
+    `Token-2022::TransferChecked`, also with matching args. (At the time, the bare
+    `Token-2022::TransferChecked` entrypoint was allowed for composability but was
+    effectively dead-letter: token accounts were frozen by default and only
+    `transfer::transfer` could thaw them, so it was the only path that could
+    produce a successful transfer in practice. **That no longer holds**, so the
+    entrypoint is a live composability path — still gated by the
+    `current_index - 1` `verify_transfer` requirement. See
+    [transfer-hook.md](transfer-hook.md).)
   - Failure raises one of nine granular error variants
     (`PrevInstructionWrongProgram`, `PrevInstructionNotVerifyTransfer`,
     `PrevInstructionArgumentMismatch`, `CurrentInstructionUnknownProgram`,
@@ -346,7 +365,7 @@ What clients have to do:
 Residual risk worth flagging in code review: the introspection layer can only
 guarantee adjacency at top level. If a future change ever sneaks a
 state-mutating CPI into `transfer::transfer` between its entry and the
-inner `transfer_checked` (today the only CPIs there are `freeze`
-unblock/block, which don't touch any of the PDAs `verify_transfer` reads),
-the verification could silently go stale. Keep `transfer`'s body tight, and
-document the invariant.
+inner `transfer_checked`, the verification could silently go stale. Keep
+`transfer`'s body tight, and document the invariant. (This got strictly safer
+since: `transfer::transfer` now issues the `transfer_checked` CPI and nothing
+else, so there is no longer anything sitting in between.)

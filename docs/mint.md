@@ -4,13 +4,11 @@ Program ID: `BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ`
 
 Controls token minting. Owns the `["mint_authority", mint]` PDA that was set as the Token-2022 mint authority during `deploy_mint`. Minting is role-gated: the `authority` signer must hold `ROLE_ISSUER` on this mint (checked against its `access-control` `Roles` PDA via `require_role`).
 
-The `mint_authority` PDA also serves as one of the three accepted callers for `freeze`'s block/unblock instructions.
-
 ---
 
 ## Instruction: `mint`
 
-Mints `amount` tokens to `destination`. Because all token accounts are frozen by default, thaws `destination` before minting and re-freezes it immediately after.
+Mints `amount` tokens to `destination`.
 
 ### Parameters
 
@@ -26,13 +24,11 @@ amount: u64  // raw token units (accounting for decimals)
 | `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
-| `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs block/unblock and mint_to CPIs |
-| `destination` | yes | no | UncheckedAccount | Token account receiving minted tokens; thawed before and re-frozen after minting |
-| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed through to freeze |
+| `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs the `mint_to` CPI |
+| `destination` | yes | no | UncheckedAccount | Token account receiving minted tokens |
 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; read to check whitelist mode |
 | `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, destination]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; must exist when whitelist mode is active |
 | `max_supply_pda` | no | no | UncheckedAccount | seeds `["max_supply", mint]`, `seeds::program = CAP_PROGRAM_ID`; may be empty only when the asset-class version does not enable `CAP_MAX_SUPPLY` |
-| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read to verify `authority` holds `ROLE_ISSUER` |
@@ -47,20 +43,17 @@ amount: u64  // raw token units (accounting for decimals)
 3. `require_functionality(asset_class_version_pda.load()?, MINT_MINT)` — errors if the mint's asset-class version isn't finalized or doesn't enable `MINT_MINT`
 4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[&destination_whitelist_pda])` — a no-op if `transfer_control_mode_pda` is empty (no mode active); otherwise, in whitelist mode, errors with `NotWhitelisted` if `destination_whitelist_pda` is empty
 5. `cap::require_within_max_supply(&mint, &max_supply_pda, asset_class_version_pda.load()?, amount)` — errors with `MaxSupplyExceeded` if `supply + amount` exceeds the stored cap. When `max_supply_pda` is empty, the outcome depends on the asset-class version's `CAP_MAX_SUPPLY` bit: a no-op if the bit is unset (the mint opted out of capping), `MaxSupplyNotSet` if it is set (the mint is meant to be capped but `set_max_supply` was never called). Runs before the snapshot CPIs so a rejected mint leaves no writes behind
-6. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`
-7. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
-8. Emit `Issued { mint, operator: authority, to: destination, value: amount }` via `emit_cpi!`
-9. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`
-
-Steps 6 and 9 both sign with the same `mint_authority` PDA seeds. The thaw/re-freeze pattern is necessary because all token accounts are frozen by default (`DefaultAccountState::Frozen`).
+6. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
+7. Emit `Issued { mint, operator: authority, to: destination, value: amount }` via `emit_cpi!`
 
 ### Events
 
 | Event | Fields | Emitted |
 |---|---|---|
-| `Issued` | `mint: Pubkey`, `operator: Pubkey`, `to: Pubkey`, `value: u64` | After the `mint_to` CPI succeeds (step 7, emitted at step 8) |
+| `Issued` | `mint: Pubkey`, `operator: Pubkey`, `to: Pubkey`, `value: u64` | After the `mint_to` CPI succeeds (step 6, emitted at step 7) |
 
-`Issued` is emitted with `emit_cpi!` rather than `emit!`. This instruction already performs 3 CPIs before minting (2× freeze thaw/re-freeze, 1× Token-2022 `mint_to`), each contributing its own program logs — `emit!` writes to the same log buffer (`Program data:`), which validators/RPC providers truncate around 10KB, risking silent event loss for off-chain indexers. `emit_cpi!` instead records the event as a self-CPI captured in the transaction's `innerInstructions`, which isn't subject to log truncation. This requires `#[event_cpi]` on `MintTokens`, which injects the `event_authority` and `program` accounts above, and the `event-cpi` feature enabled on `anchor-lang` in `Cargo.toml`.
+`Issued` is emitted with `emit_cpi!` rather than `emit!`. The Token-2022 `mint_to`
+CPI contributes its own program logs — `emit!` writes to the same log buffer (`Program data:`), which validators/RPC providers truncate around 10KB, risking silent event loss for off-chain indexers. `emit_cpi!` instead records the event as a self-CPI captured in the transaction's `innerInstructions`, which isn't subject to log truncation. This requires `#[event_cpi]` on `MintTokens`, which injects the `event_authority` and `program` accounts above, and the `event-cpi` feature enabled on `anchor-lang` in `Cargo.toml`.
 
 Because `emit_cpi!` events live in inner instructions rather than program logs, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them directly from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`, which handles both `emit!` and `emit_cpi!` events).
 
@@ -82,7 +75,7 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 
 | Offset | Account | Notes |
 |---|---|---|
-| `i*2` | destination token account | Writable; thawed before and re-frozen after minting, like `mint`'s `destination` |
+| `i*2` | destination token account | Writable; receives `amounts[i]` |
 | `i*2 + 1` | destination's whitelist PDA | Not seed-constrained by Anchor (dynamic list) — re-derived and matched at runtime via `common::verify_whitelist_pda`, then checked for existence via `transfer_control::verify_whitelist` when whitelist mode is active |
 
 ### Preconditions
@@ -103,11 +96,9 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 | `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
-| `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs unblock/mint_to/block CPIs per destination |
-| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed through to freeze |
+| `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs the `mint_to` CPI per destination |
 | `max_supply_pda` | no | no | UncheckedAccount | seeds `["max_supply", mint]`, `seeds::program = CAP_PROGRAM_ID`; may be empty only when the asset-class version does not enable `CAP_MAX_SUPPLY` |
 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; read once to determine whether whitelist mode is active for the whole batch |
-| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
 | `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` (`MINT_MINT`) and again by `cap::require_within_max_supply` (`CAP_MAX_SUPPLY`) |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read to verify `authority` holds `ROLE_ISSUER` |
@@ -120,10 +111,8 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 For each index `i` in `0..amounts.len()`:
 
 1. If whitelist mode is active (`transfer_control_mode_pda` non-empty): `verify_whitelist_pda` then `verify_whitelist` on `remaining_accounts[i*2 + 1]`.
-2. CPI → `freeze::unblock_account(destination)` signed with `["mint_authority", mint, bump]`.
-3. `invoke_signed` → `mint_to(mint, destination, mint_authority, amounts[i])` signed with `["mint_authority", mint, bump]`.
-4. Emit `Issued { mint, operator: authority, to: destination, value: amounts[i] }` via `emit_cpi!`.
-5. CPI → `freeze::block_account(destination)` signed with `["mint_authority", mint, bump]`.
+2. `invoke_signed` → `mint_to(mint, destination, mint_authority, amounts[i])` signed with `["mint_authority", mint, bump]`.
+3. Emit `Issued { mint, operator: authority, to: destination, value: amounts[i] }` via `emit_cpi!`.
 
 The role/active/functionality and supply-cap checks (see Preconditions) run once before the loop, not per destination.
 

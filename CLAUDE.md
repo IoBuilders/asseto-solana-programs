@@ -43,12 +43,12 @@ asseto-solana-programs/
 │   ├── deploy/               — deploys mints; records the asset-class config/version ids in `asset_configuration_pda`; bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
 │   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated). Both enforce the `cap` supply cap before issuing
 │   ├── metadata-update/      — controls metadata updates
-│   ├── freeze/               — controls freeze/thaw (block/unblock + management freeze)
-│   ├── operations/           — permanent-delegate operations: burn (`burn` + `batch_burn`) + force-transfer (`controller_transfer`)
+│   ├── freeze/               — management freeze/unfreeze (full + partial), expressed purely as marker PDAs; enforced read-side by `transfer::verify_transfer`, no Token-2022 CPI
+│   ├── operations/           — permanent-delegate operations: burn (`burn` + `batch_burn`, co-signed by the `permissioned_burn` PDA) + force-transfer (`controller_transfer`)
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers
-│   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (unblock → transfer_checked → re-block); batch counterpart `batch_verify_transfer` + `batch_transfer` (one source holder → N destinations via `remaining_accounts`)
+│   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (a single `transfer_checked` CPI, authorised by the holder's own signature); batch counterpart `batch_verify_transfer` + `batch_transfer` (one source holder → N destinations via `remaining_accounts`)
 │   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double introspection (prev = verify_transfer, curr = transfer / controller_transfer / transfer_checked; or the batch pair prev = batch_verify_transfer, curr = batch_transfer, matched per-leg) + `TRANSFER_HOOK_EXECUTE` functionality check. Writes nothing
 │   ├── snapshot/             — snapshot counter + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
@@ -139,7 +139,7 @@ Every program exposes instructions in one of three categories:
 | **Operational** | Token holders / participants | Program-specific access controls |
 | **Auxiliary** | Other programs via CPI only | Requires a specific known PDA as `Signer` (only the authorized program can produce it via `invoke_signed`) |
 
-Auxiliary instructions cannot be called by any external wallet. `block_account` / `unblock_account` in `freeze` accept three callers: `mint_authority` (mint), `permanent_delegate` (operations), and `transfer` (transfer). `take_snapshot` in `snapshot` accepts only one caller: `coupon_authority` (coupon) — every snapshot is anchored to a coupon. `initialize` in `access-control` accepts only one caller: the `temp_mint_authority` PDA (deploy) — the admin bootstrap runs exactly once, during `deploy_mint`.
+Auxiliary instructions cannot be called by any external wallet. `take_snapshot` in `snapshot` accepts only one caller: `coupon_authority` (coupon) — every snapshot is anchored to a coupon. `initialize` in `access-control` accepts only one caller: the `temp_mint_authority` PDA (deploy) — the admin bootstrap runs exactly once, during `deploy_mint`.
 
 ---
 
@@ -151,15 +151,14 @@ Auxiliary instructions cannot be called by any external wallet. `block_account` 
 | `["temp_mint_authority", mint]` | `deploy` | Ephemeral signing key during `deploy_mint` only |
 | `["mint_authority", mint]` | `mint` | Token-2022 mint authority |
 | `["metadata_update_authority", mint]` | `metadata-update` | Token-2022 metadata update authority |
-| `["freeze_authority", mint]` | `freeze` | Token-2022 freeze authority |
 | `["frozen_account", mint, account]` | `freeze` | Marker: account fully frozen |
 | `["frozen_balance", mint, account]` | `freeze` | Stores locked balance for partial freeze |
 | `["permanent_delegate", mint]` | `operations` | Token-2022 PermanentDelegate authority |
+| `["permissioned_burn", mint]` | `operations` | Token-2022 PermissionedBurn authority; co-signs every burn alongside `permanent_delegate` |
 | `["pausable_authority", mint]` | `pause` | Token-2022 Pausable authority |
 | `["deactivate", mint]` | `deactivate` | Marker: mint permanently deactivated |
 | `["transfer_control_mode", mint]` | `transfer-control` | Stores the active `TransferMode` (currently only `Whitelist`) + bump; created once by `initialize` (no close/update path) |
 | `["whitelist", mint, account]` | `transfer-control` | Marker: account is whitelisted |
-| `["transfer", mint]` | `transfer` | Transfer authority; signs freeze/thaw CPIs |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority (set on the mint by `deploy_mint`); not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
 | `["snapshot_counter", mint]` | `snapshot` | Id of the **next** snapshot for the mint (0-based; after N snapshots `count == N`). Created by `take_snapshot` |
@@ -194,7 +193,7 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 | `PermanentDelegate` | `["permanent_delegate", mint]` | `operations` | Burn/transfer from any account |
 | `MetadataPointer` | None (immutable) | — | Points to mint itself |
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
-| `DefaultAccountState(Frozen)` | `["freeze_authority", mint]` | `freeze` | All new accounts start frozen; thawed/re-frozen transiently during mint/burn/transfer |
+| `PermissionedBurn` | `["permissioned_burn", mint]` | `operations` | Burning requires this authority as an extra signer, so the plain Token-2022 `Burn` is rejected and `operations::burn` / `batch_burn` are the only burn path |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
 | `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer`, `operations::controller_transfer` or `Token-2022::transfer_checked`, all with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules (deactivation, transfer-mode, whitelist, frozen account, frozen balance) live in `transfer::verify_transfer`, not in the hook — see [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) for why. |
 

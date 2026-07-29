@@ -4,7 +4,7 @@ Program ID: `BHDyg8PeUyVBpmkcjYLdnt3VCmYf4wp8Xeu6TXREiLKp`
 
 Controls controller-driven token movements via the Token-2022 `PermanentDelegate` extension: burning (`burn`, `batch_burn`) and force-transfers (`controller_transfer`). Owns the `["permanent_delegate", mint]` PDA that was registered as the permanent delegate during `deploy_mint`. The permanent delegate can burn or transfer tokens from any token account without the account owner's consent.
 
-The `operations_authority` (permanent_delegate PDA) is one of the three callers accepted by `freeze`'s `block_account` / `unblock_account` instructions.
+This program also owns the `["permissioned_burn", mint]` PDA registered as the mint's `PermissionedBurn` authority during `deploy_mint`. That extension makes the plain Token-2022 `Burn` instruction unusable on these mints: burning must go through the extension's own `Burn`, which requires the permissioned-burn authority as an additional signer. Since only this program can sign for that PDA, `burn` and `batch_burn` below are the only way tokens of such a mint can ever be burned — the permanent delegate alone is not sufficient.
 
 ---
 
@@ -36,9 +36,8 @@ amount: u64  // raw token units to burn
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to burn from |
 | `token_account` | yes | no | UncheckedAccount | The holder's token account to burn from |
-| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs unblock, burn, and re-block CPIs |
-| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed to freeze |
-| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
+| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs the burn CPI as the account's delegate |
+| `permissioned_burn_authority` | no | no | UncheckedAccount | seeds `["permissioned_burn", mint]` (owned by this program); co-signs the burn CPI as the mint's `PermissionedBurn` authority |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
 
@@ -46,11 +45,9 @@ amount: u64  // raw token units to burn
 
 1. `require_role(authority_roles_pda.load()?, ROLE_CONTROLLER)` — signer must hold the controller role
 2. `require_active(&deactivate_pda)` + `require_functionality(OPERATIONS_BURN)`
-3. CPI → `freeze::unblock_account(token_account)` signed with `["permanent_delegate", mint, bump]`
-4. `invoke_signed` → `burn(token_account, mint, operations_authority, amount)` signed with `["permanent_delegate", mint, bump]`
-5. CPI → `freeze::block_account(token_account)` signed with `["permanent_delegate", mint, bump]`
+3. `invoke_signed` → `permissioned_burn::instruction::burn(token_account, mint, permissioned_burn_authority, operations_authority, amount)`, signed with **both** `["permanent_delegate", mint, bump]` and `["permissioned_burn", mint, bump]`
 
-The unblock/re-block wrapper is required because all token accounts are frozen by default (`DefaultAccountState::Frozen`).
+Both signatures are needed and neither is optional: `operations_authority` authorises debiting the account (as its permanent delegate), and `permissioned_burn_authority` satisfies the mint's `PermissionedBurn` extension. This is the extension's `Burn` variant, not the plain Token-2022 `Burn` — the plain one has no account slot for the permissioned-burn authority and is rejected outright on a mint carrying the extension.
 
 ---
 
@@ -70,7 +67,7 @@ One account per source, in order, appended as `remaining_accounts`:
 
 | Offset (per source `i`) | Account | Mut | Notes |
 |---|---|---|---|
-| `i` | source token account | yes | burns `amounts[i]`; thawed → burned → re-frozen |
+| `i` | source token account | yes | burns `amounts[i]` |
 
 ### Preconditions
 
@@ -90,9 +87,8 @@ The fixed accounts (the per-source token accounts are passed via `remaining_acco
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to burn from |
-| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs unblock, burn, and re-block CPIs |
-| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed to freeze |
-| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
+| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs each burn CPI as the account's delegate |
+| `permissioned_burn_authority` | no | no | UncheckedAccount | seeds `["permissioned_burn", mint]` (owned by this program); co-signs each burn CPI as the mint's `PermissionedBurn` authority |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
@@ -104,10 +100,10 @@ The fixed accounts (the per-source token accounts are passed via `remaining_acco
 1. `require!(!amounts.is_empty())` and `require!(remaining_accounts.len() == amounts.len())`
 2. `require_role(ROLE_CONTROLLER)` + `require_active` + `require_functionality(OPERATIONS_BURN)`
 3. For each source `i`:
-   1. CPI → `freeze::unblock_account(source)` signed with `["permanent_delegate", mint, bump]`
-   2. `invoke_signed` → `burn(source, mint, operations_authority, amounts[i])` signed with `["permanent_delegate", mint, bump]`
-   3. Emit `ControllerRedemption { mint, controller: authority, from: source, value: amounts[i] }` via `emit_cpi!`
-   4. CPI → `freeze::block_account(source)` signed with `["permanent_delegate", mint, bump]`
+   1. `invoke_signed` → `permissioned_burn::instruction::burn(source, mint, permissioned_burn_authority, operations_authority, amounts[i])`, signed with both `["permanent_delegate", mint, bump]` and `["permissioned_burn", mint, bump]`
+   2. Emit `ControllerRedemption { mint, controller: authority, from: source, value: amounts[i] }` via `emit_cpi!`
+
+Both signer seeds are derived once before the loop and reused for every leg.
 
 ### Errors
 
@@ -148,13 +144,11 @@ amount: u64  // raw token units to transfer
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids and is forwarded to the hook |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | no | no | UncheckedAccount | Token-2022 mint; decimals read in the handler for `transfer_checked` |
-| `from` | yes | no | UncheckedAccount | Source token account; thawed → debited → re-frozen |
-| `to` | yes | no | UncheckedAccount | Destination token account; thawed → credited → re-frozen |
-| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs the unblock, transfer, and re-block CPIs |
-| `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID`; passed to freeze |
+| `from` | yes | no | UncheckedAccount | Source token account; debited |
+| `to` | yes | no | UncheckedAccount | Destination token account; credited |
+| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs the transfer CPI |
 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; forwarded to Token-2022 for hook resolution |
 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
-| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
 | `deploy_program` | no | no | UncheckedAccount | address constrained to `DEPLOY_PROGRAM_ID`; hook metalist index 5 |
 | `factory_program` | no | no | UncheckedAccount | address constrained to `FACTORY_PROGRAM_ID`; hook metalist index 7 |
 | `instructions_sysvar` | no | no | UncheckedAccount | address constrained to the Instructions sysvar; hook metalist index 9 |
@@ -170,12 +164,10 @@ amount: u64  // raw token units to transfer
 1. `require_role(authority_roles_pda.load()?, ROLE_CONTROLLER)`
 2. `require_active(&deactivate_pda)` + `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)`
 3. Read `decimals` off the mint (needed for `transfer_checked`)
-4. CPI → `freeze::unblock_account(from)` then `freeze::unblock_account(to)`, both signed with `["permanent_delegate", mint, bump]`
-5. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the hook accounts appended in metalist order (`extra_account_meta_list`, `transfer_hook_program`, `deploy_program`, `asset_configuration_pda`, `factory_program`, `asset_class_version_pda`, `instructions_sysvar`)
-6. CPI → `freeze::block_account(from)` then `freeze::block_account(to)`, both signed with `["permanent_delegate", mint, bump]`
-7. Emit `ControllerTransferred` via `emit_cpi!`
+4. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the hook accounts appended in metalist order (`extra_account_meta_list`, `transfer_hook_program`, `deploy_program`, `asset_configuration_pda`, `factory_program`, `asset_class_version_pda`, `instructions_sysvar`)
+5. Emit `ControllerTransferred` via `emit_cpi!`
 
-The unblock/re-block wrapper around both accounts is required because all token accounts are frozen by default (`DefaultAccountState::Frozen`) — the same pattern `transfer::transfer` uses.
+`PermissionedBurn` constrains burning only — it places no requirement on transfers, so `controller_transfer` needs no permissioned-burn signer.
 
 ---
 
@@ -183,9 +175,8 @@ The unblock/re-block wrapper around both accounts is required because all token 
 
 ### `ControllerRedemption`
 
-Emitted once per burned token account, after the tokens have been burned via the
-permanent delegate and the account has been re-blocked — once for `burn`, and
-once per source for `batch_burn`. Emitted via **`emit_cpi!`** (self-CPI) rather
+Emitted once per burned token account, after the tokens have been burned — once
+for `burn`, and once per source for `batch_burn`. Emitted via **`emit_cpi!`** (self-CPI) rather
 than `emit!` so the payload is carried in an inner-instruction and cannot be
 truncated by the ingestion layer — the same pattern `deploy` uses for
 `MintDeployed`.
@@ -212,9 +203,9 @@ pub struct ControllerRedemption {
 
 ### `ControllerTransferred`
 
-Emitted once by `controller_transfer`, after the tokens have moved and both
-accounts have been re-blocked. Same `emit_cpi!` (self-CPI) delivery and the same
-consumer notes as `ControllerRedemption` above.
+Emitted once by `controller_transfer`, after the tokens have moved. Same
+`emit_cpi!` (self-CPI) delivery and the same consumer notes as
+`ControllerRedemption` above.
 
 ```rust
 #[event]

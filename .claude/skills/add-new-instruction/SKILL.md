@@ -94,16 +94,21 @@ The canonical form when the caller is one of this program's PDAs:
 let mint_key = ctx.accounts.mint.key();
 let authority_seeds: &[&[u8]] = &[b"<seed>", mint_key.as_ref(), &[ctx.bumps.<authority>]];
 
-freeze::cpi::block_account(
+snapshot::cpi::take_snapshot(
     CpiContext::new_with_signer(
-        ctx.accounts.freeze_program.to_account_info(),
-        BlockAccount { /* field = to_account_info() per struct field */ },
+        constants::SNAPSHOT_PROGRAM_ID,
+        TakeSnapshot { /* field = to_account_info() per struct field */ },
         &[authority_seeds],
     ),
+    merkle_root,
 )?;
 ```
 
+See [`coupon::create_coupon`](../../../programs/coupon/src/instructions/create_coupon.rs) for the full worked version.
+
 If the target crate exposes `cpi::accounts::*`, import those. Avoid hand-rolling `invoke_signed` unless the target is Token-2022 or System directly.
+
+When the target is Token-2022 and the mint needs more than one signing authority, pass every seed set in one `invoke_signed` — e.g. `operations::burn` signs with both the permanent-delegate and permissioned-burn PDAs, since the `PermissionedBurn` extension requires both. Adding an extra `AccountInfo` to the infos array is *not* enough: an account the instruction's own `AccountMeta` list doesn't reference is never passed to the callee.
 
 ## 7. Errors
 

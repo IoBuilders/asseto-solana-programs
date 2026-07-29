@@ -4,8 +4,8 @@ Program ID: `Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q`
 
 The custom transfer endpoint. Token holders interact with this program
 in a two-instruction sequence: `verify_transfer` (compliance pre-check) followed
-immediately by `transfer` (the actual unblock → `transfer_checked` → re-block
-sequence). Token-2022 invokes `transfer-hook::execute` from inside the
+immediately by `transfer` (the `transfer_checked` CPI that actually moves the
+tokens). Token-2022 invokes `transfer-hook::execute` from inside the
 inner `transfer_checked` CPI; the hook reads the `Instructions` sysvar and
 **rejects the transfer unless `verify_transfer` was the immediately-prior
 top-level instruction** with matching `source` / `destination` / `mint` /
@@ -16,9 +16,10 @@ Token-2022's hard-coded 32 KiB heap. See
 [`docs/transfer-hook-heap-oom.md`](transfer-hook-heap-oom.md) for the
 background on that constraint.
 
-Owns the `["transfer", mint]` PDA, which acts as the signing authority for the
-block/unblock CPIs to `freeze` and is one of the three callers accepted
-by `freeze`'s auxiliary instructions.
+This program owns no PDA and signs nothing of its own: the `transfer_checked` CPI
+is authorised by the `source_owner` signature the client already provides.
+Freezing is enforced read-side, by `verify_transfer` reading `freeze`'s marker
+PDAs.
 
 ---
 
@@ -110,9 +111,8 @@ instruction doesn't need.
 
 ## Instruction: `transfer` (Operational)
 
-The actual token movement. Performs the unblock → `transfer_checked` →
-re-block sequence and forwards the hook's `ExtraAccountMetaList` accounts
-through the inner `transfer_checked` CPI.
+The actual token movement. Issues a single `transfer_checked` CPI and forwards
+the hook's `ExtraAccountMetaList` accounts through it.
 
 ### Parameters
 
@@ -131,31 +131,27 @@ introspection can cross-check both instructions describe the same transfer.
 | 1 | `source` | yes | no | UncheckedAccount | Source token account |
 | 2 | `destination` | yes | no | UncheckedAccount | Destination token account |
 | 3 | `mint` | no | no | UncheckedAccount | Token-2022 mint; decimals read for `transfer_checked` |
-| 4 | `transfer_authority` | no | no | UncheckedAccount | seeds `["transfer", mint]` (this program); signs block/unblock CPIs |
-| 5 | `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID` |
-| 6 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
-| 7 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
-| 8 | `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
-| 9 | `deploy_program` | no | no | UncheckedAccount | Forwarded; address constrained to `DEPLOY_PROGRAM_ID`. The metalist resolves `asset_configuration_pda` against it |
-| 10 | `asset_configuration_pda` | no | no | UncheckedAccount | Forwarded; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`. The hook reads the asset-class ids off it |
-| 11 | `factory_program` | no | no | UncheckedAccount | Forwarded; address constrained to `FACTORY_PROGRAM_ID`. The metalist resolves `asset_class_version_pda` against it |
-| 12 | `asset_class_version_pda` | no | no | UncheckedAccount | Forwarded; address verified by Token-2022 against the metalist's seed-derived entry. The hook's functionality gate reads it |
-| 13 | `instructions_sysvar` | no | no | UncheckedAccount | address constrained to `Sysvar1nstructions...`; forwarded to the hook for introspection |
-| 14 | `token_2022_program` | no | no | Program<Token2022> | |
+| 4 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
+| 5 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
+| 6 | `deploy_program` | no | no | UncheckedAccount | Forwarded; address constrained to `DEPLOY_PROGRAM_ID`. The metalist resolves `asset_configuration_pda` against it |
+| 7 | `asset_configuration_pda` | no | no | UncheckedAccount | Forwarded; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`. The hook reads the asset-class ids off it |
+| 8 | `factory_program` | no | no | UncheckedAccount | Forwarded; address constrained to `FACTORY_PROGRAM_ID`. The metalist resolves `asset_class_version_pda` against it |
+| 9 | `asset_class_version_pda` | no | no | UncheckedAccount | Forwarded; address verified by Token-2022 against the metalist's seed-derived entry. The hook's functionality gate reads it |
+| 10 | `instructions_sysvar` | no | no | UncheckedAccount | address constrained to `Sysvar1nstructions...`; forwarded to the hook for introspection |
+| 11 | `token_2022_program` | no | no | Program<Token2022> | |
 
-There is **no** `transfer_hook_authority`, `snapshot_program`,
+This instruction takes **no** `transfer_authority`, `freeze_authority`,
+`freeze_program`, `transfer_hook_authority`, `snapshot_program`,
 `snapshot_counter_pda`, `sender_snapshot`, `receiver_snapshot` or
-`system_program` here any more: the hook stopped writing holder-balance
-snapshots (balances are committed to a per-snapshot Merkle root instead), so
-it creates no accounts and needs no payer. Clients using `.accountsStrict()`
-must not pass them.
+`system_program`. It signs nothing itself, so it needs no authority accounts; and
+the hook writes no holder-balance snapshots (balances are committed to a
+per-snapshot Merkle root instead), so it creates no accounts and needs no payer.
+Clients using `.accountsStrict()` must not pass them.
 
 ### Execution
 
 1. Read `decimals` from `mint` (required by `transfer_checked`).
-2. CPI → `freeze::unblock_account(source)` signed with `["transfer", mint, bump]`.
-3. CPI → `freeze::unblock_account(destination)` signed with `["transfer", mint, bump]`.
-4. `invoke` → `transfer_checked(source, mint, destination, source_owner, amount, decimals)`.
+2. `invoke` → `transfer_checked(source, mint, destination, source_owner, amount, decimals)`.
    The `ExtraAccountMetaList` + `transfer_hook_program` + every account listed
    in the metalist (`deploy_program`, `asset_configuration_pda`,
    `factory_program`, `asset_class_version_pda`, `instructions_sysvar`) are
@@ -163,8 +159,9 @@ must not pass them.
    Token-2022 invokes `transfer-hook::execute`, which performs the
    double-introspection check and the `TRANSFER_HOOK_EXECUTE` functionality
    check.
-5. CPI → `freeze::block_account(source)` signed with `["transfer", mint, bump]`.
-6. CPI → `freeze::block_account(destination)` signed with `["transfer", mint, bump]`.
+
+Plain `invoke`, not `invoke_signed` — the `source_owner` signature travels with
+the transaction, so this program contributes no signer of its own.
 
 ### Transfer hook account list note
 
@@ -235,10 +232,9 @@ No token movement, no CPIs, no state changes.
 ## Instruction: `batch_transfer` (Operational)
 
 Batch counterpart of `transfer`: one source holder fans tokens out to many
-destinations in a single instruction. Unblocks the shared source once, then per
-destination runs unblock → `transfer_checked` → re-block, and re-blocks the
-source once at the end. Each `transfer_checked` fires the hook, which
-introspects the `batch_verify_transfer` (N-1) + `batch_transfer` (N) pair.
+destinations in a single instruction, one `transfer_checked` CPI per destination.
+Each `transfer_checked` fires the hook, which introspects the
+`batch_verify_transfer` (N-1) + `batch_transfer` (N) pair.
 
 ### Parameters
 
@@ -259,29 +255,24 @@ token accounts are appended as `remaining_accounts`, one per amount
 | 0 | `source_owner` | no | yes | Signer | Token-2022 enforces `source.owner == source_owner` natively |
 | 1 | `source` | yes | no | UncheckedAccount | Shared source token account |
 | 2 | `mint` | no | no | UncheckedAccount | Token-2022 mint; decimals read for `transfer_checked` |
-| 3 | `transfer_authority` | no | no | UncheckedAccount | seeds `["transfer", mint]` (this program); signs block/unblock CPIs |
-| 4 | `freeze_authority` | no | no | UncheckedAccount | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID` |
-| 5 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
-| 6 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
-| 7 | `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID` |
-| 8 | `deploy_program` | no | no | UncheckedAccount | forwarded; address constrained to `DEPLOY_PROGRAM_ID` |
-| 9 | `asset_configuration_pda` | no | no | UncheckedAccount | forwarded; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| 10 | `factory_program` | no | no | UncheckedAccount | forwarded; address constrained to `FACTORY_PROGRAM_ID` |
-| 11 | `asset_class_version_pda` | no | no | UncheckedAccount | forwarded; verified by Token-2022 against the metalist |
-| 12 | `instructions_sysvar` | no | no | UncheckedAccount | address constrained to `Sysvar1nstructions...`; forwarded to the hook |
-| 13 | `token_2022_program` | no | no | Program<Token2022> | |
-| 14.. | destination token accounts | yes | no | `remaining_accounts` | one per amount, in `amounts` order |
+| 3 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
+| 4 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
+| 5 | `deploy_program` | no | no | UncheckedAccount | forwarded; address constrained to `DEPLOY_PROGRAM_ID` |
+| 6 | `asset_configuration_pda` | no | no | UncheckedAccount | forwarded; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
+| 7 | `factory_program` | no | no | UncheckedAccount | forwarded; address constrained to `FACTORY_PROGRAM_ID` |
+| 8 | `asset_class_version_pda` | no | no | UncheckedAccount | forwarded; verified by Token-2022 against the metalist |
+| 9 | `instructions_sysvar` | no | no | UncheckedAccount | address constrained to `Sysvar1nstructions...`; forwarded to the hook |
+| 10 | `token_2022_program` | no | no | Program<Token2022> | |
+| 11.. | destination token accounts | yes | no | `remaining_accounts` | one per amount, in `amounts` order |
+
+As with `transfer`, there is no `transfer_authority`, `freeze_authority` or
+`freeze_program` — see the note under that instruction.
 
 ### Execution
 
 1. `require!(!amounts.is_empty())` → `EmptyBatch`; `require!(remaining_accounts.len() == amounts.len())` → `InvalidRemainingAccounts`.
-2. Read `decimals` from `mint`.
-3. CPI → `freeze::unblock_account(source)` — once, signed with `["transfer", mint, bump]`.
-4. For each destination `i`:
-   1. CPI → `freeze::unblock_account(destination_i)`.
-   2. `invoke` → `transfer_checked(source, mint, destination_i, source_owner, amounts[i], decimals)` with the hook extras appended (same 5 metalist entries as `transfer`). The hook runs its batch introspection.
-   3. CPI → `freeze::block_account(destination_i)`.
-5. CPI → `freeze::block_account(source)` — once.
+2. Read `decimals` from `mint` — once, before the loop.
+3. For each destination `i`: `invoke` → `transfer_checked(source, mint, destination_i, source_owner, amounts[i], decimals)` with the hook extras appended (same 5 metalist entries as `transfer`). The hook runs its batch introspection per leg.
 
 There is no `ControllerRedemption`-style event: like the singular `transfer`,
 `batch_transfer` emits nothing.

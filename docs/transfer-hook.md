@@ -249,11 +249,19 @@ wrapper: the hook pins its discriminator, so nothing else in `operations` can
 reach the transfer path.
 
 The bare `Token-2022::TransferChecked` entrypoint is permitted for
-composability but is effectively dead-letter today: the source account is
-`DefaultAccountState::Frozen`, and only `freeze::unblock_account` (which
-only `transfer::transfer` invokes) can thaw it. A direct top-level
-`transfer_checked` therefore fails at Token-2022's frozen-account check
-before the hook ever runs.
+composability, and since the mint no longer carries `DefaultAccountState(Frozen)`
+it is a genuinely usable path rather than the dead letter it used to be. Token
+accounts now start `Initialized`, so nothing rejects a direct top-level
+`transfer_checked` before the hook runs.
+
+This does **not** weaken compliance. The gate has always been the
+double-introspection check, not the account state: a bare `transfer_checked` still
+only succeeds if the immediately-prior top-level instruction is
+`transfer::verify_transfer` with matching `source` / `destination` / `mint` /
+`amount`, and that `verify_transfer` runs the full rule set (deactivation,
+transfer mode, whitelist, frozen-account marker, unfrozen balance). What was
+removed is a redundant belt-and-braces layer, not a rule. Callers composing on
+this path must therefore still prepend their own `verify_transfer`.
 
 ---
 

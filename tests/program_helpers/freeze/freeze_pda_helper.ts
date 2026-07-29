@@ -4,12 +4,6 @@ import { FREEZE_PROGRAM_ID } from "../../utils/address_utils";
 import { getFreezeProgram } from "./freeze_instruction_helper";
 import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
 
-// ── freeze_authority PDA ───────────────────────────────────────────────────────
-
-export function freezeAuthorityPda(mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("freeze_authority"), mint.toBuffer()], FREEZE_PROGRAM_ID)[0];
-}
-
 // ── frozen_account PDA ─────────────────────────────────────────────────────────
 
 export function frozenAccountPda(mint: PublicKey, account: PublicKey): PublicKey {

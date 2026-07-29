@@ -28,13 +28,11 @@ pub fn metadata_update_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info
 }
 
 /********************************** FREEZE **********************************/
-pub const FREEZE_AUTHORITY: &[u8] = b"freeze_authority";
+// No `freeze_authority` seed: mints are deployed with no Token-2022 freeze
+// authority at all, so that PDA can never exist. Freezing is expressed by the two
+// marker PDAs below and enforced by `transfer::verify_transfer`.
 pub const FROZEN_ACCOUNT: &[u8] = b"frozen_account";
 pub const FROZEN_BALANCE: &[u8] = b"frozen_balance";
-
-pub fn freeze_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
-    vec![FREEZE_AUTHORITY, mint.as_ref()]
-}
 
 /******************************** OPERATIONS ********************************/
 pub const PERMANENT_DELEGATE: &[u8] = b"permanent_delegate";

@@ -166,17 +166,17 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
 
     // ── 8. initialize_mint2 ──────────────────────────────────────────────────
     //
-    // The freeze authority is set to `freeze`'s PDA even though no program signs
-    // with it: freeze/unfreeze are marker-PDA based and enforced by
-    // `transfer::verify_transfer`, not by Token-2022's account state. A mint's
-    // freeze authority can only be set here, so assigning it now reserves the
-    // capability for `freeze` instead of giving it up permanently.
+    // No freeze authority. Freezing is marker-PDA based (`freeze`) and enforced by
+    // `transfer::verify_transfer`, so nothing would ever sign with it. This is
+    // irreversible: a mint's freeze authority can only be set here, and
+    // `set_authority` requires the current one to sign, so these mints can never
+    // gain a token-level freeze.
     invoke(
         &initialize_mint2(
             &token_program_id,
             &mint_key,
             &ctx.accounts.temp_mint_authority.key(),
-            Some(&ctx.accounts.freeze_authority.key()),
+            None,
             params.decimals,
         )
         .map_err(Error::from)?,
@@ -402,14 +402,6 @@ pub struct DeployMint<'info> {
         bump,
     )]
     pub pausable_authority: UncheckedAccount<'info>,
-
-    /// CHECK: PDA address verified by seeds/bump constraint.
-    #[account(
-        seeds = [pda_seeds::FREEZE_AUTHORITY, mint.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub freeze_authority: UncheckedAccount<'info>,
 
     /// CHECK: PDA address verified by seeds/bump constraint.
     #[account(
