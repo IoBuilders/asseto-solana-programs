@@ -101,7 +101,7 @@ Use `--skip-build` once you've already run a fresh `anchor build`.
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
 │   ├── transfer-control/     — whitelist / clearing mode
-│   ├── transfer/             — custom transfer endpoint: `verify_transfer` (compliance pre-check) + `transfer` (a single `transfer_checked` CPI)
+│   ├── transfer/             — transfer compliance gate: `verify_transfer` (pre-check) + Token-2022's own `transfer_checked` for the movement; `batch_transfer` for one source → N destinations
 │   ├── transfer-hook/        — SPL Transfer Hook; read-only gate: double-introspection + functionality check
 │   ├── snapshot/             — snapshot counter + total-supply / holder-balance histories per mint
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms
@@ -245,7 +245,7 @@ pub mint_owner_pda: UncheckedAccount<'info>,
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
 | `PermissionedBurn` | `["permissioned_burn", mint]` | `operations` | Burning requires this authority as an extra signer, so the plain Token-2022 `Burn` is rejected and `operations::burn` / `batch_burn` are the only burn path |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::transfer` or `Token-2022::transfer_checked`, both with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules live in `transfer::verify_transfer`, not in the hook. |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook runs a double introspection check (previous top-level instruction must be `transfer::verify_transfer`; current top-level must be `transfer::batch_transfer`, `operations::controller_transfer` or `Token-2022::transfer_checked`, all with matching args) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. Compliance rules live in `transfer::verify_transfer`, not in the hook. |
 
 ---
 

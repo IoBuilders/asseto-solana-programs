@@ -2,11 +2,11 @@
 
 Program ID: `Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q`
 
-The custom transfer endpoint. Token holders interact with this program
-in a two-instruction sequence: `verify_transfer` (compliance pre-check) followed
-immediately by `transfer` (the `transfer_checked` CPI that actually moves the
-tokens). Token-2022 invokes `transfer-hook::execute` from inside the
-inner `transfer_checked` CPI; the hook reads the `Instructions` sysvar and
+The compliance gate for transfers. This program does not move tokens: holders
+submit `verify_transfer` (compliance pre-check) followed immediately by
+Token-2022's own `transfer_checked`, which performs the movement. Token-2022
+invokes `transfer-hook::execute` from inside that `transfer_checked`; the hook
+reads the `Instructions` sysvar and
 **rejects the transfer unless `verify_transfer` was the immediately-prior
 top-level instruction** with matching `source` / `destination` / `mint` /
 `amount`. That double-introspection check is what lets us keep all
@@ -16,10 +16,12 @@ Token-2022's hard-coded 32 KiB heap. See
 [`docs/transfer-hook-heap-oom.md`](transfer-hook-heap-oom.md) for the
 background on that constraint.
 
-This program owns no PDA and signs nothing of its own: the `transfer_checked` CPI
-is authorised by the `source_owner` signature the client already provides.
-Freezing is enforced read-side, by `verify_transfer` reading `freeze`'s marker
-PDAs.
+This program owns no PDA, signs nothing, and issues no CPI on the singular path —
+`transfer_checked` is a top-level instruction authorised by the `source_owner`
+signature the client already provides. Freezing is enforced read-side, by
+`verify_transfer` reading `freeze`'s marker PDAs. The only instruction here that
+moves tokens is `batch_transfer`, which exists to fan one source out to many
+destinations in a single instruction (see [below](#instruction-batch_transfer-operational)).
 
 ---
 
@@ -30,15 +32,17 @@ the same transaction, in this order:
 
 ```
 N-1:  transfer::verify_transfer(amount)
-N:    transfer::transfer(amount)
+N:    Token-2022::transfer_checked(amount)
 ```
 
-A bare `transfer::transfer` (or a direct top-level
-`Token-2022::transfer_checked`) is rejected by the hook with one of the
-`Prev*` / `Current*` introspection errors. ComputeBudget instructions and
-other unrelated pre-instructions are fine **as long as `verify_transfer`
-remains at index N-1**; in particular, place ComputeBudget *before*
-`verify_transfer`, not between it and `transfer`.
+A `transfer_checked` without a matching `verify_transfer` at N-1 is rejected by
+the hook with one of the `Prev*` / `Current*` introspection errors. ComputeBudget
+instructions and other unrelated pre-instructions are fine **as long as
+`verify_transfer` remains at index N-1**; in particular, place ComputeBudget
+*before* `verify_transfer`, not between it and the `transfer_checked`.
+
+The `transfer_checked` must carry the hook's accounts appended after its own four
+— see [Building the `transfer_checked` instruction](#building-the-transfer_checked-instruction).
 
 The **batch** variant follows the same two-instruction shape, one source
 holder fanning out to many destinations:
@@ -60,22 +64,21 @@ must sit at `N-1`, and `batch_transfer` at `N`.
 
 Pre-transfer compliance gate. Runs the full rule set against the
 *pre-debit* state of the source account, without moving any tokens. Designed
-to be the immediately-prior top-level instruction before `transfer` in a
-transaction; the hook introspects this call and demands the
+to be the immediately-prior top-level instruction before the `transfer_checked`
+in a transaction; the hook introspects this call and demands the
 `source` / `destination` / `mint` / `amount` match.
 
 ### Parameters
 
 ```rust
-amount: u64  // must equal the amount passed to the following `transfer`
+amount: u64  // must equal the amount passed to the following `transfer_checked`
 ```
 
 ### Accounts
 
-**Account ordering is part of this instruction's contract.** Indices 0–3
-(`source_owner`, `source`, `destination`, `mint`) match `transfer` exactly so
-the hook can compare both instructions describe the same transfer at fixed
-positions.
+**Account ordering is part of this instruction's contract** — the hook reads
+`source`, `destination` and `mint` at indices 1, 2 and 3, so these may not be
+reordered.
 
 | Idx | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|---|
@@ -109,69 +112,52 @@ instruction doesn't need.
 
 ---
 
-## Instruction: `transfer` (Operational)
+## Building the `transfer_checked` instruction
 
-The actual token movement. Issues a single `transfer_checked` CPI and forwards
-the hook's `ExtraAccountMetaList` accounts through it.
+There is no wrapper instruction for the singular transfer — the client builds
+Token-2022's `transfer_checked` itself. `transfer_checked` produces only 4
+`AccountMeta` entries, and Token-2022 uses `instruction.accounts` to discover
+which accounts are reachable during the hook invocation, so the hook's accounts
+must be **appended** to that list.
 
-### Parameters
+| Idx | Account | Mut | Signer | Notes |
+|---|---|---|---|---|
+| 0 | `source` | yes | no | Source token account |
+| 1 | `mint` | no | no | Token-2022 mint |
+| 2 | `destination` | yes | no | Destination token account |
+| 3 | `source_owner` | no | yes | Token-2022 enforces `source.owner == source_owner` natively |
+| 4 | `extra_account_meta_list` | no | no | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
+| 5 | `transfer_hook_program` | no | no | `TRANSFER_HOOK_PROGRAM_ID` |
+| 6 | `deploy_program` | no | no | `DEPLOY_PROGRAM_ID`; the metalist resolves `asset_configuration_pda` against it |
+| 7 | `asset_configuration_pda` | no | no | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; the hook reads the asset-class ids off it |
+| 8 | `factory_program` | no | no | `FACTORY_PROGRAM_ID`; the metalist resolves `asset_class_version_pda` against it |
+| 9 | `asset_class_version_pda` | no | no | Verified by Token-2022 against the metalist's seed-derived entry; the hook's functionality gate reads it |
+| 10 | `instructions_sysvar` | no | no | `Sysvar1nstructions...`; the hook introspects it |
 
-```rust
-amount: u64  // raw token units; must equal the amount the prior verify_transfer used
-```
+**Indices 4–10 are load-bearing in exactly this order** — indices 4 and 5 are the
+metalist PDA and hook program, and 6–10 are the metalist's own entries in
+declaration order. Token-2022 resolves the metalist and checks the forwarded
+accounts against it, so a wrong order fails inside Token-2022 before the hook
+runs.
 
-### Accounts
+Note the account order differs from `verify_transfer`'s: `transfer_checked` is
+`(source, mint, destination, owner)` whereas `verify_transfer` is
+`(source_owner, source, destination, mint)`. The hook knows both layouts and
+compares the two instructions field-by-field, so the two orders do **not** need to
+agree — but neither may be reordered, since the hook reads each at fixed indices.
 
-Account ordering at indices 0–3 matches `VerifyTransfer` so the hook's
-introspection can cross-check both instructions describe the same transfer.
+Nothing here needs a `transfer_authority`, `freeze_authority`, `freeze_program`,
+`transfer_hook_authority`, `snapshot_program`, `snapshot_counter_pda`,
+`sender_snapshot`, `receiver_snapshot` or `system_program`: no program signs on
+this path, and the hook writes no holder-balance snapshots (balances are committed
+to a per-snapshot Merkle root instead), so it creates no accounts and needs no
+payer.
 
-| Idx | Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|---|
-| 0 | `source_owner` | no | yes | Signer | Token-2022 enforces `source.owner == source_owner` natively |
-| 1 | `source` | yes | no | UncheckedAccount | Source token account |
-| 2 | `destination` | yes | no | UncheckedAccount | Destination token account |
-| 3 | `mint` | no | no | UncheckedAccount | Token-2022 mint; decimals read for `transfer_checked` |
-| 4 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
-| 5 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
-| 6 | `deploy_program` | no | no | UncheckedAccount | Forwarded; address constrained to `DEPLOY_PROGRAM_ID`. The metalist resolves `asset_configuration_pda` against it |
-| 7 | `asset_configuration_pda` | no | no | UncheckedAccount | Forwarded; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`. The hook reads the asset-class ids off it |
-| 8 | `factory_program` | no | no | UncheckedAccount | Forwarded; address constrained to `FACTORY_PROGRAM_ID`. The metalist resolves `asset_class_version_pda` against it |
-| 9 | `asset_class_version_pda` | no | no | UncheckedAccount | Forwarded; address verified by Token-2022 against the metalist's seed-derived entry. The hook's functionality gate reads it |
-| 10 | `instructions_sysvar` | no | no | UncheckedAccount | address constrained to `Sysvar1nstructions...`; forwarded to the hook for introspection |
-| 11 | `token_2022_program` | no | no | Program<Token2022> | |
-
-This instruction takes **no** `transfer_authority`, `freeze_authority`,
-`freeze_program`, `transfer_hook_authority`, `snapshot_program`,
-`snapshot_counter_pda`, `sender_snapshot`, `receiver_snapshot` or
-`system_program`. It signs nothing itself, so it needs no authority accounts; and
-the hook writes no holder-balance snapshots (balances are committed to a
-per-snapshot Merkle root instead), so it creates no accounts and needs no payer.
-Clients using `.accountsStrict()` must not pass them.
-
-### Execution
-
-1. Read `decimals` from `mint` (required by `transfer_checked`).
-2. `invoke` → `transfer_checked(source, mint, destination, source_owner, amount, decimals)`.
-   The `ExtraAccountMetaList` + `transfer_hook_program` + every account listed
-   in the metalist (`deploy_program`, `asset_configuration_pda`,
-   `factory_program`, `asset_class_version_pda`, `instructions_sysvar`) are
-   appended to `transfer_ix.accounts` (see note below). During this CPI
-   Token-2022 invokes `transfer-hook::execute`, which performs the
-   double-introspection check and the `TRANSFER_HOOK_EXECUTE` functionality
-   check.
-
-Plain `invoke`, not `invoke_signed` — the `source_owner` signature travels with
-the transaction, so this program contributes no signer of its own.
-
-### Transfer hook account list note
-
-`transfer_checked` builds only 4 `AccountMeta` entries. Token-2022 uses
-`instruction.accounts` to discover accessible accounts during the hook
-invocation, so `extra_account_meta_list`, `transfer_hook_program`, and every
-pubkey referenced by the `ExtraAccountMetaList` (the 5 hook extras: deploy
-program + `asset_configuration_pda` + factory program +
-`asset_class_version_pda` + Instructions sysvar) must be **appended to
-`transfer_ix.accounts`** before the `invoke` call.
+The test suite's `splTransfer` helper in
+[`tests/program_helpers/transfer_helper.ts`](../tests/program_helpers/transfer_helper.ts)
+builds this pair and is the reference implementation. `@solana/spl-token`'s
+`createTransferCheckedWithTransferHookInstruction` can also resolve the metalist
+automatically instead of appending indices 4–10 by hand.
 
 ---
 
@@ -247,8 +233,8 @@ amounts: Vec<u64>  // raw token units per destination; must equal the vector pas
 Account ordering at indices 0–2 (`source_owner`, `source`, `mint`) is fixed so
 the hook can locate `source`/`mint` and match the destinations. The destination
 token accounts are appended as `remaining_accounts`, one per amount
-(`remaining_accounts.len() == amounts.len()`). The named accounts mirror
-`transfer` minus its single `destination`.
+(`remaining_accounts.len() == amounts.len()`), and indices 3–9 are the same hook
+accounts, in the same load-bearing order, as the singular path documented above.
 
 | Idx | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|---|
@@ -265,17 +251,27 @@ token accounts are appended as `remaining_accounts`, one per amount
 | 10 | `token_2022_program` | no | no | Program<Token2022> | |
 | 11.. | destination token accounts | yes | no | `remaining_accounts` | one per amount, in `amounts` order |
 
-As with `transfer`, there is no `transfer_authority`, `freeze_authority` or
-`freeze_program` — see the note under that instruction.
+There is no `transfer_authority`, `freeze_authority` or `freeze_program` here —
+this instruction signs nothing either; each leg's `transfer_checked` is authorised
+by the `source_owner` signature on the transaction.
 
 ### Execution
 
 1. `require!(!amounts.is_empty())` → `EmptyBatch`; `require!(remaining_accounts.len() == amounts.len())` → `InvalidRemainingAccounts`.
 2. Read `decimals` from `mint` — once, before the loop.
-3. For each destination `i`: `invoke` → `transfer_checked(source, mint, destination_i, source_owner, amounts[i], decimals)` with the hook extras appended (same 5 metalist entries as `transfer`). The hook runs its batch introspection per leg.
+3. For each destination `i`: `invoke` → `transfer_checked(source, mint, destination_i, source_owner, amounts[i], decimals)` with the same 5 metalist entries appended. The hook runs its batch introspection per leg.
 
-There is no `ControllerRedemption`-style event: like the singular `transfer`,
-`batch_transfer` emits nothing.
+`batch_transfer` emits no event.
+
+### Why this one is still a program instruction
+
+Unlike the singular path, the batch cannot be replaced by calling Token-2022
+directly. Doing so would mean N separate top-level `transfer_checked`
+instructions, each needing its own `verify_transfer` at N-1 — more transaction
+bytes, and it would lose the batch-level check of the **sum** of all legs against
+the source's unfrozen balance. That sum check is what stops two legs of 100 from
+both matching a single verified leg of 100; see the pair-identity discussion in
+[`transfer-hook.md`](transfer-hook.md).
 
 ---
 
@@ -283,7 +279,6 @@ There is no `ControllerRedemption`-style event: like the singular `transfer`,
 
 ```rust
 pub enum TransferError {
-    UnauthorizedTransfer,       // legacy — ownership enforced by Token-2022
     EmptyBatch,                 // amounts is empty
     InvalidRemainingAccounts,   // remaining_accounts count doesn't match amounts (×1 for transfer, ×2 for verify)
     BatchAmountOverflow,        // sum of batch amounts overflows u64

@@ -24,7 +24,7 @@ import {
   batchTransfer,
   buildBatchVerifyTransferInstruction,
   buildVerifyTransferInstruction,
-  transfer,
+  splTransfer,
   verifyTransfer,
 } from "./program_helpers/transfer_helper";
 import { beforeEach } from "mocha";
@@ -96,7 +96,7 @@ describe("transfer", () => {
       const supplyBefore = (await getMint(mint)).supply;
 
       // ── Call transfer ──────────────────────────────────────────────────────
-      await transfer(
+      await splTransfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_AMOUNT }
       );
@@ -132,7 +132,7 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       try {
-        await transfer({
+        await splTransfer({
           mint,
           source,
           sourceOwner,
@@ -168,7 +168,7 @@ describe("transfer", () => {
       );
       try {
         const preInstructions = [verifyIx, anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })];
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, preInstructions, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -200,7 +200,7 @@ describe("transfer", () => {
       );
       try {
         const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx];
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, preInstructions, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -217,65 +217,6 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      // Create a destination token account (owned by destinationOwner).
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Re-seed the asset-class version WITHOUT finalizing it.
-      await setAssetClassVersionForMint(mint, {
-        state: ASSET_CLASS_VERSION_STATE_DRAFT,
-        functionalities: [TRANSFER_HOOK_EXECUTE],
-      });
-
-      try {
-        await transfer(
-          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-          { amount: TRANSFER_AMOUNT }
-        );
-        assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "AssetClassVersionNotFinalized",
-          "error code should be AssetClassVersionNotFinalized"
-        );
-      }
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails with FunctionalityNotSupportedError when the transfer_hook_execute functionality is not enabled", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      // Create a destination token account (owned by destinationOwner).
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // Re-seed the asset-class version WITHOUT the transfer_hook_execute functionality.
-      await setAssetClassVersionForMint(mint, { functionalities: [] });
-
-      try {
-        await transfer(
-          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
-          { amount: TRANSFER_AMOUNT }
-        );
-        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "FunctionalityNotSupportedError",
-          "error code should be FunctionalityNotSupportedError"
-        );
-      }
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
     it("transfer: fails when signer is not token holder", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
@@ -287,7 +228,7 @@ describe("transfer", () => {
       const rogueKeypair = Keypair.generate();
 
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner: rogueKeypair.publicKey, destination, signers: [rogueKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -317,7 +258,7 @@ describe("transfer", () => {
       await setMintPaused(mint, true);
 
       try {
-        await transfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await splTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected mint-is-paused error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
@@ -377,7 +318,7 @@ describe("transfer", () => {
       );
 
       // ── Retry same transfer — succeeds (available = 60 >= 50) ────────────────
-      await transfer(
+      await splTransfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_AMOUNT }
       );
@@ -412,7 +353,7 @@ describe("transfer", () => {
       await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       // ── Transfer 40 tokens — succeeds (available = 100 - 50 = 50 >= 40) ──────
-      await transfer(
+      await splTransfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: FIRST_TRANSFER }
       );
@@ -427,7 +368,7 @@ describe("transfer", () => {
 
       // ── Transfer 20 tokens — fails (available = 60 - 50 = 10 < 20) ───────────
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: SECOND_TRANSFER }
         );
@@ -486,7 +427,7 @@ describe("transfer", () => {
 
       // (3) Any positive outbound transfer must fail — saturating_sub clamps available to 0.
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_ATTEMPT }
         );
@@ -504,7 +445,7 @@ describe("transfer", () => {
       // (4) Recovery path — after unfreeze_account_partial, the 20 remaining tokens transact normally.
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
       await clearFrozenBalancePda(mint, source);
-      await transfer(
+      await splTransfer(
         { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
         { amount: TRANSFER_ATTEMPT }
       );
@@ -583,7 +524,7 @@ describe("transfer", () => {
       const destBefore = (await getTokenAccount(destination)).amount;
 
       try {
-        await transfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );

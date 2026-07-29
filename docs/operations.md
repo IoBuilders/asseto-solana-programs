@@ -116,7 +116,7 @@ Both signer seeds are derived once before the loop and reused for every leg.
 
 ## Instruction: `controller_transfer` (Operational — controller only)
 
-Force-transfers `amount` tokens from the `from` token account to the `to` token account via the permanent delegate, without the holder's consent. Used to move tokens under legal/regulatory instruction (court order, lost-key recovery, mis-delivery). No snapshot CPIs run — like `transfer::transfer`, it is snapshot-agnostic.
+Force-transfers `amount` tokens from the `from` token account to the `to` token account via the permanent delegate, without the holder's consent. Used to move tokens under legal/regulatory instruction (court order, lost-key recovery, mis-delivery). No snapshot CPIs run — like every other transfer path, it is snapshot-agnostic.
 
 > **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`, and that hook's double-introspection requires a matching `transfer::verify_transfer` as the *previous* top-level instruction. **A `controller_transfer` transaction must therefore prepend `transfer::verify_transfer` with the same `(source, destination, mint, amount)`** — the hook accepts `operations::controller_transfer` at index N (see [`transfer-hook.md`](transfer-hook.md) step 5), but still rejects a bare one at index 0 with `NoPreviousInstruction`.
 >

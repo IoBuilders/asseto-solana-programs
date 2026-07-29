@@ -1,8 +1,10 @@
-import { AccountMeta, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { AccountMeta, PublicKey, SendTransactionError, Transaction, TransactionInstruction } from "@solana/web3.js";
 import * as pdaUtils from "../utils/pda_utils";
 import { deactivatePda } from "./deactivate/deactivate_pda_helper";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { createTransferCheckedInstruction, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
+import { AnchorError, AnchorProvider } from "@anchor-lang/core";
+import { getMint } from "./spl_token_helper";
 import { TRANSFER_HOOK_PROGRAM_ID, DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID } from "../utils/address_utils";
 import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
@@ -104,7 +106,13 @@ function getDefaultTransferArgs(): Required<TransferArgs> {
   };
 }
 
-export async function transfer(callContext: TransferContext, args?: TransferArgs): Promise<void> {
+/**
+ * Sends `verify_transfer` followed by Token-2022's own `transfer_checked` as two
+ * adjacent top-level instructions — the sequence the transfer hook introspects.
+ * There is no wrapper instruction in the `transfer` program any more, so the
+ * hook accounts have to be appended by the caller (see below).
+ */
+export async function splTransfer(callContext: TransferContext, args?: TransferArgs): Promise<void> {
   const effectiveArgs: Required<TransferArgs> = {
     ...getDefaultTransferArgs(),
     ...args,
@@ -118,36 +126,70 @@ export async function transfer(callContext: TransferContext, args?: TransferArgs
     preInstructions = [verifyIx];
   }
 
-  await getTransferProgram()
-    .methods.transfer(effectiveArgs.amount)
-    .accountsStrict(await getTransferAccounts(callContext))
-    .preInstructions(preInstructions)
-    .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
+  const transaction = new Transaction().add(
+    ...preInstructions,
+    await buildSplTransferCheckedInstruction(callContext, effectiveArgs)
+  );
+
+  const provider = getTransferProgram().provider as AnchorProvider;
+
+  try {
+    await provider.sendAndConfirm!(transaction, callContext.signers ?? [], { commitment: "confirmed" });
+  } catch (err) {
+    // The failing program is reached by CPI from Token-2022, so depending on the
+    // path Anchor may hand back a raw SendTransactionError instead of parsing the
+    // AnchorError out of the logs. Upgrade it here so callers can keep asserting
+    // on `errorCode.code` for hook / verify_transfer failures.
+    if (err instanceof SendTransactionError) {
+      const anchorErr = AnchorError.parse(err.logs ?? []);
+      if (anchorErr) throw anchorErr;
+    }
+    throw err;
+  }
 }
 
-export async function getTransferAccounts(callContext: Omit<TransferContext, "deployer">) {
+/**
+ * Token-2022 `transfer_checked` with the transfer hook's accounts appended.
+ *
+ * **The trailing account order is load-bearing** and must stay in
+ * ExtraAccountMetaList order — `extra_account_meta_list`, `transfer_hook_program`,
+ * then the metalist's own entries (hook indices 5..=9). Token-2022 resolves the
+ * metalist and verifies the forwarded accounts against it, so a wrong order fails
+ * inside Token-2022 before the hook runs.
+ */
+export async function buildSplTransferCheckedInstruction(
+  callContext: Omit<TransferContext, "deployer">,
+  args: Required<TransferArgs>
+): Promise<TransactionInstruction> {
+  const decimals = (await getMint(callContext.mint)).decimals;
   // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `asset_configuration` account — the same values the on-chain program reads.
+  // `asset_configuration` account — the same values the hook reads.
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
-  return {
-    mint: callContext.mint,
-    destination: callContext.destination,
-    sourceOwner: callContext.sourceOwner,
-    source: callContext.source,
-    extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
-    transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-    deployProgram: DEPLOY_PROGRAM_ID,
-    assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
-    factoryProgram: FACTORY_PROGRAM_ID,
-    assetClassVersionPda: assetClassVersionPda(
-      assetConfiguration.assetClassConfigId,
-      assetConfiguration.assetClassVersionId
-    ),
-    instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-    token2022Program: TOKEN_2022_PROGRAM_ID,
-  };
+  const instruction = createTransferCheckedInstruction(
+    callContext.source,
+    callContext.mint,
+    callContext.destination,
+    callContext.sourceOwner,
+    BigInt(args.amount.toString()),
+    decimals,
+    [],
+    TOKEN_2022_PROGRAM_ID
+  );
+
+  const readonly = (pubkey: PublicKey): AccountMeta => ({ pubkey, isWritable: false, isSigner: false });
+
+  instruction.keys.push(
+    readonly(pdaUtils.extraAccountMetaListPda(callContext.mint)),
+    readonly(TRANSFER_HOOK_PROGRAM_ID),
+    readonly(DEPLOY_PROGRAM_ID),
+    readonly(pdaUtils.assetConfigurationPda(callContext.mint)),
+    readonly(FACTORY_PROGRAM_ID),
+    readonly(assetClassVersionPda(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId)),
+    readonly(anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY)
+  );
+
+  return instruction;
 }
 
 // ── batch_verify_transfer / batch_transfer (one source → many destinations) ──

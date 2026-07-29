@@ -27,7 +27,7 @@ Marker PDA. Its existence on-chain is the deactivation signal. `common::require_
 
 No parameters.
 
-Creates the `deactivate_pda` marker. After this call, all calls to `mint::mint`, `operations::burn`, `transfer::transfer`, `pause::pause/unpause`, and `transfer-control::set_mode` will fail with `CommonError::Deactivated`.
+Creates the `deactivate_pda` marker. After this call, all calls to `mint::mint`, `operations::burn`, `transfer::verify_transfer`, `pause::pause/unpause`, and `transfer-control::set_mode` will fail with `CommonError::Deactivated`. Transfers are blocked through `verify_transfer`, which every transfer path must be preceded by.
 
 ### Preconditions
 

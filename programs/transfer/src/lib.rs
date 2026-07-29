@@ -11,10 +11,6 @@ declare_id!("Fa5VLqopKp6cokXJreYeNNmUG8F9AaE4CUBnGQvtdq7Q");
 pub mod transfer {
     use super::*;
 
-    pub fn transfer(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
-        transfer_tokens::transfer(ctx, amount)
-    }
-
     pub fn verify_transfer(ctx: Context<VerifyTransfer>, amount: u64) -> Result<()> {
         verify_transfer::verify_transfer(ctx, amount)
     }

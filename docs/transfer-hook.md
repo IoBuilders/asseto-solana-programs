@@ -12,10 +12,9 @@ Two responsibilities:
    transfer unless the previous (N-1) and current (N) top-level instructions
    form one of two recognised pairs, both with arguments matching the hooked
    transfer:
-   - **Single** — N-1 is `transfer::verify_transfer` and N is one of three
-     known-good entrypoints (`transfer::transfer`,
-     `operations::controller_transfer`, or a bare top-level
-     `Token-2022::TransferChecked`).
+   - **Single** — N-1 is `transfer::verify_transfer` and N is one of two
+     known-good entrypoints (`operations::controller_transfer`, or a bare
+     top-level `Token-2022::TransferChecked`).
    - **Batch** — N-1 is `transfer::batch_verify_transfer` and N is
      `transfer::batch_transfer`. The hook fires once per leg, so each leg is
      matched individually against both instructions, and the two are also
@@ -182,14 +181,12 @@ checks effectively gate the *outer* transaction shape.
 
      Every executed leg is checked independently (the hook runs `n` times), so
      any leg not present in the verified batch reverts the whole transaction.
-   - **Single `transfer::transfer`** — `curr_ix.program_id ==
-     TRANSFER_PROGRAM_ID` with a non-batch discriminator. N-1 is checked
-     against `VERIFY_TRANSFER_DISCRIMINATOR` (Anchor layout: 8-byte
-     discriminator + `u64` amount; accounts 1/2/3 = source / destination /
-     mint; errors `PrevInstructionNotVerifyTransfer` /
-     `PrevInstructionArgumentMismatch`), and N against
-     `TRANSFER_DISCRIMINATOR` with the same layout and the `Current*` error
-     variants.
+   In every non-batch case N-1 is checked against
+   `VERIFY_TRANSFER_DISCRIMINATOR` (Anchor layout: 8-byte discriminator +
+   `u64` amount; accounts 1/2/3 = source / destination / mint; errors
+   `PrevInstructionNotVerifyTransfer` / `PrevInstructionArgumentMismatch`).
+   N is then matched per entrypoint:
+
    - **`operations::controller_transfer`** — `curr_ix.program_id ==
      OPERATIONS_PROGRAM_ID`. N-1 is `verify_transfer` as above; N shares the
      same Anchor *data* layout but a different **account** layout —
@@ -229,12 +226,12 @@ hidden inside one top-level instruction. The `Instructions` sysvar only
 exposes *top-level* instructions, so the hook would only see "the wrapper" at
 N and "verify_transfer" at N-1 (signed earlier by the user) and let the
 transfer through despite arbitrary state mutations between the verify and
-the actual transfer. Forcing N to be exactly one of the four whitelisted
-entrypoints (`transfer::transfer`, `transfer::batch_transfer`,
-`operations::controller_transfer`, bare `Token-2022::TransferChecked`) denies
-any wrapper from sitting between the user and the real transfer instruction.
+the actual transfer. Forcing N to be exactly one of the three whitelisted
+entrypoints (`transfer::batch_transfer`, `operations::controller_transfer`, bare
+`Token-2022::TransferChecked`) denies any wrapper from sitting between the user
+and the real transfer instruction.
 
-`transfer::batch_transfer` needs one guarantee the single entrypoints get for
+`transfer::batch_transfer` needs one guarantee the single-leg entrypoints get for
 free. Its paired `batch_verify_transfer` checks the *sum* of the legs against
 the source's unfrozen balance, so matching each hooked leg against *some* leg
 of the verified batch is not enough — two transfer legs of 100 could both point
@@ -243,10 +240,9 @@ the pair-identity check in step 5: same amounts, same order, same destinations.
 
 `operations::controller_transfer` is on that list because a controller
 force-transfer is itself a top-level, fully-gated entrypoint (controller role +
-`OPERATIONS_CONTROLLER_TRANSFER` functionality) — the same guarantee
-`transfer::transfer` provides, just with a different authority. It is not a
-wrapper: the hook pins its discriminator, so nothing else in `operations` can
-reach the transfer path.
+`OPERATIONS_CONTROLLER_TRANSFER` functionality), just with a different authority
+than a holder-initiated transfer. It is not a wrapper: the hook pins its
+discriminator, so nothing else in `operations` can reach the transfer path.
 
 The bare `Token-2022::TransferChecked` entrypoint is permitted for
 composability, and since the mint no longer carries `DefaultAccountState(Frozen)`

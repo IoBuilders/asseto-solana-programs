@@ -15,10 +15,13 @@
 > current `verify_transfer` + introspection design; the diagnosis and the options
 > weighed are preserved as they were at the time. Two things it assumes are no
 > longer true: transfers no longer thaw and re-freeze accounts around the token
-> movement, and mints no longer carry `DefaultAccountState(Frozen)` (token
-> accounts start `Initialized`, and mints have no freeze authority at all). Where
-> that changes a conclusion the sections below say so inline. For current
-> behaviour see [transfer.md](transfer.md) and [transfer-hook.md](transfer-hook.md).
+> movement; mints no longer carry `DefaultAccountState(Frozen)` (token accounts
+> start `Initialized`, and mints have no freeze authority at all); and the transfer
+> program no longer has a singular wrapper instruction — clients submit
+> Token-2022's `transfer_checked` directly, with `batch_transfer` the only
+> remaining program-issued movement. Where that changes a conclusion the sections
+> below say so inline. For current behaviour see [transfer.md](transfer.md) and
+> [transfer-hook.md](transfer-hook.md).
 
 ## TL;DR
 
@@ -76,9 +79,10 @@ not in our hook logic.
 
 ## Sequence of events inside one failing transfer
 
-Top-level transaction (depth 1) is `transfer::transfer`. Inside it — this is the
-flow **as it was then**; the four leading `freeze` / thaw CPIs no longer exist, so
-today `transfer::transfer` goes straight to the `transfer_checked` at depth 2:
+Top-level transaction (depth 1) was the transfer program's wrapper instruction —
+this is the flow **as it was then**. Today there is no wrapper: the client submits
+Token-2022's `transfer_checked` directly at top level, so everything below shifts
+up one depth and the four leading `freeze` / thaw CPIs are gone entirely.
 
 | Depth | Program                | Step                                        |
 |-------|------------------------|---------------------------------------------|
@@ -305,15 +309,17 @@ What landed:
   via the `Instructions` sysvar:
   - `current_index - 1` must be `transfer::verify_transfer` with
     matching `source` / `destination` / `mint` / `amount`.
-  - `current_index` must be `transfer::transfer` *or*
+  - `current_index` must be the transfer program's own wrapper *or*
     `Token-2022::TransferChecked`, also with matching args. (At the time, the bare
     `Token-2022::TransferChecked` entrypoint was allowed for composability but was
-    effectively dead-letter: token accounts were frozen by default and only
-    `transfer::transfer` could thaw them, so it was the only path that could
-    produce a successful transfer in practice. **That no longer holds**, so the
-    entrypoint is a live composability path — still gated by the
-    `current_index - 1` `verify_transfer` requirement. See
-    [transfer-hook.md](transfer-hook.md).)
+    effectively dead-letter: token accounts were frozen by default and only the
+    wrapper could thaw them, so it was the only path that could produce a
+    successful transfer in practice. **Neither of those still holds** — the
+    wrapper is gone and accounts are no longer frozen by default, so
+    `TransferChecked` is now *the* singular path, still gated by the
+    `current_index - 1` `verify_transfer` requirement. The accepted set today is
+    `transfer::batch_transfer`, `operations::controller_transfer` and
+    `Token-2022::TransferChecked`; see [transfer-hook.md](transfer-hook.md).)
   - Failure raises one of nine granular error variants
     (`PrevInstructionWrongProgram`, `PrevInstructionNotVerifyTransfer`,
     `PrevInstructionArgumentMismatch`, `CurrentInstructionUnknownProgram`,
@@ -352,20 +358,19 @@ What clients have to do:
   order**:
   ```
   N-1:  transfer::verify_transfer(amount)
-  N:    transfer::transfer(amount)
+  N:    Token-2022::transfer_checked(amount)
   ```
   Other instructions (e.g. ComputeBudget) are fine *before* `verify_transfer`,
-  but nothing may sit between `verify_transfer` and `transfer`.
-- The test suite [`tests/transfer.ts`](../tests/transfer.ts)
-  encapsulates this in two helpers — `verifyTransferPdas(...)` and
-  `buildVerifyTransferIx(source, destination, mint, amount, sourceOwnerOverride?, deployerOverride?)`
-  — so each transfer test drops the result into `.preInstructions([...])`
-  immediately before the `transfer` call.
+  but nothing may sit between `verify_transfer` and the `transfer_checked`.
+- The test suite encapsulates this in
+  [`tests/program_helpers/transfer_helper.ts`](../tests/program_helpers/transfer_helper.ts):
+  `buildVerifyTransferInstruction(...)` builds the N-1 instruction, and
+  `splTransfer(...)` submits the adjacent pair.
 
 Residual risk worth flagging in code review: the introspection layer can only
-guarantee adjacency at top level. If a future change ever sneaks a
-state-mutating CPI into `transfer::transfer` between its entry and the
-inner `transfer_checked`, the verification could silently go stale. Keep
-`transfer`'s body tight, and document the invariant. (This got strictly safer
-since: `transfer::transfer` now issues the `transfer_checked` CPI and nothing
-else, so there is no longer anything sitting in between.)
+guarantee adjacency at top level. If any program instruction ever sits between
+`verify_transfer` and the `transfer_checked` it guards, and mutates state the
+verify read, the verification could silently go stale. This got strictly safer
+since — the singular path has no program between the two at all — but
+`batch_transfer` still issues its legs' `transfer_checked` CPIs itself, so keep its
+body tight and preserve the invariant.
