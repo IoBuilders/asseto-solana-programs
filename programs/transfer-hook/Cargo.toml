@@ -26,7 +26,9 @@ anchor-spl = "1.0.2"
 spl-transfer-hook-interface = { version = ">=2.0.0, <3" }
 spl-tlv-account-resolution = { version = ">=0.11.1, <0.12" }
 common = { path = "../common" }
-solana-instructions-sysvar = ">=3.0.0"
+freeze = { path = "../freeze", features = ["cpi"] }
+transfer-control = { path = "../transfer-control", features = ["cpi"] }
+spl-token-2022-interface = "=3.0.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }

@@ -173,35 +173,43 @@ amount)` leg appear in it.
 ### Parameters
 
 ```rust
-amounts: Vec<u64>  // one entry per destination; must equal the vector passed to the following batch_transfer
+amounts: Vec<u64>  // raw token units per destination
 ```
 
 ### Accounts
 
-**Account ordering is part of this instruction's contract** — the hook reads
-`source` at index 1 and `mint` at index 2. The per-destination
-`(destination, destination_whitelist_pda)` pairs are appended as
-`remaining_accounts` (like `mint::batch_mint`).
+Named accounts mirror `transfer` minus the single `destination` and the
+per-destination whitelist. The per-leg `(destination, destination_whitelist_pda)`
+pairs are appended as `remaining_accounts`
+(`remaining_accounts.len() == amounts.len() * 2`).
 
-| Idx | Account | Mut | Signer | Type | Notes |
-|---|---|---|---|---|---|
-| 0 | `source_owner` | no | yes | Signer | Token holder authorising the batch |
-| 1 | `source` | no | no | UncheckedAccount | Shared source token account; balance read for `require_unfrozen_balance` |
-| 2 | `mint` | no | no | UncheckedAccount | Token-2022 mint |
-| 3 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| 4 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; may be empty (no mode active) |
-| 5 | `source_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, source]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; must exist in whitelist mode |
-| 6 | `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, source]`, `seeds::program = FREEZE_PROGRAM_ID` |
-| 7 | `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, source]`, `seeds::program = FREEZE_PROGRAM_ID` |
-
-### Remaining accounts
-
-Two accounts per destination, in order (`remaining_accounts.len() == amounts.len() * 2`):
-
-| Offset (per leg `i`) | Account | Notes |
+| Idx | Account | Notes |
 |---|---|---|
-| `2i` | destination token account | used as the whitelist-PDA seed and matched by the hook |
-| `2i+1` | destination whitelist PDA | seeds `["whitelist", mint, destination]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; canonicity checked via `verify_whitelist_pda`, existence via `verify_whitelist` — only in whitelist mode |
+| 0 | `source_owner` | Signer |
+| 1 | `source` | mut; shared source token account |
+| 2 | `mint` | |
+| 3 | `transfer_authority` | seeds `["transfer", mint]` |
+| 4 | `freeze_authority` | seeds `["freeze_authority", mint]`, `seeds::program = FREEZE_PROGRAM_ID` |
+| 5 | `extra_account_meta_list` | |
+| 6 | `transfer_hook_program` | address = `TRANSFER_HOOK_PROGRAM_ID` |
+| 7 | `freeze_program` | address = `FREEZE_PROGRAM_ID` |
+| 8 | `deploy_program` | forwarded |
+| 9 | `asset_configuration_pda` | forwarded |
+| 10 | `factory_program` | forwarded |
+| 11 | `asset_class_version_pda` | forwarded |
+| 12 | `deactivate_program` | forwarded |
+| 13 | `deactivate_pda` | forwarded |
+| 14 | `transfer_control_program` | forwarded |
+| 15 | `transfer_control_mode_pda` | forwarded |
+| 16 | `source_whitelist_pda` | forwarded (constant across legs) |
+| 17 | `source_frozen_pda` | forwarded |
+| 18 | `source_frozen_balance_pda` | forwarded |
+| 19 | `token_2022_program` | |
+| 20.. | `remaining_accounts` | per leg `i`: `destination_i` (writable) + its `destination_whitelist_pda` |
+
+Per leg the forwarded hook block reuses every constant account and substitutes
+the current leg's `destination` (index 2 of the inner `transfer_checked`) and
+`destination_whitelist_pda` (metalist index 14).
 
 ### Execution
 
@@ -280,21 +288,17 @@ both matching a single verified leg of 100; see the pair-identity discussion in
 ```rust
 pub enum TransferError {
     EmptyBatch,                 // amounts is empty
-    InvalidRemainingAccounts,   // remaining_accounts count doesn't match amounts (×1 for transfer, ×2 for verify)
-    BatchAmountOverflow,        // sum of batch amounts overflows u64
+    InvalidRemainingAccounts,   // remaining_accounts count != amounts.len() * 2
+    BatchAmountOverflow,        // legacy — sum overflow (was checked by the removed batch_verify_transfer)
 }
 ```
 
-Other errors propagate from the helpers `verify_transfer` calls:
-- `common::CommonError::Deactivated`
-- `freeze::ErrorCode::{AccountFrozen, InsufficientUnfrozenBalance}`
-- `transfer_control::TransferControlError::NotWhitelisted`
-
-The hook itself raises `transfer_hook::TransferHookError::*` on
-introspection failure (see [`transfer-hook.md`](transfer-hook.md)).
+Compliance errors are raised by the hook and propagate from its helpers
+(`Deactivated`, `NotWhitelisted`, `AccountFrozen`, `InsufficientUnfrozenBalance`);
+see [`transfer-hook.md`](transfer-hook.md).
 
 ---
 
 ## Program IDs
 
-Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.
+Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;`.

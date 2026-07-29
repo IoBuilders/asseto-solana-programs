@@ -66,7 +66,7 @@ describe("deploy", () => {
     assert.equal(mintInfo.supply.toString(), "0");
     // Deployed with no freeze authority at all, and it can never be added later:
     // `set_authority` needs the current freeze authority to sign. Freezing is
-    // enforced by `freeze`'s marker PDAs, read by `transfer::verify_transfer`.
+    // enforced by `freeze`'s marker PDAs, read by `transfer-hook::execute`.
     assert.isNull(mintInfo.freezeAuthority ?? null, "mint should have no freeze authority");
     assert.equal(
       mintInfo.mintAuthority?.toBase58(),

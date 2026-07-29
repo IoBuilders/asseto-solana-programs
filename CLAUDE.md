@@ -230,4 +230,4 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 - [`docs/factory.md`](docs/factory.md)
 - [`docs/access-control.md`](docs/access-control.md)
 - [`docs/cap.md`](docs/cap.md)
-- [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
+- [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that once drove the verify_transfer + introspection design, and why compliance later moved back into the hook (composability)

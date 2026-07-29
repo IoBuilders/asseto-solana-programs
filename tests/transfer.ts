@@ -20,18 +20,9 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
-import {
-  batchTransfer,
-  buildBatchVerifyTransferInstruction,
-  buildVerifyTransferInstruction,
-  splTransfer,
-  verifyTransfer,
-} from "./program_helpers/transfer_helper";
+import { batchTransfer, splTransfer, splTransferWithoutHookAccounts } from "./program_helpers/transfer_helper";
 import { beforeEach } from "mocha";
-import {
-  ASSET_CLASS_VERSION_STATE_DRAFT,
-  setAssetClassVersionForMint,
-} from "./program_helpers/factory/factory_pda_helper";
+import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
 import {
   DEACTIVATE_DEACTIVATE,
   FREEZE_FREEZE_ACCOUNT,
@@ -123,97 +114,32 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails when there is no previous instruction", async () => {
-      // Mint 1 000 tokens to the source account (owned by sourceOwner).
+    it("transfer: fails when the hook accounts are not appended", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      // Create a destination token account (owned by destinationOwner).
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
+      // A bare `transfer_checked`, with no ExtraAccountMetaList block appended.
+      // With compliance living in the hook, this is the client-side mistake that
+      // matters: Token-2022 can't resolve the metalist, so it rejects the transfer
+      // rather than moving tokens with the compliance suite skipped.
+      let failed = false;
       try {
-        await splTransfer({
-          mint,
-          source,
-          sourceOwner,
-          destination,
-          preInstructions: [],
-          signers: [sourceOwnerKeypair],
-        });
-        assert.fail("Expected NoPreviousInstruction error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "NoPreviousInstruction",
-          "error code should be NoPreviousInstruction"
-        );
-      }
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails when previous instruction program is not verify program", async () => {
-      // Mint 1 000 tokens to the source account (owned by sourceOwner).
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      // Create a destination token account (owned by destinationOwner).
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      // ── Call transfer ──────────────────────────────────────────────────────
-      const verifyIx = await buildVerifyTransferInstruction(
-        { mint, source, sourceOwner, destination },
-        { amount: TRANSFER_AMOUNT }
-      );
-      try {
-        const preInstructions = [verifyIx, anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })];
-        await splTransfer(
-          { mint, source, sourceOwner, destination, preInstructions, signers: [sourceOwnerKeypair] },
+        await splTransferWithoutHookAccounts(
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
-        assert.fail("Expected PrevInstructionWrongProgram error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "PrevInstructionWrongProgram",
-          "error code should be PrevInstructionWrongProgram"
-        );
+      } catch {
+        failed = true;
       }
-    });
 
-    // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails when previous instruction method does not have the proper input arguments", async () => {
-      // Mint 1 000 tokens to the source account (owned by sourceOwner).
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-
-      // Create a destination token account (owned by destinationOwner).
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-
-      const verifyTransferAmount = TRANSFER_AMOUNT.sub(new anchor.BN(1));
-      const verifyIx = await buildVerifyTransferInstruction(
-        { mint, source, sourceOwner, destination },
-        { amount: verifyTransferAmount }
+      assert.isTrue(failed, "transfer_checked without the hook accounts must be rejected");
+      assert.equal(
+        (await getTokenAccount(source)).amount.toString(),
+        MINT_AMOUNT.toString(),
+        "source balance must be unchanged"
       );
-      try {
-        const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), verifyIx];
-        await splTransfer(
-          { mint, source, sourceOwner, destination, preInstructions, signers: [sourceOwnerKeypair] },
-          { amount: TRANSFER_AMOUNT }
-        );
-        assert.fail("Expected PrevInstructionArgumentMismatch error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        const anchorErr = err as AnchorError;
-        assert.equal(
-          anchorErr.error.errorCode.code,
-          "PrevInstructionArgumentMismatch",
-          "error code should be PrevInstructionArgumentMismatch"
-        );
-      }
+      assert.equal((await getTokenAccount(destination)).amount.toString(), "0", "destination must receive nothing");
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -291,7 +217,7 @@ describe("transfer", () => {
       await setFrozenBalancePda(mint, source, FROZEN_AMOUNT);
 
       try {
-        await verifyTransfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -433,7 +359,7 @@ describe("transfer", () => {
         );
         assert.fail("Expected InsufficientUnfrozenBalance error but transfer succeeded");
       } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError raised by verify_transfer");
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError raised by the transfer hook");
         const anchorErr = err as AnchorError;
         assert.equal(
           anchorErr.error.errorCode.code,
@@ -459,9 +385,12 @@ describe("transfer", () => {
     });
   });
 
-  describe("verify_transfer", async () => {
+  // Compliance is enforced inside transfer-hook::execute now, so these run a full
+  // `transfer_checked` and assert the hook aborts it (the error surfaces from the
+  // nested transfer_checked → hook CPI as an AnchorError with the same code).
+  describe("compliance (enforced by transfer-hook)", async () => {
     // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with NotWhitelisted when whitelist mode is active and source is not whitelisted", async () => {
+    it("transfer: fails with NotWhitelisted when whitelist mode is active and source is not whitelisted", async () => {
       // Mint tokens to source before activating whitelist mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
@@ -479,7 +408,7 @@ describe("transfer", () => {
       const destBefore = (await getTokenAccount(destination)).amount;
 
       try {
-        await verifyTransfer(
+        await splTransfer(
           { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
           { amount: TRANSFER_AMOUNT }
         );
@@ -506,7 +435,7 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
+    it("transfer: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
       // Mint tokens to source before activating whitelist mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
@@ -551,7 +480,7 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with AccountFrozen when source account has been frozen", async () => {
+    it("transfer: fails with AccountFrozen when source account has been frozen", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
@@ -560,7 +489,7 @@ describe("transfer", () => {
 
       // ── Transfer must now be rejected with AccountFrozen ──────────────────
       try {
-        await verifyTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await splTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected AccountFrozen error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -570,7 +499,7 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("verify_transfer: fails with Deactivated when mint has been deactivated", async () => {
+    it("transfer: fails with Deactivated when mint has been deactivated", async () => {
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
@@ -580,9 +509,9 @@ describe("transfer", () => {
       // ── Deactivate the mint ────────────────────────────────────────────────
       await setDeactivateMarker(mint);
 
-      // ── Mint must now be rejected with Deactivated ─────────────────────────
+      // ── Transfer must now be rejected with Deactivated ─────────────────────
       try {
-        await verifyTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        await splTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
         assert.fail("Expected Deactivated error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
@@ -655,7 +584,8 @@ describe("transfer", () => {
       const amounts = [new anchor.BN(1), new anchor.BN(1)];
 
       try {
-        // batch_verify passes (2 pairs), but batch_transfer is given only 1 destination for 2 amounts.
+        // batch_transfer needs 2 remaining accounts per leg (destination + its
+        // whitelist PDA); here we pass 1 account for 2 amounts (needs 4).
         await batchTransfer(
           { mint, source, sourceOwner, destinations: [d1, d2], signers: [sourceOwnerKeypair] },
           { amounts, transferRemainingAccounts: [{ pubkey: d1, isWritable: true, isSigner: false }] }
@@ -667,83 +597,6 @@ describe("transfer", () => {
           (err as AnchorError).error.errorCode.code,
           "InvalidRemainingAccounts",
           "error code should be InvalidRemainingAccounts"
-        );
-      }
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("batch_transfer: fails when N-1 is a single verify_transfer instead of batch_verify_transfer", async () => {
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-      const amount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
-
-      // Pair the batch with the SINGULAR verify_transfer — the hook must reject it
-      // because N-1 is not batch_verify_transfer.
-      const singleVerifyIx = await buildVerifyTransferInstruction(
-        { mint, source, sourceOwner, destination },
-        { amount }
-      );
-
-      try {
-        await batchTransfer(
-          {
-            mint,
-            source,
-            sourceOwner,
-            destinations: [destination],
-            preInstructions: [singleVerifyIx],
-            signers: [sourceOwnerKeypair],
-          },
-          { amounts: [amount] }
-        );
-        assert.fail("Expected PrevInstructionNotVerifyTransfer error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        assert.equal(
-          (err as AnchorError).error.errorCode.code,
-          "PrevInstructionNotVerifyTransfer",
-          "error code should be PrevInstructionNotVerifyTransfer"
-        );
-      }
-    });
-
-    // ────────────────────────────────────────────────────────────────────────────
-    it("batch_transfer: rejects a transfer batch that duplicates a leg beyond what verify declared", async () => {
-      // Bypass attempt: verify a single (dest, amount) leg, but transfer it
-      // twice. Per-leg matching alone would let both transfers map onto the one
-      // verified leg — draining more than verify's summed balance check covered.
-      // The identical-batch guard must reject it.
-      const source = await createTokenAccount({ mint, owner: sourceOwner });
-      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
-      const destination = await createTokenAccount({ mint, owner: destinationOwner });
-      const amount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
-
-      // verify declares ONE leg; batch_transfer declares the SAME leg TWICE.
-      const verifyOneLegIx = await buildBatchVerifyTransferInstruction(
-        { mint, source, sourceOwner, destinations: [destination], signers: [sourceOwnerKeypair] },
-        { amounts: [amount] }
-      );
-
-      try {
-        await batchTransfer(
-          {
-            mint,
-            source,
-            sourceOwner,
-            destinations: [destination, destination],
-            preInstructions: [verifyOneLegIx],
-            signers: [sourceOwnerKeypair],
-          },
-          { amounts: [amount, amount] }
-        );
-        assert.fail("Expected CurrentInstructionArgumentMismatch error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
-        assert.equal(
-          (err as AnchorError).error.errorCode.code,
-          "CurrentInstructionArgumentMismatch",
-          "the verify/transfer batches must be identical; a duplicated transfer leg must be rejected"
         );
       }
     });

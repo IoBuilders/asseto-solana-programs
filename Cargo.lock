@@ -2525,9 +2525,11 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "common",
- "solana-instructions-sysvar 4.0.0",
+ "freeze",
  "spl-tlv-account-resolution",
+ "spl-token-2022-interface 3.0.1",
  "spl-transfer-hook-interface",
+ "transfer-control",
 ]
 
 [[package]]

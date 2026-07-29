@@ -5,7 +5,14 @@ import { createTransferCheckedInstruction, TOKEN_2022_PROGRAM_ID } from "@solana
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, AnchorProvider } from "@anchor-lang/core";
 import { getMint } from "./spl_token_helper";
-import { TRANSFER_HOOK_PROGRAM_ID, DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID } from "../utils/address_utils";
+import {
+  TRANSFER_HOOK_PROGRAM_ID,
+  DEPLOY_PROGRAM_ID,
+  FACTORY_PROGRAM_ID,
+  DEACTIVATE_PROGRAM_ID,
+  TRANSFER_CONTROL_PROGRAM_ID,
+  FREEZE_PROGRAM_ID,
+} from "../utils/address_utils";
 import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
@@ -18,82 +25,11 @@ export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
 }
 
-export type VerifyTransferInstructionContext = BaseWriteContext &
-  MintContext & {
-    sourceOwner: PublicKey;
-    source: PublicKey;
-    destination: PublicKey;
-  };
-
-export type VerifyTransferInstructionArgs = {
-  amount?: anchor.BN;
-};
-
-function getDefaultVerifyTransferInstructionArgs(): Required<VerifyTransferInstructionArgs> {
-  return {
-    amount: new anchor.BN(1),
-  };
-}
-
-export async function buildVerifyTransferInstruction(
-  callContext: VerifyTransferInstructionContext,
-  args: VerifyTransferInstructionArgs
-): Promise<TransactionInstruction> {
-  const effectiveArgs: Required<VerifyTransferInstructionArgs> = {
-    ...getDefaultVerifyTransferInstructionArgs(),
-    ...args,
-  };
-
-  return await getTransferProgram()
-    .methods.verifyTransfer(effectiveArgs.amount)
-    .accountsStrict({
-      mint: callContext.mint,
-      sourceOwner: callContext.sourceOwner,
-      source: callContext.source,
-      destination: callContext.destination,
-      deactivatePda: deactivatePda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
-      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
-    })
-    .instruction();
-}
-
-export async function verifyTransfer(
-  callContext: VerifyTransferInstructionContext,
-  args?: VerifyTransferInstructionArgs
-): Promise<string> {
-  const effectiveArgs: Required<VerifyTransferInstructionArgs> = {
-    ...getDefaultVerifyTransferInstructionArgs(),
-    ...args,
-  };
-
-  return await getTransferProgram()
-    .methods.verifyTransfer(effectiveArgs.amount)
-    .accountsStrict({
-      mint: callContext.mint,
-      sourceOwner: callContext.sourceOwner,
-      source: callContext.source,
-      destination: callContext.destination,
-      deactivatePda: deactivatePda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
-      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
-    })
-    .signers(callContext?.signers ?? [])
-    .rpc({ commitment: "confirmed" });
-}
-
 export type TransferContext = BaseWriteContext &
   MintContext & {
     sourceOwner: PublicKey;
     source: PublicKey;
     destination: PublicKey;
-    preInstructions?: TransactionInstruction[];
   };
 
 export type TransferArgs = {
@@ -107,10 +43,11 @@ function getDefaultTransferArgs(): Required<TransferArgs> {
 }
 
 /**
- * Sends `verify_transfer` followed by Token-2022's own `transfer_checked` as two
- * adjacent top-level instructions — the sequence the transfer hook introspects.
- * There is no wrapper instruction in the `transfer` program any more, so the
- * hook accounts have to be appended by the caller (see below).
+ * Sends Token-2022's own `transfer_checked` as a single top-level instruction.
+ * There is no wrapper instruction in the `transfer` program and no compliance
+ * pre-instruction any more — every check runs inside `transfer-hook::execute`,
+ * so the only client-side obligation is appending the hook's accounts (see
+ * `buildSplTransferCheckedInstruction`).
  */
 export async function splTransfer(callContext: TransferContext, args?: TransferArgs): Promise<void> {
   const effectiveArgs: Required<TransferArgs> = {
@@ -118,17 +55,49 @@ export async function splTransfer(callContext: TransferContext, args?: TransferA
     ...args,
   };
 
-  let preInstructions: TransactionInstruction[];
-  if (callContext.preInstructions) {
-    preInstructions = callContext.preInstructions;
-  } else {
-    const verifyIx = await buildVerifyTransferInstruction(callContext, effectiveArgs);
-    preInstructions = [verifyIx];
-  }
-
-  const transaction = new Transaction().add(
-    ...preInstructions,
+  await sendTransferCheckedTransaction(
+    callContext,
     await buildSplTransferCheckedInstruction(callContext, effectiveArgs)
+  );
+}
+
+/**
+ * `transfer_checked` **without** the ExtraAccountMetaList block, for the error
+ * case: Token-2022 cannot invoke the hook and rejects the transfer, which is what
+ * keeps compliance from being bypassed by simply not forwarding those accounts.
+ */
+export async function splTransferWithoutHookAccounts(callContext: TransferContext, args?: TransferArgs): Promise<void> {
+  const effectiveArgs: Required<TransferArgs> = {
+    ...getDefaultTransferArgs(),
+    ...args,
+  };
+
+  const decimals = (await getMint(callContext.mint)).decimals;
+
+  await sendTransferCheckedTransaction(
+    callContext,
+    createTransferCheckedInstruction(
+      callContext.source,
+      callContext.mint,
+      callContext.destination,
+      callContext.sourceOwner,
+      BigInt(effectiveArgs.amount.toString()),
+      decimals,
+      [],
+      TOKEN_2022_PROGRAM_ID
+    )
+  );
+}
+
+async function sendTransferCheckedTransaction(
+  callContext: TransferContext,
+  instruction: TransactionInstruction
+): Promise<void> {
+  const transaction = new Transaction().add(
+    // The hook resolves the whole metalist and runs the full compliance suite,
+    // which does not fit the 200k CU a single-instruction transaction gets.
+    anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+    instruction
   );
 
   const provider = getTransferProgram().provider as AnchorProvider;
@@ -136,10 +105,9 @@ export async function splTransfer(callContext: TransferContext, args?: TransferA
   try {
     await provider.sendAndConfirm!(transaction, callContext.signers ?? [], { commitment: "confirmed" });
   } catch (err) {
-    // The failing program is reached by CPI from Token-2022, so depending on the
-    // path Anchor may hand back a raw SendTransactionError instead of parsing the
-    // AnchorError out of the logs. Upgrade it here so callers can keep asserting
-    // on `errorCode.code` for hook / verify_transfer failures.
+    // `sendAndConfirm` is the raw provider call, so it does not run Anchor's
+    // error translation the way `.rpc()` does. Do it here, so callers can assert
+    // on `errorCode.code` for the compliance errors the hook raises.
     if (err instanceof SendTransactionError) {
       const anchorErr = AnchorError.parse(err.logs ?? []);
       if (anchorErr) throw anchorErr;
@@ -153,7 +121,7 @@ export async function splTransfer(callContext: TransferContext, args?: TransferA
  *
  * **The trailing account order is load-bearing** and must stay in
  * ExtraAccountMetaList order — `extra_account_meta_list`, `transfer_hook_program`,
- * then the metalist's own entries (hook indices 5..=9). Token-2022 resolves the
+ * then the metalist's own entries (hook indices 5..=17). Token-2022 resolves the
  * metalist and verifies the forwarded accounts against it, so a wrong order fails
  * inside Token-2022 before the hook runs.
  */
@@ -186,30 +154,35 @@ export async function buildSplTransferCheckedInstruction(
     readonly(pdaUtils.assetConfigurationPda(callContext.mint)),
     readonly(FACTORY_PROGRAM_ID),
     readonly(assetClassVersionPda(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId)),
-    readonly(anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY)
+    readonly(DEACTIVATE_PROGRAM_ID),
+    readonly(deactivatePda(callContext.mint)),
+    readonly(TRANSFER_CONTROL_PROGRAM_ID),
+    readonly(transferControlModePda(callContext.mint)),
+    readonly(whitelistPda(callContext.mint, callContext.source)),
+    readonly(whitelistPda(callContext.mint, callContext.destination)),
+    readonly(FREEZE_PROGRAM_ID),
+    readonly(frozenAccountPda(callContext.mint, callContext.source)),
+    readonly(frozenBalancePda(callContext.mint, callContext.source))
   );
 
   return instruction;
 }
 
-// ── batch_verify_transfer / batch_transfer (one source → many destinations) ──
+// ── batch_transfer (one source → many destinations) ─────────────────────────
 
 export type BatchTransferContext = BaseWriteContext &
   MintContext & {
     sourceOwner: PublicKey;
     source: PublicKey;
     destinations: PublicKey[];
-    preInstructions?: TransactionInstruction[];
   };
 
 export type BatchTransferArgs = {
   // The `amounts` instruction argument. Defaults to `1` per destination.
   amounts?: anchor.BN[];
-  // Overrides batch_verify_transfer's remaining accounts. Defaults to
-  // `[destination, whitelistPda]` per destination. Provide to exercise error paths.
-  verifyRemainingAccounts?: AccountMeta[];
-  // Overrides batch_transfer's remaining accounts. Defaults to `[destination (writable)]`
-  // per destination. Provide to exercise error paths.
+  // Overrides batch_transfer's remaining accounts. Defaults to
+  // `[destination (writable), destinationWhitelistPda]` per destination.
+  // Provide to exercise error paths.
   transferRemainingAccounts?: AccountMeta[];
 };
 
@@ -217,45 +190,23 @@ function defaultBatchAmounts(callContext: BatchTransferContext, args?: BatchTran
   return args?.amounts ?? callContext.destinations.map(() => new anchor.BN(1));
 }
 
-export async function buildBatchVerifyTransferInstruction(
-  callContext: BatchTransferContext,
-  args?: BatchTransferArgs
-): Promise<TransactionInstruction> {
-  const amounts = defaultBatchAmounts(callContext, args);
-
-  const remainingAccounts: AccountMeta[] =
-    args?.verifyRemainingAccounts ??
-    callContext.destinations.flatMap((destination) => [
-      { pubkey: destination, isWritable: false, isSigner: false },
-      { pubkey: whitelistPda(callContext.mint, destination), isWritable: false, isSigner: false },
-    ]);
-
-  return await getTransferProgram()
-    .methods.batchVerifyTransfer(amounts)
-    .accountsStrict({
-      sourceOwner: callContext.sourceOwner,
-      source: callContext.source,
-      mint: callContext.mint,
-      deactivatePda: deactivatePda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
-    })
-    .remainingAccounts(remainingAccounts)
-    .instruction();
-}
-
 export async function batchTransfer(callContext: BatchTransferContext, args?: BatchTransferArgs): Promise<void> {
   const amounts = defaultBatchAmounts(callContext, args);
 
-  const preInstructions = callContext.preInstructions ?? [
-    await buildBatchVerifyTransferInstruction(callContext, { ...args, amounts }),
-  ];
+  // Every leg resolves the metalist and runs the hook's compliance suite, so the
+  // budget scales with the number of destinations.
+  const computeUnits = Math.min(1_400_000, 250_000 + 200_000 * callContext.destinations.length);
+  const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits })];
 
+  // Two remaining accounts per destination: the destination token account
+  // (writable) followed by its whitelist PDA — the hook resolves the latter
+  // from the destination on every leg.
   const transferRemainingAccounts: AccountMeta[] =
     args?.transferRemainingAccounts ??
-    callContext.destinations.map((destination) => ({ pubkey: destination, isWritable: true, isSigner: false }));
+    callContext.destinations.flatMap((destination) => [
+      { pubkey: destination, isWritable: true, isSigner: false },
+      { pubkey: whitelistPda(callContext.mint, destination), isWritable: false, isSigner: false },
+    ]);
 
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
@@ -267,6 +218,7 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       mint: callContext.mint,
       extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+      freezeProgram: FREEZE_PROGRAM_ID,
       deployProgram: DEPLOY_PROGRAM_ID,
       assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
       factoryProgram: FACTORY_PROGRAM_ID,
@@ -274,7 +226,13 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
-      instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      deactivateProgram: DEACTIVATE_PROGRAM_ID,
+      deactivatePda: deactivatePda(callContext.mint),
+      transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
+      transferControlModePda: transferControlModePda(callContext.mint),
+      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
+      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
+      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
       token2022Program: TOKEN_2022_PROGRAM_ID,
     })
     .remainingAccounts(transferRemainingAccounts)

@@ -98,3 +98,38 @@ pub fn require_unfrozen_balance(
 
     Ok(())
 }
+
+/// Post-debit variant of [`require_unfrozen_balance`] for the transfer hook
+/// (Token-2022 runs it after debiting): asserts `balance_post >= frozen`, which
+/// is the pre-debit `available >= amount` restated for the post-debit balance.
+/// See docs/freeze.md.
+pub fn require_frozen_balance_covered(
+    token_account: &AccountInfo,
+    frozen_balance_pda: &AccountInfo,
+) -> Result<()> {
+    use crate::errors::ErrorCode;
+    use spl_token_2022_interface::extension::StateWithExtensions;
+    use spl_token_2022_interface::state::Account as TokenAccountState;
+
+    let token_data = token_account.try_borrow_data()?;
+    let token_state = StateWithExtensions::<TokenAccountState>::unpack(&token_data)
+        .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?;
+    let account_balance = token_state.base.amount;
+
+    let frozen_balance: u64 = if frozen_balance_pda.data_is_empty() {
+        0
+    } else {
+        let data = frozen_balance_pda.try_borrow_data()?;
+        let mut slice: &[u8] = &data;
+        FrozenBalance::try_deserialize(&mut slice)
+            .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?
+            .balance
+    };
+
+    require!(
+        account_balance >= frozen_balance,
+        ErrorCode::InsufficientUnfrozenBalance
+    );
+
+    Ok(())
+}

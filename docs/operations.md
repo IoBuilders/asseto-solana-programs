@@ -118,9 +118,9 @@ Both signer seeds are derived once before the loop and reused for every leg.
 
 Force-transfers `amount` tokens from the `from` token account to the `to` token account via the permanent delegate, without the holder's consent. Used to move tokens under legal/regulatory instruction (court order, lost-key recovery, mis-delivery). No snapshot CPIs run — like every other transfer path, it is snapshot-agnostic.
 
-> **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`, and that hook's double-introspection requires a matching `transfer::verify_transfer` as the *previous* top-level instruction. **A `controller_transfer` transaction must therefore prepend `transfer::verify_transfer` with the same `(source, destination, mint, amount)`** — the hook accepts `operations::controller_transfer` at index N (see [`transfer-hook.md`](transfer-hook.md) step 5), but still rejects a bare one at index 0 with `NoPreviousInstruction`.
+> **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`. The hook recognises a permanent-delegate transfer — the authority is the `["permanent_delegate", mint]` PDA — and **bypasses the whitelist / frozen compliance checks** (see [`transfer-hook.md`](transfer-hook.md)), so a controller can seize tokens from frozen or non-whitelisted accounts. No `verify_transfer` pre-instruction and no holder signature are required: this is a genuine unilateral seizure path, gated only by the controller role + functionality.
 >
-> Because `verify_transfer` declares `source_owner` as a `Signer`, that pre-instruction makes the holder co-sign the transaction. A controller transfer bypasses the *holder's* compliance state but, as wired today, still requires the holder's signature — it is not a unilateral seizure path.
+> Token-2022 still resolves the hook's whole `ExtraAccountMetaList`, so `controller_transfer` must forward every compliance PDA even though the hook won't read them (they may be empty — expected for a seizure).
 
 ### Parameters
 
@@ -134,7 +134,7 @@ amount: u64  // raw token units to transfer
 - `require_active` — mint must not be deactivated.
 - `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)` — the mint's asset-class version must be finalized and enable controller transfers.
 
-`controller_transfer` itself does **not** check pause, whitelist / transfer-control mode, or frozen-account / frozen-balance markers — its only gates are the controller role and the asset-class functionality bit. Note that the required `transfer::verify_transfer` pre-instruction *does* run those checks, and Token-2022 rejects the inner `transfer_checked` on a paused mint, so in practice they still apply to the transaction as a whole.
+`controller_transfer` itself does **not** check pause, whitelist / transfer-control mode, or frozen-account / frozen-balance markers, and neither does the hook for this path (it bypasses compliance for permanent-delegate transfers) — its only gates are the controller role and the asset-class functionality bit. Pause still applies: Token-2022 rejects the inner `transfer_checked` on a paused mint regardless.
 
 ### Accounts
 
@@ -160,7 +160,6 @@ amount: u64  // raw token units to transfer
 
 ### Execution
 
-0. *(caller-supplied pre-instruction)* `transfer::verify_transfer(amount)` at index N-1, so the hook's introspection passes
 1. `require_role(authority_roles_pda.load()?, ROLE_CONTROLLER)`
 2. `require_active(&deactivate_pda)` + `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)`
 3. Read `decimals` off the mint (needed for `transfer_checked`)

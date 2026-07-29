@@ -6,23 +6,23 @@ use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
 use crate::errors::TransferHookError;
 use common::pda_seeds;
-use common::program_ids::{DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID};
+use common::program_ids::{
+    DEACTIVATE_PROGRAM_ID, DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, FREEZE_PROGRAM_ID,
+    TRANSFER_CONTROL_PROGRAM_ID,
+};
 use common::state::asset_configuration::{
     ASSET_CLASS_CONFIG_ID_OFFSET, ASSET_CLASS_VERSION_ID_OFFSET,
 };
 
 /// Number of extra account metas produced by `initialize_extra_account_meta_list`.
 /// Keep in sync with the `metas` vec length in the handler.
-const EXTRA_ACCOUNT_META_COUNT: usize = 5;
+const EXTRA_ACCOUNT_META_COUNT: usize = 13;
 
 pub fn initialize_extra_account_meta_list(
     ctx: Context<InitializeExtraAccountMetaList>,
 ) -> Result<()> {
     let metas = vec![
-        // 5: deploy program — needed to resolve asset_configuration_pda (external PDA @6)
         ExtraAccountMeta::new_with_pubkey(&DEPLOY_PROGRAM_ID, false, false)?,
-        // 6: asset_configuration_pda — seeds ["asset_configuration", mint@1], program@5. Read to
-        // supply asset_class_config_id / asset_class_version_id for seed 8.
         ExtraAccountMeta::new_external_pda_with_seeds(
             5,
             &[
@@ -34,11 +34,7 @@ pub fn initialize_extra_account_meta_list(
             false,
             false,
         )?,
-        // 7: factory program — needed to resolve asset_class_version_pda (external PDA @8)
         ExtraAccountMeta::new_with_pubkey(&FACTORY_PROGRAM_ID, false, false)?,
-        // 8: asset_class_version_pda — seeds ["asset_class_version",
-        // asset_configuration_pda@6.asset_class_config_id, asset_configuration_pda@6.asset_class_version_id],
-        // program@7.
         ExtraAccountMeta::new_external_pda_with_seeds(
             7,
             &[
@@ -59,10 +55,79 @@ pub fn initialize_extra_account_meta_list(
             false,
             false,
         )?,
-        // 9: Instructions sysvar — required for the hook's double-introspection
-        // check (verifies prior transfer::verify_transfer + current
-        // transfer::transfer / token-2022::transfer_checked).
-        ExtraAccountMeta::new_with_pubkey(&solana_instructions_sysvar::ID, false, false)?,
+        ExtraAccountMeta::new_with_pubkey(&DEACTIVATE_PROGRAM_ID, false, false)?,
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            9,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::DEACTIVATE.to_vec(),
+                },
+                Seed::AccountKey { index: 1 },
+            ],
+            false,
+            false,
+        )?,
+        ExtraAccountMeta::new_with_pubkey(&TRANSFER_CONTROL_PROGRAM_ID, false, false)?,
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            11,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::TRANSFER_CONTROL_MODE.to_vec(),
+                },
+                Seed::AccountKey { index: 1 },
+            ],
+            false,
+            false,
+        )?,
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            11,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::WHITELIST.to_vec(),
+                },
+                Seed::AccountKey { index: 1 },
+                Seed::AccountKey { index: 0 },
+            ],
+            false,
+            false,
+        )?,
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            11,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::WHITELIST.to_vec(),
+                },
+                Seed::AccountKey { index: 1 },
+                Seed::AccountKey { index: 2 },
+            ],
+            false,
+            false,
+        )?,
+        ExtraAccountMeta::new_with_pubkey(&FREEZE_PROGRAM_ID, false, false)?,
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            15,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::FROZEN_ACCOUNT.to_vec(),
+                },
+                Seed::AccountKey { index: 1 },
+                Seed::AccountKey { index: 0 },
+            ],
+            false,
+            false,
+        )?,
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            15,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::FROZEN_BALANCE.to_vec(),
+                },
+                Seed::AccountKey { index: 1 },
+                Seed::AccountKey { index: 0 },
+            ],
+            false,
+            false,
+        )?,
     ];
 
     let mut data = ctx.accounts.extra_account_meta_list.try_borrow_mut_data()?;

@@ -3,8 +3,8 @@
 Program ID: `2qjsucJfrjP93FCwnYjc9EjYzYS8u31eWHhQo1jR9pcg`
 
 Implements the [SPL Transfer Hook Interface](https://spl.solana.com/transfer-hook-interface).
-Token-2022 invokes `execute` automatically on every `transfer_checked` call
-for mints that have this program registered in their `TransferHook` extension.
+Token-2022 invokes `execute` automatically on every `transfer_checked` call for
+mints that have this program registered in their `TransferHook` extension.
 
 Two responsibilities:
 
@@ -50,13 +50,13 @@ extension authority, set on the mint at deploy time) and
 
 ## Instruction: `initialize_extra_account_meta_list` (Auxiliary)
 
+Creates and populates the `ExtraAccountMetaList` PDA. Called exclusively via CPI
+from `deploy::deploy_mint`, authorised by requiring `asset_configuration_pda` as
+`Signer` — only `deploy` can produce that signature.
+
 ### Parameters
 
 None.
-
-Creates and populates the `ExtraAccountMetaList` PDA. Called exclusively via
-CPI from `deploy::deploy_mint`, authorised by requiring `asset_configuration_pda`
-as `Signer` — only `deploy` can produce that signature.
 
 ### Accounts
 
@@ -64,41 +64,40 @@ as `Signer` — only `deploy` can produce that signature.
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds rent |
 | `asset_configuration_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 5) |
+| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 13) |
 | `mint` | no | no | UncheckedAccount | Seed component and PDA-precompute input |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
 
 ### Metalist contents
 
-The metalist lists only what `execute` actually reads. Keeping it small is
-what lets Token-2022 fit metalist resolution into its 32 KiB heap.
+The metalist declares every account `execute` reads. Token-2022 resolves each
+entry (deriving the seed-based PDAs itself) and forwards it to the hook, so this
+list is both the hook's account contract and the OOM-sensitive surface (its
+resolution runs on Token-2022's 32 KiB heap). Indices 0–4 are fixed by the SPL
+interface (`source_token`, `mint`, `destination_token`, `owner`,
+`extra_account_meta_list`); the extras below start at 5.
 
 | Hook idx | Entry | Kind |
 |---|---|---|
-| 5 | `deploy` program | literal pubkey — needed to resolve @6 as an external PDA |
+| 5 | `deploy` program | literal pubkey — resolves @6 |
 | 6 | `asset_configuration_pda` | external PDA via @5 — seeds `["asset_configuration", mint@1]` |
-| 7 | `factory` program | literal pubkey — needed to resolve @8 as an external PDA |
-| 8 | `asset_class_version_pda` | external PDA via @7 — seeds `["asset_class_version", @6.asset_class_config_id, @6.asset_class_version_id]`, read from @6's data at `ASSET_CLASS_CONFIG_ID_OFFSET` / `ASSET_CLASS_VERSION_ID_OFFSET` |
-| 9 | Instructions sysvar | literal pubkey (`Sysvar1nstructions...`) — required by the introspection check |
+| 7 | `factory` program | literal pubkey — resolves @8 |
+| 8 | `asset_class_version_pda` | external PDA via @7 — seeds `["asset_class_version", @6.asset_class_config_id, @6.asset_class_version_id]` |
+| 9 | `deactivate` program | literal pubkey — resolves @10 |
+| 10 | `deactivate_pda` | external PDA via @9 — seeds `["deactivate", mint@1]` |
+| 11 | `transfer-control` program | literal pubkey — resolves @12..=14 |
+| 12 | `transfer_control_mode_pda` | external PDA via @11 — seeds `["transfer_control_mode", mint@1]` |
+| 13 | `source_whitelist_pda` | external PDA via @11 — seeds `["whitelist", mint@1, source_token@0]` |
+| 14 | `destination_whitelist_pda` | external PDA via @11 — seeds `["whitelist", mint@1, destination_token@2]` |
+| 15 | `freeze` program | literal pubkey — resolves @16..=17 |
+| 16 | `source_frozen_pda` | external PDA via @15 — seeds `["frozen_account", mint@1, source_token@0]` |
+| 17 | `source_frozen_balance_pda` | external PDA via @15 — seeds `["frozen_balance", mint@1, source_token@0]` |
 
-Every entry is read-only: the hook never writes.
-
-Two rounds of entries have been removed from this list:
-
-- The 10 compliance entries dropped before commit `7d417c2`'s heap-OOM
-  incident (`asset_configuration_pda`, `deactivate_pda`, `deployer`,
-  `transfer_control_mode_pda`, `transfer-control` program, source/destination
-  whitelist PDAs, `freeze` program, `source_frozen_pda`,
-  `source_frozen_balance_pda`) — `verify_transfer` consumes them directly at
-  the top level instead.
-- The 6 snapshot entries (`snapshot` program, `snapshot_counter_pda`,
-  `sender_snapshot`, `receiver_snapshot`, `transfer_hook_authority`, system
-  program) — holder balances are no longer accumulated per transfer; each
-  snapshot now commits every `(account, balance)` pair to a single on-chain
-  Merkle root (`["snapshot_merkle_root", mint, snapshot_id]`), and consumers
-  such as `treasury::pay_coupon` prove a balance against that root. See
-  [`snapshot.md`](snapshot.md) and [`treasury.md`](treasury.md).
+Every entry is read-only; the hook never writes. Because Token-2022 derives the
+seed-based entries and verifies the caller-supplied accounts against them before
+invoking the hook, each forwarded PDA is guaranteed canonical by the time
+`execute` runs.
 
 ---
 
@@ -107,33 +106,40 @@ Two rounds of entries have been removed from this list:
 ### Parameters
 
 ```rust
-amount: u64
+amount: u64  // unused by the current logic; the post-debit balance check reads state directly
 ```
 
 ### Discriminator
 
 `[105, 37, 101, 197, 75, 251, 102, 26]` — first 8 bytes of
-`sha256("spl-transfer-hook-interface:execute")`. Declared via
-`#[instruction(discriminator = &[...])]`. Token-2022 uses this exact
+`sha256("spl-transfer-hook-interface:execute")`. Token-2022 uses this exact
 discriminator when invoking the hook during `transfer_checked`.
 
 ### Accounts
 
-Indexes 0–4 are fixed by the SPL interface. Indexes 5+ are whatever the
-metalist declares, in the order above.
+Indices 0–4 are fixed by the SPL interface; 5–17 are the metalist entries above,
+in order.
 
 | Index | Account |
 |---|---|
 | 0 | `source_token` |
 | 1 | `mint` |
 | 2 | `destination_token` |
-| 3 | `owner` |
+| 3 | `owner` (transfer authority) |
 | 4 | `extra_account_meta_list` |
 | 5 | `deploy_program` |
 | 6 | `asset_configuration_pda` |
 | 7 | `factory_program` |
 | 8 | `asset_class_version_pda` |
-| 9 | `instructions_sysvar` |
+| 9 | `deactivate_program` |
+| 10 | `deactivate_pda` |
+| 11 | `transfer_control_program` |
+| 12 | `transfer_control_mode_pda` |
+| 13 | `source_whitelist_pda` |
+| 14 | `destination_whitelist_pda` |
+| 15 | `freeze_program` |
+| 16 | `source_frozen_pda` |
+| 17 | `source_frozen_balance_pda` |
 
 ### Execution
 
@@ -265,23 +271,15 @@ this path must therefore still prepend their own `verify_transfer`.
 
 ```rust
 pub enum TransferHookError {
-    InvalidAccountSize,                           // ExtraAccountMetaList size mismatch during init
-
-    // Introspection — structural
-    InstructionsSysvarUnreadable,                 // sysvar load syscall failed
-    NoPreviousInstruction,                        // current_idx == 0
-
-    // Introspection — previous instruction (must be verify_transfer)
-    PrevInstructionWrongProgram,                  // not transfer
-    PrevInstructionNotVerifyTransfer,             // discriminator mismatch
-    PrevInstructionArgumentMismatch,              // amount / source / destination / mint / data layout
-
-    // Introspection — current instruction (must be transfer, batch_transfer, controller_transfer or transfer_checked)
-    CurrentInstructionUnknownProgram,             // not transfer, operations or token-2022
-    CurrentInstructionNotTransferOrTransferChecked, // wrong discriminator/tag
-    CurrentInstructionArgumentMismatch,
+    InvalidAccountSize,   // ExtraAccountMetaList size mismatch during init
+    NotTransferring,      // execute invoked outside a Token-2022 transfer
 }
 ```
+
+Compliance failures propagate from the helpers the hook calls:
+`common::CommonError::Deactivated`, `transfer_control::TransferControlError::NotWhitelisted`,
+`freeze::ErrorCode::{AccountFrozen, InsufficientUnfrozenBalance}`, and the
+functionality errors from `common::require_functionality`.
 
 ---
 
@@ -290,23 +288,8 @@ pub enum TransferHookError {
 All program IDs are imported from `common::program_ids`:
 
 ```rust
-use common::program_ids as constants;
-// constants::DEPLOY_PROGRAM_ID, constants::TRANSFER_PROGRAM_ID, etc.
+use common::program_ids::{DEPLOY_PROGRAM_ID, FREEZE_PROGRAM_ID, /* … */};
 ```
 
-## constants.rs
-
-`transfer-hook` is the only program that still has a `constants.rs`. It contains only instruction discriminators — not program IDs:
-
-```rust
-// Anchor / SPL discriminators — used by the introspection check against
-// the data of the introspected instructions. Must be kept in sync with
-// transfer's and operations' #[program] (Anchor derives them from the Rust
-// function names sha256("global:<name>")[..8]).
-pub const VERIFY_TRANSFER_DISCRIMINATOR:       [u8; 8] = [...];
-pub const TRANSFER_DISCRIMINATOR:              [u8; 8] = [...];
-pub const BATCH_VERIFY_TRANSFER_DISCRIMINATOR: [u8; 8] = [...];
-pub const BATCH_TRANSFER_DISCRIMINATOR:        [u8; 8] = [...];
-pub const CONTROLLER_TRANSFER_DISCRIMINATOR:   [u8; 8] = [...];
-pub const TOKEN_2022_TRANSFER_CHECKED_TAG:     u8      = 12;
-```
+The hook no longer has a `constants.rs` (it held introspection discriminators,
+now removed) and no longer reads the `Instructions` sysvar.

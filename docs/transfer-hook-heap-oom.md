@@ -1,4 +1,4 @@
-# Transfer-hook OOM: why every CMTAT transfer fails after moving checks into the hook
+# Transfer-hook compliance and the Token-2022 32 KiB heap
 
 ## Table of contents
 
@@ -127,32 +127,21 @@ The Solana SDK's default entrypoint installs this global allocator
 [`src/lib.rs`](file:///home/alberto/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-program-entrypoint-2.3.0/src/lib.rs)):
 
 ```rust
-pub const HEAP_START_ADDRESS: u64 = 0x300000000;
-pub const HEAP_LENGTH: usize       = 32 * 1024;          // ← 32 KiB, compile-time
+pub const HEAP_LENGTH: usize = 32 * 1024;   // solana-program-entrypoint, compile-time
 
 #[global_allocator]
-static A: BumpAllocator = BumpAllocator {
-    start: HEAP_START_ADDRESS as usize,
-    len:   HEAP_LENGTH,                                  // ← hard-coded
-};
+static A: BumpAllocator = BumpAllocator { start: HEAP_START_ADDRESS as usize, len: HEAP_LENGTH };
 ```
 
-Two consequences:
+`ComputeBudgetProgram.requestHeapFrame(bytes)` does **not** lift this. The
+runtime maps the larger region, but Token-2022's bump allocator was compiled
+believing it only has 32 KiB and never looks past that boundary:
 
-1. **The 32 KiB cap is baked into the program binary.** Each SBF program
-   invocation gets its own bump allocator instance with `len = 32 * 1024`.
-2. **`requestHeapFrame` does *not* lift the cap for that allocator.**
-   `ComputeBudgetProgram.requestHeapFrame(bytes)` asks the runtime to map a
-   larger physical heap region at `HEAP_START_ADDRESS`, but the
-   `BumpAllocator.alloc` check is against the hard-coded `len = 32 KiB`:
-
-   ```rust
-   pos = pos.saturating_sub(layout.size());
-   pos &= !(layout.align().wrapping_sub(1));
-   if pos < self.start + size_of::<*mut u8>() {  // self.start + 32 KiB
-       return null_mut();                         // → "out of memory"
-   }
-   ```
+```rust
+if pos < self.start + size_of::<*mut u8>() {  // self.start + 32 KiB
+    return null_mut();                         // → "out of memory"
+}
+```
 
    The extra mapped memory exists, but `alloc` refuses to use it.
 
