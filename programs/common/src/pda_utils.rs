@@ -41,39 +41,18 @@ pub fn create_or_adopt_pda<'info>(
             &[signer_seeds],
         )?;
     } else {
-        // Pre-funded (possibly by a griefer): create_account would fail, so
-        // top up to rent-exemption then allocate + assign manually.
-        let rent_deficit = rent_exempt_lamports.saturating_sub(current_lamports);
-        if rent_deficit > 0 {
-            invoke(
-                &system_instruction::transfer(payer.key, pda.key, rent_deficit),
-                &[payer.clone(), pda.clone(), system_program.clone()],
-            )?;
-        }
-
-        invoke_signed(
-            &system_instruction::allocate(pda.key, space as u64),
-            &[pda.clone(), system_program.clone()],
-            &[signer_seeds],
-        )?;
-
+        // Assign the PDA ownership to the program & allocate the space rent-exempt
         invoke_signed(
             &system_instruction::assign(pda.key, program_id),
             &[pda.clone(), system_program.clone()],
             &[signer_seeds],
         )?;
+        resize_pda(payer, system_program, pda, space)?;
     }
 
     Ok(())
 }
 
-/// Closes `pda`, returning its lamports to `authority` and zeroing its data.
-///
-/// The manual counterpart to Anchor's `#[account(close = authority)]`
-/// constraint, needed anywhere a PDA is closed via `remaining_accounts` rather
-/// than through a typed Anchor account (Anchor's `close` constraint can't
-/// target a variable-length account list). Callers are expected to have
-/// already verified `pda` is the expected account and is non-empty.
 pub fn close_pda(pda: &AccountInfo, authority: &AccountInfo) -> Result<()> {
     let lamports = pda.lamports();
     **pda.try_borrow_mut_lamports()? = 0;
@@ -82,5 +61,47 @@ pub fn close_pda(pda: &AccountInfo, authority: &AccountInfo) -> Result<()> {
         .checked_add(lamports)
         .ok_or(ProgramError::ArithmeticOverflow)?;
     pda.try_borrow_mut_data()?.fill(0);
+    Ok(())
+}
+
+pub fn resize_pda<'info>(
+    payer: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
+    pda: &AccountInfo<'info>,
+    new_space: usize,
+) -> Result<()> {
+    if new_space == pda.data_len() {
+        return Ok(());
+    }
+
+    let new_minimum_lamports = Rent::get()?.minimum_balance(new_space);
+    let current_lamports = pda.lamports();
+    let rent_deficit = new_minimum_lamports.saturating_sub(current_lamports);
+
+    if rent_deficit > 0 {
+        invoke(
+            &system_instruction::transfer(payer.key, pda.key, rent_deficit),
+            &[payer.clone(), pda.clone(), system_program.clone()],
+        )?;
+    } else {
+        let refund = current_lamports.saturating_sub(new_minimum_lamports);
+        if refund > 0 {
+            **pda.try_borrow_mut_lamports()? -= refund;
+            **payer.try_borrow_mut_lamports()? += refund;
+        }
+    }
+
+    pda.resize(new_space)?;
+
+    Ok(())
+}
+
+pub fn serialize_pda<'info, T: AccountSerialize>(
+    pda: &AccountInfo<'info>,
+    value: &T,
+) -> Result<()> {
+    let mut data = pda.try_borrow_mut_data()?;
+    let mut cursor = std::io::Cursor::new(data.as_mut());
+    value.try_serialize(&mut cursor)?;
     Ok(())
 }
