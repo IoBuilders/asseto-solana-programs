@@ -119,3 +119,10 @@ pub const ROLES: &[u8] = b"roles";
 
 /*********************************** CAP ************************************/
 pub const MAX_SUPPLY: &[u8] = b"max_supply";
+
+/********************************* DOCUMENT *********************************/
+pub const DOCUMENT: &[u8] = b"document";
+
+pub fn document_seeds<'info>(mint: &'info Pubkey, name: &'info [u8]) -> Vec<&'info [u8]> {
+    vec![DOCUMENT, mint.as_ref(), name]
+}

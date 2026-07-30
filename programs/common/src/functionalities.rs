@@ -27,6 +27,8 @@ pub const ACCESS_CONTROL_GRANT_ROLES: u16 = 20;
 pub const ACCESS_CONTROL_REVOKE_ROLES: u16 = 21;
 pub const CAP_MAX_SUPPLY: u16 = 22;
 pub const OPERATIONS_CONTROLLER_TRANSFER: u16 = 23;
+pub const DOCUMENT_SET_DOCUMENT: u16 = 24;
+pub const DOCUMENT_REMOVE_DOCUMENT: u16 = 25;
 
 #[cfg(test)]
 mod tests {

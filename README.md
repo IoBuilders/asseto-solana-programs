@@ -159,6 +159,7 @@ No program has a `constants.rs`: program IDs all come from `common::program_ids`
 | `factory` | `FEY9E77nH7R1gLGNxkhYKchJpB6MgpMrWMhkNXrNhzR5` |
 | `access-control` | `GpyjQqBWux3JYqxKCXFrDbWZmhFWBJWVaVivkBW2DL2w` |
 | `cap` | `64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm` |
+| `document` | `DzYjHw2JUBT8RdNqT8P5soRxJhmL6obibRUs5sMJ2Khi` |
 
 ### ID sharing pattern
 
