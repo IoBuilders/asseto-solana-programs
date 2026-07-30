@@ -100,10 +100,10 @@ describe("allowance", () => {
     await setAssetClassVersionForMint(mint, { functionalities: [MINT_MINT, TRANSFER_HOOK_EXECUTE] });
     await setRoles(mint, authority.publicKey, [ROLE_ISSUER]);
 
-    holderTokenAccount = await createTokenAccount({ mint, owner: holder.publicKey });
+    holderTokenAccount = await createTokenAccount({ mint, owner: holder.publicKey, createATA: true });
     await mintTokens({ mint, destination: holderTokenAccount, authority }, { amount: MINT_AMOUNT });
 
-    destinationTokenAccount = await createTokenAccount({ mint, owner: destination.publicKey });
+    destinationTokenAccount = await createTokenAccount({ mint, owner: destination.publicKey, createATA: true });
 
     holderSigner = await createKeyPairSignerFromBytes(holder.secretKey);
     delegatee1Signer = await createKeyPairSignerFromBytes(delegatee1.secretKey);
