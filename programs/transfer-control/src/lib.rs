@@ -28,18 +28,16 @@ pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()> {
 ///
 /// Returns `Ok(())` if the all the PDAs comply with the transfer control mode.
 /// Returns `Err(TransferControlError::NotWhitelisted)` if any PDA does not comply.
-pub fn verify_transfer_control_mode(
-    transfer_control_mode_pda: &AccountInfo,
+pub fn verify_transfer_control_mode<'info>(
+    transfer_control_mode_pda: &'info AccountInfo<'info>,
     whitelist_pdas: &[&AccountInfo],
 ) -> Result<()> {
     if transfer_control_mode_pda.data_is_empty() {
         return Ok(());
     }
 
-    let transfer_control_mode = {
-        let data = transfer_control_mode_pda.try_borrow_data()?;
-        TransferControlMode::try_deserialize(&mut data.as_ref())?
-    };
+    let transfer_control_mode =
+        Account::<TransferControlMode>::try_from(transfer_control_mode_pda)?;
 
     if transfer_control_mode.mode == TransferMode::Whitelist {
         for whitelist_pda in whitelist_pdas {

@@ -20,6 +20,12 @@ See `.claude/skills/add-new-instruction/SKILL.md` §5/§9 for the fuller referen
 
 ---
 
+## Rust / Anchor Conventions
+
+- **Never deserialize an account via `T::try_deserialize`/`try_deserialize_unchecked` directly** to turn a raw `AccountInfo`/`UncheckedAccount` into a typed struct. Always go through `Account::<T>::try_from(&account_info)` (or `AccountLoader::<T>::try_from` for zero-copy types). `try_deserialize` only checks the account's 8-byte discriminator; `try_from` checks that *and* that `info.owner == T::owner()` (plus the not-initialized case) before ever calling `try_deserialize`. Skipping `try_from` is the classic Solana "missing owner check" vulnerability — an attacker-controlled account with fabricated bytes matching the discriminator would deserialize and be trusted as if it were the real PDA. See `docs/common.md`'s "Working with `AccountInfo` parameters" section for the full writeup, including the related lifetime requirement `try_from` imposes on its input.
+
+---
+
 ## Development Commands
 
 Toolchain versions are pinned (`rust-toolchain.toml`, `Anchor.toml` `[toolchain]`) — Rust `1.89.0`, Solana CLI `3.1.14`, Anchor CLI `1.0.2`, Surfpool `1.3.0` (local validator), Node `24.16`.

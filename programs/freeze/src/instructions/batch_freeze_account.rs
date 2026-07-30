@@ -64,10 +64,7 @@ pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>
             signer_seeds.as_slice(),
         )?;
 
-        let mut data = frozen_account_pda.try_borrow_mut_data()?;
-        let mut cursor = std::io::Cursor::new(data.as_mut());
-        FrozenAccountStatus { bump }.try_serialize(&mut cursor)?;
-        drop(data);
+        pda_utils::serialize_pda(&frozen_account_pda, &FrozenAccountStatus { bump })?;
 
         emit_cpi!(AccountFrozen {
             mint: mint_key,

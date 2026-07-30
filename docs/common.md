@@ -50,6 +50,15 @@ pub enum CommonError {
 
 ---
 
+## Working with `AccountInfo / UncheckedAccount` parameters
+
+Helpers across this workspace (here and in `cap`, `transfer-control`, …) take Anchor account wrappers (`UncheckedAccount`, `Account`, …) as `&AccountInfo` rather than owned `AccountInfo`. Two conventions follow from that:
+
+- **Prefer `&ctx.accounts.x` over `&ctx.accounts.x.to_account_info()`** at call sites. Every Anchor account wrapper implements `Deref<Target = AccountInfo<'info>>`, so a reference to the wrapper coerces to `&AccountInfo` automatically. `.to_account_info()` *clones* the account (cheap, but still unnecessary) — reserve it for places that need an **owned** `AccountInfo`, e.g. the accounts slice passed to `invoke`/`invoke_signed`.
+- **Always go through `Account::<T>::try_from`, never call `T::try_deserialize` directly.** `Account::try_from` (anchor-lang `accounts/account.rs`) checks `info.owner != &T::owner()` (and the not-initialized case) *before* calling `T::try_deserialize` — `try_deserialize` on its own only checks the 8-byte discriminator, not who owns the account (see `AssetConfiguration`'s own `AccountDeserialize` impl above for a concrete look at what `try_deserialize` alone actually checks). Deserializing without the owner check is the classic Solana "missing owner check" bug: an attacker-supplied account with data crafted to match the discriminator would deserialize successfully and be trusted as if it were the genuine PDA, since nothing verified which program actually owns it.
+
+---
+
 ## Function: `require_active`
 
 ```rust

@@ -69,10 +69,7 @@ pub fn batch_freeze_account_partial<'info>(
             )?;
         }
 
-        let mut data = frozen_balance_pda.try_borrow_mut_data()?;
-        let mut cursor = std::io::Cursor::new(data.as_mut());
-        FrozenBalance { balance, bump }.try_serialize(&mut cursor)?;
-        drop(data);
+        pda_utils::serialize_pda(&frozen_balance_pda, &FrozenBalance { balance, bump })?;
 
         emit_cpi!(AccountPartiallyFrozen {
             mint: mint_key,

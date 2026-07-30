@@ -13,8 +13,8 @@ declare_id!("CGQMgamBMtJ97CCMwVD9v5vAYVzFsXLy8beN8Ej6t3FK");
 pub mod coupon {
     use super::*;
 
-    pub fn create_coupon(
-        ctx: Context<CreateCoupon>,
+    pub fn create_coupon<'info>(
+        ctx: Context<'info, CreateCoupon<'info>>,
         period_start_date: i64,
         period_end_date: i64,
         payment_date: i64,
