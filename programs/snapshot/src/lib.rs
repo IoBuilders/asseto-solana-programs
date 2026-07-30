@@ -27,7 +27,7 @@ pub(crate) fn assert_take_snapshot_authorized_caller(
     use crate::errors::ErrorCode;
 
     let (expected, _) = Pubkey::find_program_address(
-        &[pda_seeds::COUPON_AUTHORITY, mint_key.as_ref()],
+        &pda_seeds::coupon_authority_seeds(mint_key),
         &COUPON_PROGRAM_ID,
     );
     require!(expected == *caller, ErrorCode::Unauthorized);

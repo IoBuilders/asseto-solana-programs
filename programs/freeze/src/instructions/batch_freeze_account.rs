@@ -42,14 +42,9 @@ pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>
         let account_key = account.key();
 
         // ── Verify the client supplied the canonical PDA for this account ────
-        let (expected_pda, bump) = Pubkey::find_program_address(
-            &[
-                pda_seeds::FROZEN_ACCOUNT,
-                mint_key.as_ref(),
-                account_key.as_ref(),
-            ],
-            ctx.program_id,
-        );
+        let frozen_account_seeds = pda_seeds::frozen_account_seeds(&mint_key, &account_key);
+        let (expected_pda, bump) =
+            Pubkey::find_program_address(&frozen_account_seeds, ctx.program_id);
         require_keys_eq!(
             frozen_account_pda.key(),
             expected_pda,
@@ -58,12 +53,7 @@ pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>
 
         require!(frozen_account_pda.data_is_empty(), ErrorCode::AccountFrozen);
 
-        let signer_seeds: &[&[u8]] = &[
-            pda_seeds::FROZEN_ACCOUNT,
-            mint_key.as_ref(),
-            account_key.as_ref(),
-            &[bump],
-        ];
+        let signer_seeds = pda_utils::build_pda_signer_seeds(frozen_account_seeds, &bump);
 
         pda_utils::create_or_adopt_pda(
             &ctx.accounts.authority.to_account_info(),
@@ -71,7 +61,7 @@ pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>
             &ctx.accounts.system_program.to_account_info(),
             ctx.program_id,
             space,
-            signer_seeds,
+            signer_seeds.as_slice(),
         )?;
 
         let mut data = frozen_account_pda.try_borrow_mut_data()?;

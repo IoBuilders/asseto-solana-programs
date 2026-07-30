@@ -46,14 +46,9 @@ pub fn batch_freeze_account_partial<'info>(
         let account_key = account.key();
 
         // ── Verify the client supplied the canonical PDA for this account ────
-        let (expected_pda, bump) = Pubkey::find_program_address(
-            &[
-                pda_seeds::FROZEN_BALANCE,
-                mint_key.as_ref(),
-                account_key.as_ref(),
-            ],
-            ctx.program_id,
-        );
+        let frozen_balance_seeds = pda_seeds::frozen_balance_seeds(&mint_key, &account_key);
+        let (expected_pda, bump) =
+            Pubkey::find_program_address(&frozen_balance_seeds, ctx.program_id);
         require_keys_eq!(
             frozen_balance_pda.key(),
             expected_pda,
@@ -62,12 +57,7 @@ pub fn batch_freeze_account_partial<'info>(
 
         // ── Create the PDA on the first call; overwrite on subsequent calls ──
         if frozen_balance_pda.data_is_empty() {
-            let signer_seeds: &[&[u8]] = &[
-                pda_seeds::FROZEN_BALANCE,
-                mint_key.as_ref(),
-                account_key.as_ref(),
-                &[bump],
-            ];
+            let signer_seeds = pda_utils::build_pda_signer_seeds(frozen_balance_seeds, &bump);
 
             pda_utils::create_or_adopt_pda(
                 &ctx.accounts.authority.to_account_info(),
@@ -75,7 +65,7 @@ pub fn batch_freeze_account_partial<'info>(
                 &ctx.accounts.system_program.to_account_info(),
                 ctx.program_id,
                 space,
-                signer_seeds,
+                signer_seeds.as_slice(),
             )?;
         }
 
