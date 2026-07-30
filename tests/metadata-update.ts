@@ -23,7 +23,7 @@ import {
   PAUSE_PAUSE,
 } from "./utils/functionalities";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_CUSTOM_DATA_MANAGER } from "./utils/roles";
+import { ROLE_ADMIN, ROLE_CUSTOM_DATA_MANAGER } from "./utils/roles";
 
 describe("metadata-update", () => {
   const provider = anchor.AnchorProvider.env();
@@ -37,7 +37,7 @@ describe("metadata-update", () => {
       await setAssetClassVersionForMint(mint, {
         functionalities: [PAUSE_PAUSE, DEACTIVATE_DEACTIVATE, METADATA_UPDATE_UPDATE_METADATA_FIELD],
       });
-      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
+      await setRoles(mint, authority.publicKey, [ROLE_ADMIN, ROLE_CUSTOM_DATA_MANAGER]);
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -96,6 +96,34 @@ describe("metadata-update", () => {
 
       try {
         await updateMetadataField({ authority, mint });
+        assert.fail("Expected MissingRole error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("update_metadata_field: fails with MissingRole when updating a core field with only ROLE_CUSTOM_DATA_MANAGER", async () => {
+      await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
+
+      try {
+        await updateMetadataField({ authority, mint }, { key: "name", value: "New Name" });
+        assert.fail("Expected MissingRole error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "MissingRole", "error code should be MissingRole");
+      }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("update_metadata_field: fails with MissingRole when updating a custom field with only ROLE_ADMIN", async () => {
+      await setRoles(mint, authority.publicKey, [ROLE_ADMIN]);
+
+      try {
+        await updateMetadataField({ authority, mint }, { key: "isin", value: "CH0012221716" });
         assert.fail("Expected MissingRole error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");

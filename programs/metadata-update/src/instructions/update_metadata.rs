@@ -63,11 +63,16 @@ pub fn update_metadata_field(
     key: String,
     value: String,
 ) -> Result<()> {
-    // ── Verify caller holds the custom-data-manager role ─────────────────────
-    require_role(
-        ctx.accounts.authority_roles_pda.load()?,
-        roles::ROLE_CUSTOM_DATA_MANAGER,
-    )?;
+    let event_key = key.clone();
+    let field = to_field(key);
+
+    // ── Verify caller holds the role for the field being updated: Admin for
+    // core identity fields (name/symbol), Data Manager for uri/custom fields ──
+    let required_role = match field {
+        Field::Name | Field::Symbol => roles::ROLE_ADMIN,
+        Field::Uri | Field::Key(_) => roles::ROLE_CUSTOM_DATA_MANAGER,
+    };
+    require_role(ctx.accounts.authority_roles_pda.load()?, required_role)?;
 
     // ── Verify mint is not paused ────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
@@ -82,9 +87,7 @@ pub fn update_metadata_field(
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
-    let event_key = key.clone();
     let event_value = value.clone();
-    let field = to_field(key);
 
     // ── Compute and transfer any additional rent before the CPI ─────────────
     let additional_lamports = {
