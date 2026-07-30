@@ -30,7 +30,7 @@ export type CreateTokenAccountArgs = {
 
 export async function createTokenAccount(args: CreateTokenAccountArgs): Promise<PublicKey> {
   const provider = getProvider();
-  const destination = args.destination ?? Keypair.generate();
+  const destination = args.destination ?? null;
 
   return createAccount(
     provider.connection,
