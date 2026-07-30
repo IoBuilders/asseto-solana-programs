@@ -17,7 +17,7 @@ The exact versions below are pinned by the toolchain config and exercised in CI 
 | Rust | `1.89.0` (with `rustfmt`, `clippy`) | `rust-toolchain.toml` |
 | Solana CLI | `3.1.14` | `Anchor.toml` `[toolchain]` |
 | Anchor CLI | `1.0.2` | `Anchor.toml` `[toolchain]` |
-| Surfpool | `1.3.0` | local validator for integration tests |
+| Surfpool | `1.5.0` | local validator for integration tests |
 | Node.js | `24.16` | `npm` is the package manager |
 
 ---
@@ -37,7 +37,7 @@ cargo install cargo-binstall
 cargo binstall anchor-cli@1.0.2 --no-confirm
 
 # Surfpool (local validator used by the integration tests)
-curl -sSfL "https://github.com/solana-foundation/surfpool/releases/download/v1.3.0/surfpool-linux-x64.tar.gz" \
+curl -sSfL "https://github.com/solana-foundation/surfpool/releases/download/v1.5.0/surfpool-linux-x64.tar.gz" \
   | tar xz -C "$HOME/.cargo/bin"
 
 # Node dependencies (TypeScript tests + lint)
