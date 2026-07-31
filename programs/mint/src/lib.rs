@@ -12,7 +12,7 @@ declare_id!("BgVv7zYbf3L4ECwaeNoNqD6unKWvQtgTwRJ2Dma7iSHQ");
 pub mod mint {
     use super::*;
 
-    pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
+    pub fn mint<'info>(ctx: Context<'info, MintTokens<'info>>, amount: u64) -> Result<()> {
         instructions::mint::mint(ctx, amount)
     }
 

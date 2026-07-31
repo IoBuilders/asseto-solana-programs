@@ -63,10 +63,10 @@ pub fn require_unfrozen_account(frozen_account_pda: &AccountInfo) -> Result<()> 
     Ok(())
 }
 
-pub fn require_unfrozen_balance(
+pub fn require_unfrozen_balance<'info>(
     amount: u64,
     token_account: &AccountInfo,
-    frozen_balance_pda: &AccountInfo,
+    frozen_balance_pda: &'info AccountInfo<'info>,
 ) -> Result<()> {
     use crate::errors::ErrorCode;
     use spl_token_2022_interface::extension::StateWithExtensions;
@@ -79,14 +79,10 @@ pub fn require_unfrozen_balance(
     let account_balance = token_state.base.amount;
 
     // ── Read the frozen balance from the PDA (0 if PDA does not exist) ────────
-    // try_deserialize checks the discriminator and Borsh-deserializes the struct
-    // without the invariant lifetime constraint that Account::try_from requires.
     let frozen_balance: u64 = if frozen_balance_pda.data_is_empty() {
         0
     } else {
-        let data = frozen_balance_pda.try_borrow_data()?;
-        let mut slice: &[u8] = &data;
-        FrozenBalance::try_deserialize(&mut slice)
+        Account::<FrozenBalance>::try_from(frozen_balance_pda)
             .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?
             .balance
     };
@@ -103,9 +99,9 @@ pub fn require_unfrozen_balance(
 /// (Token-2022 runs it after debiting): asserts `balance_post >= frozen`, which
 /// is the pre-debit `available >= amount` restated for the post-debit balance.
 /// See docs/freeze.md.
-pub fn require_frozen_balance_covered(
+pub fn require_frozen_balance_covered<'info>(
     token_account: &AccountInfo,
-    frozen_balance_pda: &AccountInfo,
+    frozen_balance_pda: &'info AccountInfo<'info>,
 ) -> Result<()> {
     use crate::errors::ErrorCode;
     use spl_token_2022_interface::extension::StateWithExtensions;
@@ -119,9 +115,7 @@ pub fn require_frozen_balance_covered(
     let frozen_balance: u64 = if frozen_balance_pda.data_is_empty() {
         0
     } else {
-        let data = frozen_balance_pda.try_borrow_data()?;
-        let mut slice: &[u8] = &data;
-        FrozenBalance::try_deserialize(&mut slice)
+        Account::<FrozenBalance>::try_from(frozen_balance_pda)
             .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?
             .balance
     };

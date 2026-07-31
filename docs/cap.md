@@ -122,16 +122,18 @@ pub struct MaxSupplySet {
 Exported from `cap`'s crate root (outside `#[program]`), so a program that mints can link it in and call it directly — no CPI, no compute cost beyond the account reads. Same pattern as `transfer_control::verify_transfer_control_mode`.
 
 ```rust
-pub fn require_within_max_supply(
+pub fn require_within_max_supply<'info>(
     mint_account: &AccountInfo,
-    max_supply_pda: &AccountInfo,
+    max_supply_pda: &'info AccountInfo<'info>,
+    asset_class_version: Ref<AssetClassVersion>,
     amount_to_mint: u64,
 ) -> Result<()>
 ```
 
 | Case | Result |
 |---|---|
-| `max_supply_pda` is empty | `Ok(())` — no cap set, no restriction. The mint account isn't even unpacked |
+| `max_supply_pda` is empty, `CAP_MAX_SUPPLY` functionality enabled | `Err(MaxSupplyNotSet)` |
+| `max_supply_pda` is empty, `CAP_MAX_SUPPLY` functionality disabled | `Ok(())` — no cap set, no restriction. The mint account isn't even unpacked |
 | `supply + amount_to_mint <= max_supply` | `Ok(())` |
 | `supply + amount_to_mint > max_supply` | `Err(MaxSupplyExceeded)` |
 | `supply + amount_to_mint` overflows `u64` | `Err(MaxSupplyExceeded)` — a sum that overflows `u64` necessarily exceeds a `u64` cap |

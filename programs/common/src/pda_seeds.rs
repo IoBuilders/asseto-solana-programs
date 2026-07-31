@@ -28,11 +28,22 @@ pub fn metadata_update_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info
 }
 
 /********************************** FREEZE **********************************/
-// No `freeze_authority` seed: mints are deployed with no Token-2022 freeze
-// authority at all, so that PDA can never exist. Freezing is expressed by the two
-// marker PDAs below and enforced by `transfer::verify_transfer`.
 pub const FROZEN_ACCOUNT: &[u8] = b"frozen_account";
 pub const FROZEN_BALANCE: &[u8] = b"frozen_balance";
+
+pub fn frozen_account_seeds<'info>(
+    mint: &'info Pubkey,
+    account: &'info Pubkey,
+) -> Vec<&'info [u8]> {
+    vec![FROZEN_ACCOUNT, mint.as_ref(), account.as_ref()]
+}
+
+pub fn frozen_balance_seeds<'info>(
+    mint: &'info Pubkey,
+    account: &'info Pubkey,
+) -> Vec<&'info [u8]> {
+    vec![FROZEN_BALANCE, mint.as_ref(), account.as_ref()]
+}
 
 /******************************** OPERATIONS ********************************/
 pub const PERMANENT_DELEGATE: &[u8] = b"permanent_delegate";
@@ -62,6 +73,10 @@ pub const WHITELIST: &[u8] = b"whitelist";
 
 pub fn transfer_control_mode_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![TRANSFER_CONTROL_MODE, mint.as_ref()]
+}
+
+pub fn whitelist_seeds<'info>(mint: &'info Pubkey, account: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![WHITELIST, mint.as_ref(), account.as_ref()]
 }
 
 /********************************* TRANSFER *********************************/

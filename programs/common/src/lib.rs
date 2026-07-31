@@ -121,7 +121,7 @@ pub fn verify_whitelist_pda(
     mint: &Pubkey,
 ) -> Result<()> {
     let (expected_whitelist_pda, _) = Pubkey::find_program_address(
-        &[pda_seeds::WHITELIST, mint.as_ref(), destination.as_ref()],
+        &pda_seeds::whitelist_seeds(mint, destination),
         &program_ids::TRANSFER_CONTROL_PROGRAM_ID,
     );
     require_keys_eq!(

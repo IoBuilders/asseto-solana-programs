@@ -44,8 +44,8 @@ pub fn batch_mint<'info>(
         .ok_or(MintError::AmountOverflow)?;
 
     require_within_max_supply(
-        &ctx.accounts.mint.to_account_info(),
-        &ctx.accounts.max_supply_pda.to_account_info(),
+        &ctx.accounts.mint,
+        &ctx.accounts.max_supply_pda,
         ctx.accounts.asset_class_version_pda.load()?,
         batch_total,
     )?;

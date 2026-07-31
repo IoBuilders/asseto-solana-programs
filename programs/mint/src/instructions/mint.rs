@@ -12,11 +12,11 @@ use crate::events::Issued;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration};
 
-pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
+pub fn mint<'info>(ctx: Context<'info, MintTokens<'info>>, amount: u64) -> Result<()> {
     require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_ISSUER)?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -25,14 +25,14 @@ pub fn mint(ctx: Context<MintTokens>, amount: u64) -> Result<()> {
 
     // ── Transfer control mode check ──────────────────────────────────────
     verify_transfer_control_mode(
-        &ctx.accounts.transfer_control_mode_pda.to_account_info(),
-        &[&ctx.accounts.destination_whitelist_pda.to_account_info()],
+        &ctx.accounts.transfer_control_mode_pda,
+        &[&ctx.accounts.destination_whitelist_pda],
     )?;
 
     // ── Supply cap check ─────────────────────────────────────────────────
     require_within_max_supply(
-        &ctx.accounts.mint.to_account_info(),
-        &ctx.accounts.max_supply_pda.to_account_info(),
+        &ctx.accounts.mint,
+        &ctx.accounts.max_supply_pda,
         ctx.accounts.asset_class_version_pda.load()?,
         amount,
     )?;

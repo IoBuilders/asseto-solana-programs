@@ -43,11 +43,7 @@ pub fn batch_unfreeze_account<'info>(
 
         // ── Verify the client supplied the canonical PDA for this account ────
         let (expected_pda, _bump) = Pubkey::find_program_address(
-            &[
-                pda_seeds::FROZEN_ACCOUNT,
-                mint_key.as_ref(),
-                account_key.as_ref(),
-            ],
+            &pda_seeds::frozen_account_seeds(&mint_key, &account_key),
             ctx.program_id,
         );
         require_keys_eq!(

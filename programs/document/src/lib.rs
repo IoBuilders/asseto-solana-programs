@@ -15,16 +15,16 @@ declare_id!("DzYjHw2JUBT8RdNqT8P5soRxJhmL6obibRUs5sMJ2Khi");
 pub mod document {
     use super::*;
 
-    pub fn set_document(
-        ctx: Context<SetDocument>,
+    pub fn set_document<'info>(
+        ctx: Context<'info, SetDocument<'info>>,
         name: [u8; 32],
         uri: String,
         document_hash: [u8; 32],
     ) -> Result<()> {
-        instructions::set_document::set_document(ctx, name, uri, document_hash)
+        set_document::set_document(ctx, name, uri, document_hash)
     }
 
     pub fn remove_document(ctx: Context<RemoveDocument>, name: [u8; 32]) -> Result<()> {
-        instructions::remove_document::remove_document(ctx, name)
+        remove_document::remove_document(ctx, name)
     }
 }

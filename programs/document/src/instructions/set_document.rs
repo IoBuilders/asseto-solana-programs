@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::system_program::{self, Transfer};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 use common::{
@@ -11,8 +10,8 @@ use crate::errors::ErrorCode;
 use crate::events::DocumentUpdated;
 use crate::state::Document;
 
-pub fn set_document(
-    ctx: Context<SetDocument>,
+pub fn set_document<'info>(
+    ctx: Context<'info, SetDocument<'info>>,
     name: [u8; 32],
     uri: String,
     document_hash: [u8; 32],
@@ -30,42 +29,48 @@ pub fn set_document(
 
     require!(!uri.is_empty(), ErrorCode::EmptyUri);
 
-    let needed = Document::space(uri.len());
-    let doc_info = ctx.accounts.document_pda.to_account_info();
-    let bump = ctx.bumps.document_pda;
-    let mint_key = ctx.accounts.mint.key();
+    let space_needed = Document::space(uri.len());
 
-    if doc_info.data_is_empty() {
+    let document_pda = &ctx.accounts.document_pda;
+
+    let document = if document_pda.data_is_empty() {
+        let bump = ctx.bumps.document_pda;
         let signer_seeds = pda_utils::build_pda_signer_seeds(
-            pda_seeds::document_seeds(&mint_key, name.as_ref()),
+            pda_seeds::document_seeds(ctx.accounts.mint.key, name.as_ref()),
             &bump,
         );
         pda_utils::create_or_adopt_pda(
-            &ctx.accounts.payer.to_account_info(),
-            &doc_info,
-            &ctx.accounts.system_program.to_account_info(),
-            &crate::ID,
-            needed,
+            &ctx.accounts.payer,
+            document_pda,
+            &ctx.accounts.system_program,
+            &ctx.program_id,
+            space_needed,
             &signer_seeds,
         )?;
+        Document {
+            mint: ctx.accounts.mint.key(),
+            name,
+            uri: uri.clone(),
+            document_hash,
+            bump,
+        }
     } else {
-        let data = doc_info.try_borrow_data()?;
-        Document::try_deserialize(&mut &data[..])?;
-        drop(data);
-        resize_document_account(&ctx, &doc_info, needed)?;
-    }
-
-    let document = Document {
-        mint: ctx.accounts.mint.key(),
-        name,
-        uri: uri.clone(),
-        document_hash,
-        bump,
+        let existing_document = Account::<Document>::try_from(document_pda)?;
+        pda_utils::resize_pda(
+            &ctx.accounts.payer,
+            &ctx.accounts.system_program,
+            document_pda,
+            space_needed,
+        )?;
+        Document {
+            name,
+            uri: uri.clone(),
+            document_hash,
+            ..existing_document.into_inner()
+        }
     };
-    {
-        let mut data = doc_info.try_borrow_mut_data()?;
-        document.try_serialize(&mut &mut data[..])?;
-    }
+
+    pda_utils::serialize_pda(&ctx.accounts.document_pda, &document)?;
 
     emit_cpi!(DocumentUpdated {
         mint: document.mint,
@@ -75,48 +80,6 @@ pub fn set_document(
         document_hash,
     });
 
-    Ok(())
-}
-
-/// Settles the rent delta *before* resizing, matching the order Anchor's own
-/// `realloc` codegen uses — a grow needs the new lamports present first, and a
-/// shrink refunds the excess back to `payer` (see `docs/document.md`).
-fn resize_document_account<'info>(
-    ctx: &Context<SetDocument<'info>>,
-    doc_info: &AccountInfo<'info>,
-    needed: usize,
-) -> Result<()> {
-    let current_len = doc_info.data_len();
-    if current_len == needed {
-        return Ok(());
-    }
-
-    let rent = Rent::get()?;
-    let new_minimum = rent.minimum_balance(needed);
-    let current_lamports = doc_info.lamports();
-
-    if new_minimum > current_lamports {
-        system_program::transfer(
-            CpiContext::new(
-                system_program::ID,
-                Transfer {
-                    from: ctx.accounts.payer.to_account_info(),
-                    to: doc_info.clone(),
-                },
-            ),
-            new_minimum - current_lamports,
-        )?;
-    } else if current_lamports > new_minimum {
-        let refund = current_lamports - new_minimum;
-        **doc_info.try_borrow_mut_lamports()? -= refund;
-        **ctx
-            .accounts
-            .payer
-            .to_account_info()
-            .try_borrow_mut_lamports()? += refund;
-    }
-
-    doc_info.resize(needed)?;
     Ok(())
 }
 

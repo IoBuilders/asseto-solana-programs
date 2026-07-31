@@ -12,8 +12,8 @@ use crate::state::{Coupon, CouponCounter};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
-pub fn create_coupon(
-    ctx: Context<CreateCoupon>,
+pub fn create_coupon<'info>(
+    ctx: Context<'info, CreateCoupon<'info>>,
     period_start_date: i64,
     period_end_date: i64,
     payment_date: i64,
@@ -68,8 +68,7 @@ pub fn create_coupon(
         if acct.data_is_empty() {
             0
         } else {
-            let data = acct.try_borrow_data()?;
-            SnapshotCounter::try_deserialize(&mut &data[..])?.count
+            Account::<SnapshotCounter>::try_from(acct)?.count
         }
     };
 

@@ -14,7 +14,7 @@ use transfer_control::verify_transfer_control_mode;
 
 use crate::errors::TransferHookError;
 
-pub fn execute(ctx: Context<Execute>, _amount: u64) -> Result<()> {
+pub fn execute<'info>(ctx: Context<'info, Execute<'info>>, _amount: u64) -> Result<()> {
     require_transferring(&ctx.accounts.source_token.to_account_info())?;
 
     // SECURITY: only operations::controller_transfer can present the
@@ -29,22 +29,22 @@ pub fn execute(ctx: Context<Execute>, _amount: u64) -> Result<()> {
         return Ok(());
     }
 
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(&ctx.accounts.deactivate_pda)?;
 
     verify_transfer_control_mode(
-        &ctx.accounts.transfer_control_mode_pda.to_account_info(),
+        &ctx.accounts.transfer_control_mode_pda,
         &[
-            &ctx.accounts.source_whitelist_pda.to_account_info(),
-            &ctx.accounts.destination_whitelist_pda.to_account_info(),
+            &ctx.accounts.source_whitelist_pda,
+            &ctx.accounts.destination_whitelist_pda,
         ],
     )?;
 
-    require_unfrozen_account(&ctx.accounts.source_frozen_pda.to_account_info())?;
+    require_unfrozen_account(&ctx.accounts.source_frozen_pda)?;
 
     // The hook runs post-debit, so this asserts balance_post >= frozen.
     require_frozen_balance_covered(
-        &ctx.accounts.source_token.to_account_info(),
-        &ctx.accounts.source_frozen_balance_pda.to_account_info(),
+        &ctx.accounts.source_token,
+        &ctx.accounts.source_frozen_balance_pda,
     )?;
 
     require_functionality(

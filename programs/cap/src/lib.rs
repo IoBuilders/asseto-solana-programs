@@ -27,9 +27,9 @@ declare_id!("64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm");
 /// bit: that bit gates creating the PDA, so an absent bit already means no cap,
 /// and gating here would let a version flip stop enforcing a cap the PDA still
 /// records.
-pub fn require_within_max_supply(
+pub fn require_within_max_supply<'info>(
     mint_account: &AccountInfo,
-    max_supply_pda: &AccountInfo,
+    max_supply_pda: &'info AccountInfo<'info>,
     asset_class_version: Ref<AssetClassVersion>,
     amount_to_mint: u64,
 ) -> Result<()> {
@@ -48,10 +48,7 @@ pub fn require_within_max_supply(
         return Ok(());
     }
 
-    let max_supply = {
-        let data = max_supply_pda.try_borrow_data()?;
-        MaxSupply::try_deserialize(&mut data.as_ref())?.max_supply
-    };
+    let max_supply = Account::<MaxSupply>::try_from(max_supply_pda)?.max_supply;
 
     let total_supply = {
         let mint_data = mint_account.try_borrow_data()?;
@@ -74,6 +71,6 @@ pub mod cap {
     use super::*;
 
     pub fn set_max_supply(ctx: Context<SetMaxSupply>, max_supply: u64) -> Result<()> {
-        instructions::set_max_supply::set_max_supply(ctx, max_supply)
+        set_max_supply::set_max_supply(ctx, max_supply)
     }
 }

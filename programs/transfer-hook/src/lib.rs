@@ -20,7 +20,7 @@ pub mod transfer_hook {
     // Discriminator = sha256("spl-transfer-hook-interface:execute")[..8] — see
     // docs/transfer-hook.md ("Discriminator") for the full derivation.
     #[instruction(discriminator = &[105, 37, 101, 197, 75, 251, 102, 26])]
-    pub fn execute(ctx: Context<Execute>, amount: u64) -> Result<()> {
+    pub fn execute<'info>(ctx: Context<'info, Execute<'info>>, amount: u64) -> Result<()> {
         execute::execute(ctx, amount)
     }
 }
