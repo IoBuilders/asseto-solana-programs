@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::instruction::AccountMeta;
 use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token_2022::Token2022;
 use common::pda_seeds;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration};
+use common::HookAccounts;
 use spl_token_2022_interface::{
     extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
 };
@@ -33,6 +33,8 @@ pub fn batch_transfer<'info>(
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
+    let asset_configuration_info = ctx.accounts.asset_configuration_pda.to_account_info();
+    let asset_class_version_info = ctx.accounts.asset_class_version_pda.to_account_info();
 
     for (i, &amount) in amounts.iter().enumerate() {
         let destination = &ctx.remaining_accounts[i * 2];
@@ -50,54 +52,36 @@ pub fn batch_transfer<'info>(
             decimals,
         )?;
 
-        // Forwarded to the hook in metalist order; the destination whitelist is
-        // this leg's, the rest are constant.
-        for meta in [
-            ctx.accounts.extra_account_meta_list.key(),
-            ctx.accounts.transfer_hook_program.key(),
-            ctx.accounts.deploy_program.key(),
-            ctx.accounts.asset_configuration_pda.key(),
-            ctx.accounts.factory_program.key(),
-            ctx.accounts.asset_class_version_pda.key(),
-            ctx.accounts.deactivate_program.key(),
-            ctx.accounts.deactivate_pda.key(),
-            ctx.accounts.transfer_control_program.key(),
-            ctx.accounts.transfer_control_mode_pda.key(),
-            ctx.accounts.source_whitelist_pda.key(),
-            destination_whitelist_pda.key(),
-            ctx.accounts.freeze_program.key(),
-            ctx.accounts.source_frozen_pda.key(),
-            ctx.accounts.source_frozen_balance_pda.key(),
-        ] {
-            transfer_ix
-                .accounts
-                .push(AccountMeta::new_readonly(meta, false));
-        }
+        let hook_accounts = HookAccounts {
+            extra_account_meta_list: &ctx.accounts.extra_account_meta_list,
+            transfer_hook_program: &ctx.accounts.transfer_hook_program,
+            deploy_program: &ctx.accounts.deploy_program,
+            asset_configuration_pda: &asset_configuration_info,
+            factory_program: &ctx.accounts.factory_program,
+            asset_class_version_pda: &asset_class_version_info,
+            deactivate_program: &ctx.accounts.deactivate_program,
+            deactivate_pda: &ctx.accounts.deactivate_pda,
+            transfer_control_program: &ctx.accounts.transfer_control_program,
+            transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
+            source_whitelist_pda: &ctx.accounts.source_whitelist_pda,
+            destination_whitelist_pda,
+            freeze_program: &ctx.accounts.freeze_program,
+            source_frozen_pda: &ctx.accounts.source_frozen_pda,
+            source_frozen_balance_pda: &ctx.accounts.source_frozen_balance_pda,
+            hold_program: &ctx.accounts.hold_program,
+            source_hold_position_pda: &ctx.accounts.source_hold_position_pda,
+        };
+        hook_accounts.append_metas(&mut transfer_ix);
 
-        invoke(
-            &transfer_ix,
-            &[
-                ctx.accounts.source.to_account_info(),
-                ctx.accounts.mint.to_account_info(),
-                destination.to_account_info(),
-                ctx.accounts.source_owner.to_account_info(),
-                ctx.accounts.extra_account_meta_list.to_account_info(),
-                ctx.accounts.transfer_hook_program.to_account_info(),
-                ctx.accounts.deploy_program.to_account_info(),
-                ctx.accounts.asset_configuration_pda.to_account_info(),
-                ctx.accounts.factory_program.to_account_info(),
-                ctx.accounts.asset_class_version_pda.to_account_info(),
-                ctx.accounts.deactivate_program.to_account_info(),
-                ctx.accounts.deactivate_pda.to_account_info(),
-                ctx.accounts.transfer_control_program.to_account_info(),
-                ctx.accounts.transfer_control_mode_pda.to_account_info(),
-                ctx.accounts.source_whitelist_pda.to_account_info(),
-                destination_whitelist_pda.to_account_info(),
-                ctx.accounts.freeze_program.to_account_info(),
-                ctx.accounts.source_frozen_pda.to_account_info(),
-                ctx.accounts.source_frozen_balance_pda.to_account_info(),
-            ],
-        )?;
+        let mut infos = vec![
+            ctx.accounts.source.to_account_info(),
+            ctx.accounts.mint.to_account_info(),
+            destination.to_account_info(),
+            ctx.accounts.source_owner.to_account_info(),
+        ];
+        hook_accounts.append_infos(&mut infos);
+
+        invoke(&transfer_ix, &infos)?;
     }
 
     Ok(())
@@ -213,6 +197,18 @@ pub struct BatchTransferTokens<'info> {
         bump,
     )]
     pub source_frozen_balance_pda: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by constraint; forwarded to the hook.
+    #[account(address = constants::HOLD_PROGRAM_ID)]
+    pub hold_program: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook (may be empty — no holds on the source).
+    #[account(
+        seeds = [pda_seeds::HOLD_POSITION, mint.key().as_ref(), source.key().as_ref()],
+        seeds::program = constants::HOLD_PROGRAM_ID,
+        bump,
+    )]
+    pub source_hold_position_pda: UncheckedAccount<'info>,
 
     pub token_2022_program: Program<'info, Token2022>,
 }

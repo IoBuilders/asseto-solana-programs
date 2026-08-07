@@ -8,15 +8,17 @@ use crate::errors::TransferHookError;
 use common::pda_seeds;
 use common::program_ids::{
     DEACTIVATE_PROGRAM_ID, DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, FREEZE_PROGRAM_ID,
-    TRANSFER_CONTROL_PROGRAM_ID,
+    HOLD_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID,
 };
 use common::state::asset_configuration::{
     ASSET_CLASS_CONFIG_ID_OFFSET, ASSET_CLASS_VERSION_ID_OFFSET,
 };
 
 /// Number of extra account metas produced by `initialize_extra_account_meta_list`.
-/// Keep in sync with the `metas` vec length in the handler.
-const EXTRA_ACCOUNT_META_COUNT: usize = 13;
+/// Keep in sync with the `metas` vec length in the handler, and with
+/// `common::HOOK_FORWARDED_ACCOUNT_COUNT`, which is this plus the two accounts
+/// Token-2022 requires on top (the metalist itself and the hook program).
+const EXTRA_ACCOUNT_META_COUNT: usize = 15;
 
 pub fn initialize_extra_account_meta_list(
     ctx: Context<InitializeExtraAccountMetaList>,
@@ -121,6 +123,19 @@ pub fn initialize_extra_account_meta_list(
             &[
                 Seed::Literal {
                     bytes: pda_seeds::FROZEN_BALANCE.to_vec(),
+                },
+                Seed::AccountKey { index: 1 },
+                Seed::AccountKey { index: 0 },
+            ],
+            false,
+            false,
+        )?,
+        ExtraAccountMeta::new_with_pubkey(&HOLD_PROGRAM_ID, false, false)?,
+        ExtraAccountMeta::new_external_pda_with_seeds(
+            18,
+            &[
+                Seed::Literal {
+                    bytes: pda_seeds::HOLD_POSITION.to_vec(),
                 },
                 Seed::AccountKey { index: 1 },
                 Seed::AccountKey { index: 0 },

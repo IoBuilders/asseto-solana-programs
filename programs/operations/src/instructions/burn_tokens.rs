@@ -8,7 +8,7 @@ use crate::events::ControllerRedemption;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
-pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
+pub fn burn<'info>(ctx: Context<'info, BurnTokens<'info>>, amount: u64) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
         roles::ROLE_CONTROLLER,
@@ -20,6 +20,15 @@ pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
         common::functionalities::OPERATIONS_BURN,
+    )?;
+
+    // Token-2022 fires no transfer hook on a burn, so nothing else enforces the hold
+    // lien here. Burnt tokens never come back, so a burn over the lien would leave a
+    // hold permanently unexecutable.
+    common::require_hold_covered(
+        &ctx.accounts.token_account.to_account_info(),
+        &ctx.accounts.token_account_hold_position_pda,
+        amount,
     )?;
 
     let mint_key = ctx.accounts.mint.key();
@@ -119,6 +128,14 @@ pub struct BurnTokens<'info> {
         bump,
     )]
     pub permissioned_burn_authority: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; lien read by require_hold_covered. May be empty.
+    #[account(
+        seeds = [pda_seeds::HOLD_POSITION, mint.key().as_ref(), token_account.key().as_ref()],
+        seeds::program = constants::HOLD_PROGRAM_ID,
+        bump,
+    )]
+    pub token_account_hold_position_pda: UncheckedAccount<'info>,
 
     #[account(
         seeds = [

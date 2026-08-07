@@ -45,6 +45,8 @@ pub enum CommonError {
     MissingRole,                    // signer's Roles PDA lacks the required role bit
     WhitelistPdaMismatch,           // a remaining_accounts whitelist PDA doesn't match the derived address for its destination
     InvalidMerkleProof,             // (account, balance) not proven against the snapshot root
+    InsufficientSpendableBalance,   // amount exceeds balance − held (see require_hold_covered)
+    HoldPositionPdaMismatch,        // supplied hold_position_pda is not the derived one
 }
 ```
 
@@ -265,6 +267,77 @@ caller to raise its own domain error: `factory` maps to `ErrorCode::Functionalit
 
 Per-domain capacities (`FUNCTIONALITIES_BITS_MASK`, `ROLES_BITS_MASK`, …) stay with their
 own structs; only `MASK_CHUNK_BITS` is shared.
+
+---
+
+## Module: `hook_accounts`
+
+The block of accounts every `transfer_checked` on an Asseto mint must append so Token-2022 can
+resolve and invoke `transfer-hook::execute`.
+
+```rust
+pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 17;
+
+pub struct HookAccounts<'a, 'info> { /* 17 &AccountInfo fields, in wire order */ }
+
+impl<'a, 'info> HookAccounts<'a, 'info> {
+    pub fn ordered(&self) -> [&'a AccountInfo<'info>; HOOK_FORWARDED_ACCOUNT_COUNT]
+    pub fn append_metas(&self, transfer_ix: &mut Instruction)   // read-only, non-signing metas
+    pub fn append_infos(&self, infos: &mut Vec<AccountInfo<'info>>)
+}
+```
+
+The field order **is** the wire order: Token-2022 matches forwarded accounts positionally against
+the list `transfer-hook::initialize_extra_account_meta_list` built, so a wrong order fails inside
+Token-2022 before the hook even runs. The 17 are the metalist's own 15 entries plus the two
+Token-2022 requires on top (`extra_account_meta_list` and `transfer_hook_program`) — keep
+`HOOK_FORWARDED_ACCOUNT_COUNT` and the hook's `EXTRA_ACCOUNT_META_COUNT` in step.
+
+It lives here rather than in each caller because there are three of them
+(`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`) and
+the order was previously written out longhand in every one. Growing the metalist — as adding
+`hold` did — then becomes a single edit here plus the hook, instead of a silent positional
+mismatch in whichever call site was missed.
+
+`append_metas` and `append_infos` must always be used together: an account the instruction's
+`AccountMeta` list references but whose `AccountInfo` is missing from the `invoke` is never
+passed to the callee.
+
+---
+
+## Hold-lien enforcement off the hook path
+
+```rust
+pub fn held_amount(hold_position_pda: &AccountInfo) -> Result<u64>
+
+pub fn require_hold_covered(
+    token_account: &AccountInfo,
+    hold_position_pda: &AccountInfo,
+    amount: u64,
+) -> Result<()>
+
+pub fn require_hold_covered_unverified_pda(
+    token_account: &AccountInfo,
+    hold_position_pda: &AccountInfo,
+    mint: &Pubkey,
+    amount: u64,
+) -> Result<()>
+```
+
+`held_amount` reads `hold::state::HoldPosition.held_amount`, returning **0 when the PDA does not exist** — an account that has never had a hold created against it. It reads the account through `state::HoldPosition`, a field-for-field mirror of `hold`'s own struct, because `hold` already depends on `operations`, so `operations` importing `hold` would be circular. A unit test in `hold/src/state.rs` serializes the real struct and reads it back through this mirror, so a layout or discriminator change fails the build rather than silently misparsing a lien.
+
+`require_hold_covered` asserts `balance >= held + amount`, pre-debit. It exists for the paths Token-2022 runs **no** transfer hook on, which cannot rely on `transfer-hook::execute` to enforce the lien:
+
+| Path | Why the hook does not cover it |
+|---|---|
+| `operations::controller_transfer` | Signed by the `permanent_delegate` PDA, which `transfer-hook::execute` exempts from every check |
+| `operations::burn` / `batch_burn` | Token-2022 fires transfer hooks on transfers only — a burn invokes none |
+
+Without it, either path could leave `held` above the balance, and the hook's cover check (`balance_post >= frozen + held`) would then reject **every** transfer from that account — hold executions included — until the escrows released or the holds expired.
+
+It deliberately ignores the partial-freeze balance: only the hold lien gates these paths. See [`operations.md`](operations.md) for that decision.
+
+`require_hold_covered_unverified_pda` is the variant for a `hold_position_pda` arriving through `remaining_accounts`, where no `seeds` constraint can validate its address. It derives the expected PDA and compares, so a caller cannot substitute an empty account to fake a zero lien; `operations::batch_burn` uses it. Errors `HoldPositionPdaMismatch` on a mismatch, `InsufficientSpendableBalance` on a shortfall.
 
 ---
 

@@ -16,7 +16,7 @@ pub fn batch_burn<'info>(
 ) -> Result<()> {
     require!(!amounts.is_empty(), OperationsError::EmptyBatch);
     require!(
-        ctx.remaining_accounts.len() == amounts.len(),
+        ctx.remaining_accounts.len() == amounts.len() * 2,
         OperationsError::InvalidRemainingAccounts
     );
 
@@ -47,8 +47,18 @@ pub fn batch_burn<'info>(
 
     for i in 0..amounts.len() {
         let amount = amounts[i];
-        let destination = &ctx.remaining_accounts[i];
+        let destination = &ctx.remaining_accounts[i * 2];
+        let hold_position_pda = &ctx.remaining_accounts[i * 2 + 1];
         let destination_key = destination.key();
+
+        // Same reasoning as `burn`: no transfer hook fires on a burn, so the hold
+        // lien is only enforced if this instruction does it.
+        common::require_hold_covered_unverified_pda(
+            destination,
+            hold_position_pda,
+            &mint_key,
+            amount,
+        )?;
 
         // ── Burn tokens (CPI to Token-2022) ────────────────────────────────
         //

@@ -82,9 +82,11 @@ must be **appended** to that list.
 | 16 | `freeze_program` | no | no | `FREEZE_PROGRAM_ID` |
 | 17 | `source_frozen_pda` | no | no | seeds `["frozen_account", mint, source]`; must be empty |
 | 18 | `source_frozen_balance_pda` | no | no | seeds `["frozen_balance", mint, source]`; may be empty (no partial freeze) |
+| 19 | `hold_program` | no | no | `HOLD_PROGRAM_ID` |
+| 20 | `source_hold_position_pda` | no | no | seeds `["hold_position", mint, source]`; may be empty (no hold ever created on the source) |
 
-**Indices 4–18 are load-bearing in exactly this order** — 4 and 5 are the metalist
-PDA and hook program, and 6–18 are the metalist's own entries in declaration
+**Indices 4–20 are load-bearing in exactly this order** — 4 and 5 are the metalist
+PDA and hook program, and 6–20 are the metalist's own entries in declaration
 order. Token-2022 re-derives the seed-based entries and checks the forwarded
 accounts against them, so a wrong order (or a missing account) fails inside
 Token-2022 before the hook runs. Omitting the block entirely does not skip
@@ -144,18 +146,18 @@ from the destination token account.
 | 14 | `source_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, source]`; constant across legs |
 | 15 | `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, source]` |
 | 16 | `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, source]` |
-| 17 | `token_2022_program` | no | no | Program\<Token2022\> | |
-| 18.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_whitelist_pda` |
+| 17 | `hold_program` | no | no | UncheckedAccount | address = `HOLD_PROGRAM_ID` |
+| 18 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, source]`; may be empty |
+| 19 | `token_2022_program` | no | no | Program\<Token2022\> | |
+| 20.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_whitelist_pda` |
 
 The declaration order above is *not* the order the accounts are forwarded in —
 `freeze_program` sits at index 5 in the struct but is forwarded thirteenth, where
-the metalist expects it. The forwarding order (per leg) is: `extra_account_meta_list`,
-`transfer_hook_program`, `deploy_program`, `asset_configuration_pda`,
-`factory_program`, `asset_class_version_pda`, `deactivate_program`,
-`deactivate_pda`, `transfer_control_program`, `transfer_control_mode_pda`,
-`source_whitelist_pda`, **this leg's** `destination_whitelist_pda`,
-`freeze_program`, `source_frozen_pda`, `source_frozen_balance_pda` — matching
-the metalist declaration in
+the metalist expects it. The forwarding order is defined once, by the field order
+of `common::HookAccounts` (see [`common.md`](common.md#module-hook_accounts)),
+which this instruction fills in per leg with **this leg's**
+`destination_whitelist_pda` and the same constant entries for the rest. That
+order matches the metalist declaration in
 [`transfer-hook.md`](transfer-hook.md#metalist-contents).
 
 ### Execution

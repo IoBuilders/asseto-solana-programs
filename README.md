@@ -108,7 +108,8 @@ Use `--skip-build` once you've already run a fresh `anchor build`.
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot`
 │   ├── treasury/             — coupon payouts: `pay_coupon` signed by `treasury_authority` PDA
 │   ├── factory/              — singleton config PDA: `initialize` (records manager + pause flag) + two-step manager handover (`nominate_manager` → `accept_nomination` / `cancel_nomination`); per-`config_id` asset classes via `create_asset_class` + two-step asset-class owner handover (`nominate_asset_class_owner` → `accept_asset_class_ownership` / `cancel_asset_class_ownership`)
-│   └── access-control/       — per-mint role bit-mask: `grant_roles` / `revoke_roles` set/clear role bits for an `(mint, account)` pair; admin-gated + functionality-gated
+│   ├── access-control/       — per-mint role bit-mask: `grant_roles` / `revoke_roles` set/clear role bits for an `(mint, account)` pair; admin-gated + functionality-gated
+│   └── hold/                 — ERC-1996 holds as a lien on the holder's own balance; escrow (notary) executes or releases, anyone reclaims after expiry
 └── tests/                    — one .ts file per program
 ```
 
@@ -160,6 +161,7 @@ No program has a `constants.rs`: program IDs all come from `common::program_ids`
 | `access-control` | `GpyjQqBWux3JYqxKCXFrDbWZmhFWBJWVaVivkBW2DL2w` |
 | `cap` | `64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm` |
 | `document` | `DzYjHw2JUBT8RdNqT8P5soRxJhmL6obibRUs5sMJ2Khi` |
+| `hold` | `J8iq5Qz8tXLswZBbUFHuJukf3jpwEXLGVpvFoPZb2qY3` |
 
 ### ID sharing pattern
 

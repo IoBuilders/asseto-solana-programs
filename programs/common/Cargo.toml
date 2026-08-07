@@ -37,6 +37,7 @@ factory          = { path = "../factory",          features = ["cpi"] }
 access-control   = { path = "../access-control",   features = ["cpi"] }
 cap              = { path = "../cap",              features = ["cpi"] }
 document         = { path = "../document",         features = ["cpi"] }
+hold             = { path = "../hold",             features = ["cpi"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }

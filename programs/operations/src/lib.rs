@@ -12,7 +12,7 @@ declare_id!("BHDyg8PeUyVBpmkcjYLdnt3VCmYf4wp8Xeu6TXREiLKp");
 pub mod operations {
     use super::*;
 
-    pub fn burn(ctx: Context<BurnTokens>, amount: u64) -> Result<()> {
+    pub fn burn<'info>(ctx: Context<'info, BurnTokens<'info>>, amount: u64) -> Result<()> {
         burn_tokens::burn(ctx, amount)
     }
 
@@ -23,7 +23,14 @@ pub mod operations {
         batch_burn::batch_burn(ctx, amounts)
     }
 
-    pub fn controller_transfer(ctx: Context<ControllerTransfer>, amount: u64) -> Result<()> {
+    pub fn controller_transfer<'info>(
+        ctx: Context<'info, ControllerTransfer<'info>>,
+        amount: u64,
+    ) -> Result<()> {
         controller_transfer::controller_transfer(ctx, amount)
+    }
+
+    pub fn hold_transfer(ctx: Context<HoldTransfer>, amount: u64) -> Result<()> {
+        hold_transfer::hold_transfer(ctx, amount)
     }
 }

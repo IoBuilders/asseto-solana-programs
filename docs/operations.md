@@ -2,7 +2,9 @@
 
 Program ID: `BHDyg8PeUyVBpmkcjYLdnt3VCmYf4wp8Xeu6TXREiLKp`
 
-Controls controller-driven token movements via the Token-2022 `PermanentDelegate` extension: burning (`burn`, `batch_burn`) and force-transfers (`controller_transfer`). Owns the `["permanent_delegate", mint]` PDA that was registered as the permanent delegate during `deploy_mint`. The permanent delegate can burn or transfer tokens from any token account without the account owner's consent.
+Controls token movements that need no holder signature, via the Token-2022 `PermanentDelegate` extension: burning (`burn`, `batch_burn`), force-transfers (`controller_transfer`), and hold executions on behalf of `hold` (`hold_transfer`). Owns the `["permanent_delegate", mint]` PDA that was registered as the permanent delegate during `deploy_mint`. The permanent delegate can burn or transfer tokens from any token account without the account owner's consent.
+
+Because that PDA lives here, every program in the workspace that needs to move tokens without the holder's consent has to route through this program. `hold_transfer` is the first such caller.
 
 This program also owns the `["permissioned_burn", mint]` PDA registered as the mint's `PermissionedBurn` authority during `deploy_mint`. That extension makes the plain Token-2022 `Burn` instruction unusable on these mints: burning must go through the extension's own `Burn`, which requires the permissioned-burn authority as an additional signer. Since only this program can sign for that PDA, `burn` and `batch_burn` below are the only way tokens of such a mint can ever be burned — the permanent delegate alone is not sufficient.
 
@@ -23,6 +25,7 @@ amount: u64  // raw token units to burn
 - `require_role(ROLE_CONTROLLER)` — the `authority` caller must sign and hold `ROLE_CONTROLLER` on this mint (checked against its own `["roles", mint, authority]` PDA). Replaces the previous `verify_deployer` gate — burning is now role-based rather than restricted to the deployer.
 - `require_active` — mint must not be deactivated.
 - `require_functionality(OPERATIONS_BURN)` — the mint's asset-class version must enable burning.
+- `require_hold_covered` — `balance >= held + amount`, so the burn cannot destroy tokens a hold has earmarked. See [The hold lien on these paths](#the-hold-lien-on-these-paths).
 
 ### Accounts
 
@@ -38,6 +41,7 @@ amount: u64  // raw token units to burn
 | `token_account` | yes | no | UncheckedAccount | The holder's token account to burn from |
 | `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs the burn CPI as the account's delegate |
 | `permissioned_burn_authority` | no | no | UncheckedAccount | seeds `["permissioned_burn", mint]` (owned by this program); co-signs the burn CPI as the mint's `PermissionedBurn` authority |
+| `token_account_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, token_account]`, `seeds::program = HOLD_PROGRAM_ID`; read by `require_hold_covered`. May be empty (no hold ever created) |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
 
@@ -63,19 +67,21 @@ amounts: Vec<u64>  // raw token units per source; amounts[i] is burned from the 
 
 ### Remaining accounts
 
-One account per source, in order, appended as `remaining_accounts`:
+Two accounts per source, in order, appended as `remaining_accounts`:
 
 | Offset (per source `i`) | Account | Mut | Notes |
 |---|---|---|---|
-| `i` | source token account | yes | burns `amounts[i]` |
+| `i * 2` | source token account | yes | burns `amounts[i]` |
+| `i * 2 + 1` | its `hold_position` PDA | no | seeds `["hold_position", mint, source]`, `seeds::program = HOLD_PROGRAM_ID`; may be empty. No `seeds` constraint can validate a `remaining_accounts` address, so `require_hold_covered_unverified_pda` re-derives and compares it — otherwise a caller could pass an unrelated empty account and fake a zero lien |
 
 ### Preconditions
 
 - `!amounts.is_empty()` — errors `EmptyBatch` if the batch is empty.
-- `remaining_accounts.len() == amounts.len()` — errors `InvalidRemainingAccounts` otherwise (exactly one source per amount).
+- `remaining_accounts.len() == amounts.len() * 2` — errors `InvalidRemainingAccounts` otherwise (exactly two accounts per amount).
 - `require_role(ROLE_CONTROLLER)` — the `authority` caller must sign and hold `ROLE_CONTROLLER` on this mint.
 - `require_active` — mint must not be deactivated.
 - `require_functionality(OPERATIONS_BURN)` — the mint's asset-class version must be finalized and enable burning.
+- `require_hold_covered_unverified_pda` per source — `balance >= held + amounts[i]`. See [The hold lien on these paths](#the-hold-lien-on-these-paths).
 
 ### Accounts
 
@@ -110,7 +116,9 @@ Both signer seeds are derived once before the loop and reused for every leg.
 | Code | Cause |
 |---|---|
 | `EmptyBatch` | `amounts` is empty |
-| `InvalidRemainingAccounts` | `remaining_accounts.len() != amounts.len()` |
+| `InvalidRemainingAccounts` | `remaining_accounts.len() != amounts.len() * 2` |
+| `HoldPositionPdaMismatch` | a source's supplied `hold_position` PDA is not the one derived from its seeds |
+| `InsufficientSpendableBalance` | `amounts[i]` exceeds `balance − held` for that source |
 
 ---
 
@@ -133,8 +141,9 @@ amount: u64  // raw token units to transfer
 - `require_role(ROLE_CONTROLLER)` — the `authority` caller must sign and hold `ROLE_CONTROLLER` on this mint (checked against its own `["roles", mint, authority]` PDA).
 - `require_active` — mint must not be deactivated.
 - `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)` — the mint's asset-class version must be finalized and enable controller transfers.
+- `require_hold_covered` — `balance >= held + amount`. See [The hold lien on these paths](#the-hold-lien-on-these-paths).
 
-`controller_transfer` itself does **not** check pause, whitelist / transfer-control mode, or frozen-account / frozen-balance markers, and neither does the hook for this path (it bypasses compliance for permanent-delegate transfers) — its only gates are the controller role and the asset-class functionality bit. Pause still applies: Token-2022 rejects the inner `transfer_checked` on a paused mint regardless.
+Beyond the hold lien, `controller_transfer` does **not** check pause, whitelist / transfer-control mode, or frozen-account / frozen-balance markers, and neither does the hook for this path (it bypasses compliance for permanent-delegate transfers) — its remaining gates are the controller role and the asset-class functionality bit. Pause still applies: Token-2022 rejects the inner `transfer_checked` on a paused mint regardless.
 
 ### Accounts
 
@@ -159,6 +168,8 @@ amount: u64  // raw token units to transfer
 | `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, to]`; forwarded, may be empty (seizure to a non-whitelisted account) |
 | `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, from]`, `seeds::program = FREEZE_PROGRAM_ID`; forwarded, may **exist** (seizure from a frozen account) |
 | `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, from]`, `seeds::program = FREEZE_PROGRAM_ID`; forwarded, may be empty |
+| `hold_program` | no | no | UncheckedAccount | address constrained to `HOLD_PROGRAM_ID`; hook metalist index 18 |
+| `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, from]`, `seeds::program = HOLD_PROGRAM_ID`; forwarded, may be empty (no hold ever created on the source) |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` and forwarded to the hook |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
@@ -170,10 +181,66 @@ amount: u64  // raw token units to transfer
 1. `require_role(authority_roles_pda.load()?, ROLE_CONTROLLER)`
 2. `require_active(&deactivate_pda)` + `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)`
 3. Read `decimals` off the mint (needed for `transfer_checked`)
-4. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the hook accounts appended in metalist order (`extra_account_meta_list`, `transfer_hook_program`, `deploy_program`, `asset_configuration_pda`, `factory_program`, `asset_class_version_pda`, `deactivate_program`, `deactivate_pda`, `transfer_control_program`, `transfer_control_mode_pda`, `source_whitelist_pda`, `destination_whitelist_pda`, `freeze_program`, `source_frozen_pda`, `source_frozen_balance_pda`) — this order is load-bearing and independent of the order the accounts are declared in the struct
+4. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the hook accounts appended in metalist order via `common::HookAccounts` — this order is load-bearing, independent of the order the accounts are declared in the struct, and shared with every other caller that forwards the block (see [`docs/common.md`](common.md#module-hook_accounts))
 5. Emit `ControllerTransferred` via `emit_cpi!`
 
 `PermissionedBurn` constrains burning only — it places no requirement on transfers, so `controller_transfer` needs no permissioned-burn signer.
+
+---
+
+## Instruction: `hold_transfer` (Auxiliary — `hold` only)
+
+Moves `amount` tokens from `from` to `to` via the permanent delegate, on behalf of `hold::execute_hold`. Exists because the mint's `PermanentDelegate` authority is a PDA of *this* program, so only this program can `invoke_signed` it — and a hold execution has no holder signature to transfer with.
+
+Callable by CPI only: `hold_authority` must be the `["hold_authority", mint]` PDA of `hold`, which only `hold` can produce. An external wallet cannot sign for it.
+
+### Parameters
+
+```rust
+amount: u64  // raw token units to transfer
+```
+
+### Preconditions
+
+`hold_authority.key() == find_program_address(["hold_authority", mint], HOLD_PROGRAM_ID)`, else `UnauthorizedHoldAuthority`.
+
+That is the **only** check. This instruction runs no role, pause, deactivation, functionality, whitelist or freeze check — not because they don't apply, but because `hold::execute_hold` has already run them before calling. The hook cannot run them either: this goes through the permanent delegate, so it takes the compliance bypass. See [`docs/hold.md`](hold.md#why-compliance-is-re-checked-here) for the full argument, and treat this instruction as unsafe to call from anywhere that has not run those checks first.
+
+### Accounts
+
+Same shape as `controller_transfer` minus the role, event, and functionality accounts, plus `hold_authority`:
+
+| Account | Mut | Signer | Type | Notes |
+|---|---|---|---|---|
+| `hold_authority` | no | yes | Signer | Must be `["hold_authority", mint]` of `HOLD_PROGRAM_ID` |
+| `mint` | no | no | UncheckedAccount | decimals read in the handler |
+| `from` | yes | no | UncheckedAccount | Source token account; debited |
+| `to` | yes | no | UncheckedAccount | Destination token account; credited |
+| `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]`; signs the transfer CPI |
+| *hook block* | no | no | — | The 17 accounts of `common::HookAccounts`, forwarded verbatim |
+| `token_2022_program` | no | no | Program<Token2022> | |
+
+`asset_configuration_pda` and `asset_class_version_pda` are typed (`Account` / `AccountLoader`) rather than unchecked purely so their seeds can be validated — nothing here reads their contents.
+
+### Execution
+
+1. Verify `hold_authority` is `hold`'s PDA for this mint.
+2. Read `decimals` off the mint.
+3. `invoke_signed` → `transfer_checked(from, mint, to, operations_authority, amount, decimals)` signed with `["permanent_delegate", mint, bump]`, with the hook block appended via `common::HookAccounts`.
+
+No event: `hold::execute_hold` emits `HoldExecuted`, which carries everything an indexer needs, and a second event here would double-count the same movement.
+
+---
+
+## The hold lien on these paths
+
+`burn`, `batch_burn` and `controller_transfer` all reduce a holder's balance without the transfer hook enforcing anything: the two burns fire no hook at all (Token-2022 invokes transfer hooks on transfers only), and `controller_transfer` signs as the `permanent_delegate` PDA, which `transfer-hook::execute` exempts from every check. Each therefore calls `common::require_hold_covered` itself, asserting `balance >= held + amount` before the CPI.
+
+Without it, any of the three could leave `held` above the balance. The hook's cover check (`balance_post >= frozen + held`) would then reject **every** transfer out of that account — `hold::execute_hold` included — until the escrows released or the holds expired. A burn is worse still: the tokens are gone, so the hold could never be executed at all, only released or reclaimed.
+
+**The partial freeze is deliberately not part of this check.** A controller can still seize or burn a partially frozen balance; only the hold lien stops them. The two are different kinds of restriction: a hold is a settlement commitment between a holder and an escrow the controller does not control, whereas a partial freeze is an administrative measure applied by the same authority structure the controller belongs to. Blocking the controller on a partial freeze would also be inconsistent with this program's existing behaviour, since a **fully** frozen account is already seizable.
+
+This matches ATS, where the two are enforced by different mechanisms: creating a hold calls `reducePartitionOnly`, moving the amount out of `balanceOfByPartition` so no controller path can reach it, while the ERC-3643 partial freeze is a separate `frozenTokens[account]` counter that `controllerTransferByPartition` neither reads nor is gated on.
 
 ---
 

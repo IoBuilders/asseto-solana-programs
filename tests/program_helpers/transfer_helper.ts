@@ -12,7 +12,9 @@ import {
   DEACTIVATE_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
+  HOLD_PROGRAM_ID,
 } from "../utils/address_utils";
+import { holdPositionPda } from "./hold/hold_pda_helper";
 import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
@@ -121,7 +123,7 @@ async function sendTransferCheckedTransaction(
  *
  * **The trailing account order is load-bearing** and must stay in
  * ExtraAccountMetaList order — `extra_account_meta_list`, `transfer_hook_program`,
- * then the metalist's own entries (hook indices 5..=17). Token-2022 resolves the
+ * then the metalist's own entries (hook indices 5..=19). Token-2022 resolves the
  * metalist and verifies the forwarded accounts against it, so a wrong order fails
  * inside Token-2022 before the hook runs.
  */
@@ -162,7 +164,9 @@ export async function buildSplTransferCheckedInstruction(
     readonly(whitelistPda(callContext.mint, callContext.destination)),
     readonly(FREEZE_PROGRAM_ID),
     readonly(frozenAccountPda(callContext.mint, callContext.source)),
-    readonly(frozenBalancePda(callContext.mint, callContext.source))
+    readonly(frozenBalancePda(callContext.mint, callContext.source)),
+    readonly(HOLD_PROGRAM_ID),
+    readonly(holdPositionPda(callContext.mint, callContext.source))
   );
 
   return instruction;
@@ -233,6 +237,8 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
       sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
       sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
+      holdProgram: HOLD_PROGRAM_ID,
+      sourceHoldPositionPda: holdPositionPda(callContext.mint, callContext.source),
       token2022Program: TOKEN_2022_PROGRAM_ID,
     })
     .remainingAccounts(transferRemainingAccounts)

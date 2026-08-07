@@ -103,6 +103,14 @@ pub fn require_frozen_balance_covered<'info>(
     token_account: &AccountInfo,
     frozen_balance_pda: &'info AccountInfo<'info>,
 ) -> Result<()> {
+    require_locked_balance_covered(token_account, frozen_balance_pda, 0)
+}
+
+pub fn require_locked_balance_covered<'info>(
+    token_account: &AccountInfo,
+    frozen_balance_pda: &'info AccountInfo<'info>,
+    additional_locked: u64,
+) -> Result<()> {
     use crate::errors::ErrorCode;
     use spl_token_2022_interface::extension::StateWithExtensions;
     use spl_token_2022_interface::state::Account as TokenAccountState;
@@ -120,8 +128,12 @@ pub fn require_frozen_balance_covered<'info>(
             .balance
     };
 
+    let total_locked = frozen_balance
+        .checked_add(additional_locked)
+        .ok_or(ErrorCode::InsufficientUnfrozenBalance)?;
+
     require!(
-        account_balance >= frozen_balance,
+        account_balance >= total_locked,
         ErrorCode::InsufficientUnfrozenBalance
     );
 

@@ -13,7 +13,9 @@ import {
   DEACTIVATE_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
+  HOLD_PROGRAM_ID,
 } from "../../utils/address_utils";
+import { holdPositionPda } from "../hold/hold_pda_helper";
 import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
 import { getEvent, getEvents } from "../event_helper";
 import { getAssetConfiguration } from "../deploy_helper";
@@ -68,6 +70,7 @@ export async function burnTokens(
       deactivatePda: deactivatePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
       permissionedBurnAuthority: permissionedBurnPda(callContext.mint),
+      tokenAccountHoldPositionPda: holdPositionPda(callContext.mint, callContext.tokenAccount),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -109,8 +112,8 @@ export type BatchBurnTokensContext = MintWriteWithPayerContext & {
 type BatchBurnTokensArgs = {
   // The `amounts` instruction argument. Defaults to `1` per source.
   amounts?: anchor.BN[];
-  // Overrides the remaining accounts. Defaults to `[source (writable)]` per source,
-  // in order. Provide this to exercise remaining-account error paths.
+  // Overrides the remaining accounts. Defaults to the 2 accounts per source the
+  // program expects. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
 
@@ -120,11 +123,16 @@ export async function batchBurnTokens(
 ): Promise<string> {
   const amounts = args?.amounts ?? callContext.sources.map(() => new anchor.BN(1));
 
-  // One remaining account per source: the token account to burn from (writable).
-  // Unlike batch_mint there is no whitelist PDA — burn has no whitelist gate.
+  // Two remaining accounts per source: the token account to burn from (writable),
+  // then its hold-position PDA, whose address
+  // `require_hold_covered_unverified_pda` re-derives and checks. There is no
+  // whitelist PDA — burn has no whitelist gate.
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
-    callContext.sources.map((source) => ({ pubkey: source, isWritable: true, isSigner: false }));
+    callContext.sources.flatMap((source) => [
+      { pubkey: source, isWritable: true, isSigner: false },
+      { pubkey: holdPositionPda(callContext.mint, source), isWritable: false, isSigner: false },
+    ]);
 
   // The asset-class version PDA is derived from the ids recorded in the mint's
   // `asset_configuration` account — the same values the on-chain program reads.
@@ -208,6 +216,8 @@ export async function controllerTransfer(
       destinationWhitelistPda: whitelistPda(callContext.mint, callContext.to),
       sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.from),
       sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.from),
+      holdProgram: HOLD_PROGRAM_ID,
+      sourceHoldPositionPda: holdPositionPda(callContext.mint, callContext.from),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId

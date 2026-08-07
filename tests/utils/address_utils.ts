@@ -18,6 +18,7 @@ import factoryIdl from "../../target/idl/factory.json";
 import accessControlIdl from "../../target/idl/access_control.json";
 import capIdl from "../../target/idl/cap.json";
 import documentIdl from "../../target/idl/document.json";
+import holdIdl from "../../target/idl/hold.json";
 import * as anchor from "@anchor-lang/core";
 
 export const SYSTEM_PROGRAM_ID = anchor.web3.SystemProgram.programId;
@@ -40,3 +41,4 @@ export const FACTORY_PROGRAM_ID = new PublicKey(factoryIdl.address);
 export const ACCESS_CONTROL_PROGRAM_ID = new PublicKey(accessControlIdl.address);
 export const CAP_PROGRAM_ID = new PublicKey(capIdl.address);
 export const DOCUMENT_PROGRAM_ID = new PublicKey(documentIdl.address);
+export const HOLD_PROGRAM_ID = new PublicKey(holdIdl.address);
