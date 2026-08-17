@@ -42,11 +42,12 @@ pub fn execute<'info>(ctx: Context<'info, Execute<'info>>, _amount: u64) -> Resu
     require_unfrozen_account(&ctx.accounts.source_frozen_pda)?;
 
     // The hook runs post-debit, so this asserts balance_post >= frozen + held.
-    require_locked_balance_covered(
-        &ctx.accounts.source_token,
-        &ctx.accounts.source_frozen_balance_pda,
-        common::held_amount(&ctx.accounts.source_hold_position_pda)?,
-    )?;
+    let total_locked = freeze::frozen_balance(&ctx.accounts.source_frozen_balance_pda)?
+        .checked_add(common::held_amount(&ctx.accounts.source_hold_position_pda)?)
+        .ok_or(error!(
+            freeze::errors::ErrorCode::InsufficientUnfrozenBalance
+        ))?;
+    require_locked_balance_covered(&ctx.accounts.source_token, total_locked)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,

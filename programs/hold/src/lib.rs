@@ -62,10 +62,3 @@ pub mod hold {
         reclaim_hold::reclaim_hold(ctx, hold_id)
     }
 }
-
-pub fn frozen_balance<'info>(frozen_balance_pda: &'info AccountInfo<'info>) -> Result<u64> {
-    if frozen_balance_pda.data_is_empty() {
-        return Ok(0);
-    }
-    Ok(Account::<freeze::state::FrozenBalance>::try_from(frozen_balance_pda)?.balance)
-}

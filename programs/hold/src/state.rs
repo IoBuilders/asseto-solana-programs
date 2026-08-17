@@ -13,7 +13,10 @@ pub struct HoldPosition {
     pub mint: Pubkey,
     pub token_account: Pubkey,
     pub held_amount: u64,
-    pub next_hold_id: u64,
+    /// Count of holds created against this position, never reset. The id
+    /// assigned to the next hold is `hold_count + 1`, so the first hold gets
+    /// `hold_id == 1` (mirrors `coupon`'s `count + 1` numbering).
+    pub hold_count: u64,
     pub bump: u8,
 }
 
@@ -52,7 +55,7 @@ mod tests {
             mint: Pubkey::new_unique(),
             token_account: Pubkey::new_unique(),
             held_amount: 0x1122_3344_5566_7788,
-            next_hold_id: 0x99AA_BBCC_DDEE_FF00,
+            hold_count: 0x99AA_BBCC_DDEE_FF00,
             bump: 7,
         };
 
@@ -64,7 +67,7 @@ mod tests {
         assert_eq!(mirrored.mint, position.mint);
         assert_eq!(mirrored.token_account, position.token_account);
         assert_eq!(mirrored.held_amount, position.held_amount);
-        assert_eq!(mirrored.next_hold_id, position.next_hold_id);
+        assert_eq!(mirrored.hold_count, position.hold_count);
         assert_eq!(mirrored.bump, position.bump);
     }
 }

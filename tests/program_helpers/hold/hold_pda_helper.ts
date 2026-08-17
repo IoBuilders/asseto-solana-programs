@@ -25,10 +25,10 @@ export async function getHoldPositionNullable(mint: PublicKey, tokenAccount: Pub
   return await getHoldProgram().account.holdPosition.fetchNullable(holdPositionPda(mint, tokenAccount), "confirmed");
 }
 
-/** `next_hold_id` for a position, or 0 when the position does not exist yet. */
+/** The id assigned to the next hold on this position: `holdCount + 1`, or 1 when the position does not exist yet. */
 export async function nextHoldId(mint: PublicKey, tokenAccount: PublicKey): Promise<anchor.BN> {
   const position = await getHoldPositionNullable(mint, tokenAccount);
-  return position?.nextHoldId ?? new anchor.BN(0);
+  return position ? position.holdCount.add(new anchor.BN(1)) : new anchor.BN(1);
 }
 
 // ── hold PDA ─────────────────────────────────────────────────────────────────

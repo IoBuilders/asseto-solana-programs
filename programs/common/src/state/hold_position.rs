@@ -13,7 +13,7 @@ pub struct HoldPosition {
     pub mint: Pubkey,
     pub token_account: Pubkey,
     pub held_amount: u64,
-    pub next_hold_id: u64,
+    pub hold_count: u64,
     pub bump: u8,
 }
 

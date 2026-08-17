@@ -45,11 +45,13 @@ One functionality bit, `HOLD_CREATE_HOLD`, covers the whole capability: all five
 
 | | `HOLD_CREATE_HOLD` | role | not paused | not deactivated | whitelist |
 |---|---|---|---|---|---|
-| `create_hold` | ✔ | — (holder signs) | ✔ | ✔ | holder + pinned destination |
-| `controller_create_hold` | ✔ | `ROLE_CONTROLLER` | ✔ | ✔ | holder + pinned destination |
+| `create_hold` | ✔ | — (holder signs) | ✔ | ✔ | — |
+| `controller_create_hold` | ✔ | `ROLE_CONTROLLER` | ✔ | ✔ | — |
 | `execute_hold` | ✔ | — (escrow signs) | ✔ | ✔ | source + destination |
 | `release_hold` | ✔ | — (escrow signs) | — | — | — |
 | `reclaim_hold` | ✔ | — (permissionless) | — | — | — |
+
+Neither creation path checks the whitelist. Compliance is only meaningful at the moment tokens actually move, and creation never moves tokens: the pinned `destination` is optional and may not even exist yet when the hold is created, and `execute_hold` re-validates both source and destination immediately before the CPI regardless. Checking at creation would therefore be redundant when it passes and wrong when it doesn't — a hold against a holder or destination that is later removed from the whitelist is still a valid commitment, just one `execute_hold` will reject until eligibility is restored (it can still be `release_hold`d or `reclaim_hold`d either way).
 
 The two resolution paths that move no tokens are gated on the functionality bit but not on pause or deactivation, and the asymmetry rests on a property of this workspace: **a mint's functionality mask is fixed for its lifetime.** `asset_configuration_pda.asset_class_version_id` is written once, by `deploy_mint`, and no instruction rewrites it; a finalized `AssetClassVersion` is immutable. So `HOLD_CREATE_HOLD` cannot be turned off under an open hold — if the bit is off, no hold exists on that mint. Pause and deactivation *can* land after holds exist, and deactivation is irreversible, so gating `release_hold` or `reclaim_hold` on them would strand a lien on a holder's balance with no way out.
 
@@ -67,7 +69,7 @@ pub struct HoldPosition {
     pub mint: Pubkey,          // 32
     pub token_account: Pubkey, // 32
     pub held_amount: u64,      // 8
-    pub next_hold_id: u64,     // 8
+    pub hold_count: u64,       // 8
     pub bump: u8,              // 1
 }
 
@@ -79,10 +81,10 @@ pub struct HoldPosition {
 | `mint` | `Pubkey` | The mint this position belongs to. Stored first (immediately after the 8-byte discriminator) so `getProgramAccounts` + `memcmp(offset = 8, mint)` can enumerate every position for a mint. |
 | `token_account` | `Pubkey` | The token account the lien applies to. Liens are keyed by *token account*, not by owner, because the compliance layer (`whitelist`, `frozen_account`, `frozen_balance`) and the hook's balance check are keyed that way too. |
 | `held_amount` | `u64` | Sum of `current_amount` across the account's active holds. This is the number the transfer hook subtracts. |
-| `next_hold_id` | `u64` | Monotonic counter, never reset. Each creation takes this id and increments it. |
+| `hold_count` | `u64` | Monotonic counter of holds created against this position, never reset. The id assigned to the next hold is `hold_count + 1`, so the first hold on an account gets `hold_id == 1` — matching `coupon`'s `count + 1` numbering rather than starting at 0. |
 | `bump` | `u8` | Bump for the position PDA. |
 
-The position is created on the account's first hold and then persists, even at `held_amount == 0`: closing it would reset `next_hold_id` and let a future hold reuse a retired id.
+The position is created on the account's first hold and then persists, even at `held_amount == 0`: closing it would reset `hold_count` and let a future hold reuse a retired id.
 
 ### `Hold`
 
@@ -130,7 +132,7 @@ A terminal `Hold` is kept rather than closed: it is the on-chain audit trail for
 pub enum ErrorCode {
     ZeroAmount,                    // amount argument is 0
     ExpirationInThePast,           // expiration <= now at creation
-    HoldIdMismatch,                // hold_id argument != hold_position.next_hold_id
+    HoldIdMismatch,                // hold_id argument != hold_position.hold_count + 1
     InsufficientAvailableBalance,  // balance − frozen − already held < amount
     NotTheEscrow,                  // signer is not the hold's escrow
     HoldNotActive,                 // hold is already Closed or Expired
@@ -138,7 +140,6 @@ pub enum ErrorCode {
     HoldNotExpired,                // reclaim_hold before the expiration
     AmountExceedsHold,             // amount > current_amount
     DestinationMismatch,           // destination account != the pinned one
-    MissingDestinationWhitelist,   // destination pinned but its whitelist PDA not supplied
     HeldAmountUnderflow,           // position.held_amount < the amount being resolved
 }
 ```
@@ -149,7 +150,7 @@ pub enum ErrorCode {
 
 ## Shared creation core
 
-`create_hold` and `controller_create_hold` differ only in who authorises them and which event they emit. Everything after the authorisation — the freeze check, the whitelist logic including the optional pinned destination, the `amount` / `expiration` / `hold_id` validation, the available-balance arithmetic, and the writes to `HoldPosition` and `Hold` — is `pub(crate) fn record_new_hold` in `hold::creation`, which both call. The lien it writes is read by `transfer-hook::execute` and by all three resolution paths, so keeping it in one function is what stops the two creation paths diverging on what "available balance" or "next hold id" means.
+`create_hold` and `controller_create_hold` differ only in who authorises them and which event they emit. Everything after the authorisation — the freeze check, the `amount` / `expiration` / `hold_id` validation, the available-balance arithmetic, and the writes to `HoldPosition` and `Hold` — is `pub(crate) fn record_new_hold` in `hold::creation`, which both call. The lien it writes is read by `transfer-hook::execute` and by all three resolution paths, so keeping it in one function is what stops the two creation paths diverging on what "available balance" or "hold count" means.
 
 ---
 
@@ -167,7 +168,7 @@ escrow: Pubkey
 destination: Option<Pubkey>
 ```
 
-`hold_id` must equal the position's current `next_hold_id`. It is an argument rather than something the handler reads because the `Hold` PDA is seeded with it: passing it makes the derivation explicit at the call site, and a concurrent hold from the same holder fails with `HoldIdMismatch` instead of landing on a different PDA.
+`hold_id` must equal `hold_position.hold_count + 1` — the id for the next hold on this position. It is an argument rather than something the handler reads because the `Hold` PDA is seeded with it: passing it makes the derivation explicit at the call site, and a concurrent hold from the same holder fails with `HoldIdMismatch` instead of landing on a different PDA.
 
 ### Preconditions
 
@@ -175,11 +176,10 @@ destination: Option<Pubkey>
 - `require_active` — the mint must not have been deactivated.
 - `require_functionality(HOLD_CREATE_HOLD)`.
 - `require_unfrozen_account` — `token_account` must not be fully frozen.
-- `verify_transfer_control_mode` over `token_account`, plus `destination` when it is pinned.
-- `amount > 0` (`ZeroAmount`), `expiration > now` (`ExpirationInThePast`), `hold_id == next_hold_id` (`HoldIdMismatch`).
+- `amount > 0` (`ZeroAmount`), `expiration > now` (`ExpirationInThePast`), `hold_id == hold_count + 1` (`HoldIdMismatch`).
 - `balance − frozen_balance − held_amount >= amount` (`InsufficientAvailableBalance`).
 
-A hold is a commitment, so a non-eligible account cannot make one, nor earmark its balance for a non-eligible destination. When `destination` is `None` there is nothing to check at creation and the destination is validated at execution instead.
+No whitelist check. Compliance is only meaningful when tokens move, and creation never moves tokens — see [Gating](#gating). The full freeze check stays, though: a fully frozen account cannot make a commitment at all, since it cannot fulfil one either.
 
 ### Accounts
 
@@ -193,9 +193,6 @@ A hold is a commitment, so a non-eligible account cannot make one, nor earmark i
 | `token_account` | no | no | InterfaceAccount\<TokenAccount\> | The holder's token account; `token::mint = mint`, `token::authority = authority`. Its `amount` is the balance the available-balance check starts from. |
 | `token_account_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, token_account]`, `seeds::program = FREEZE_PROGRAM_ID`; must be empty. |
 | `token_account_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, token_account]`, `seeds::program = FREEZE_PROGRAM_ID`; may be empty. Its balance is subtracted from what is available to hold. |
-| `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; may be empty (no mode active). |
-| `token_account_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, token_account]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; must exist in whitelist mode. |
-| `destination_whitelist_pda` | no | no | Option\<UncheckedAccount\> | Required only when `destination` is pinned (`MissingDestinationWhitelist` otherwise). Its address is checked at runtime by `common::verify_whitelist_pda`, because a seeds constraint cannot be written against an `Option` instruction argument. |
 | `hold_position` | yes | no | Account\<HoldPosition\> | seeds `["hold_position", mint, token_account]`; `init_if_needed`. |
 | `hold_record` | yes | no | Account\<Hold\> | seeds `["hold", mint, token_account, hold_id]`; `init`. |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`. |
@@ -208,7 +205,7 @@ A hold is a commitment, so a non-eligible account cannot make one, nor earmark i
 
 1. Run the preconditions above.
 2. Write the position's `mint`, `token_account` and `bump`. The write is unconditional rather than guarded by a "was it just created?" branch: a freshly `init_if_needed`-ed position is all zeroes, and on an existing one the values written are the ones already there, since both derive from the seeds the constraint verified.
-3. `held_amount += amount`, `next_hold_id += 1`.
+3. `held_amount += amount`, `hold_count = hold_id`.
 4. Write the `Hold` as `Active` with `initial_amount == current_amount == amount`.
 5. Emit `HoldCreated` via `emit_cpi!`.
 
@@ -232,9 +229,9 @@ destination: Option<Pubkey>
 
 ### Preconditions
 
-`require_role(ROLE_CONTROLLER)` first, then exactly the checks `create_hold` runs — pause, deactivation, `HOLD_CREATE_HOLD`, frozen account, whitelist over the target token account and the pinned destination, the `amount` / `expiration` / `hold_id` validation, and the available-balance check.
+`require_role(ROLE_CONTROLLER)` first, then exactly the checks `create_hold` runs — pause, deactivation, `HOLD_CREATE_HOLD`, frozen account, the `amount` / `expiration` / `hold_id` validation, and the available-balance check. No whitelist check, for the same reason `create_hold` has none — see [Gating](#gating).
 
-Keeping the whitelist and freeze checks here is a deliberate difference from `operations::controller_transfer`, which skips them because it is a seizure path the hook exempts. A hold is a commitment resolved later by an escrow the controller does not control, and `execute_hold` re-checks the whitelist — so a lien on a non-eligible account could never be delivered, only reclaimed. Failing at creation is the earlier failure. The available-balance check is not optional either: it is what keeps `frozen + held <= balance` true, and breaking that invariant makes the hook's cover check reject **every** transfer from the account until the escrows unwind.
+Keeping the freeze check here is a deliberate difference from `operations::controller_transfer`, which skips it because it is a seizure path the hook exempts. A hold is a commitment resolved later by an escrow the controller does not control, and a fully frozen account cannot fulfil any commitment, so a controller cannot create one against it either — it can still seize by `controller_transfer` instead. The available-balance check is not optional either: it is what keeps `frozen + held <= balance` true, and breaking that invariant makes the hook's cover check reject **every** transfer from the account until the escrows unwind.
 
 Pause is checked explicitly, unlike in `controller_transfer` where Token-2022 rejects the inner `transfer_checked` on a paused mint. No tokens move here, so nothing downstream would catch it.
 
@@ -277,7 +274,7 @@ amount: u64
 - `0 < amount <= current_amount` (`ZeroAmount` / `AmountExceedsHold`).
 - `destination_token` matches `hold_record.destination` when pinned (`DestinationMismatch`).
 - `verify_transfer_control_mode` over source and destination; `require_unfrozen_account` on the source.
-- `require_locked_balance_covered(source_token, source_frozen_balance_pda, held_after + amount)`.
+- `require_locked_balance_covered(source_token, frozen_balance(source_frozen_balance_pda) + held_after + amount)`.
 
 ### Why compliance is re-checked here
 
@@ -320,7 +317,7 @@ Token-2022 resolves the full `ExtraAccountMetaList` even though the hook then by
 ### Execution
 
 1. Run the preconditions above.
-2. Compute `held_after = held_amount − amount` and assert `balance >= frozen + held_after + amount`. This is the pre-debit restatement of the hook's post-debit cover check, re-checked here because a partial freeze landing after the hold was created can shrink what the balance covers.
+2. Compute `held_after = held_amount − amount`, read the current partial-freeze balance via `freeze::frozen_balance`, and assert `balance >= frozen + held_after + amount`. This is the pre-debit restatement of the hook's post-debit cover check, re-checked here because a partial freeze landing after the hold was created can shrink what the balance covers.
 3. Write `held_after` and decrement `current_amount`; set `Closed` if it reaches zero. The state writes happen before the CPI so the accounting is correct for anything downstream that reads it.
 4. CPI `operations::hold_transfer`, signed by `hold_authority`.
 5. Emit `HoldExecuted` via `emit_cpi!`.
@@ -420,24 +417,24 @@ A controller-imposed hold gets its own event rather than a `controller` field on
 
 ## Linked-in helpers
 
-Two functions are exported from the crate root for other programs to link in directly (no CPI):
+Two reader functions, each living in the program that owns the lien it reads, are combined by every caller that needs "balance minus every lien":
 
 ```rust
-pub fn held_amount(hold_position_pda: &AccountInfo) -> Result<u64>
-pub fn frozen_balance(frozen_balance_pda: &AccountInfo) -> Result<u64>
+common::held_amount(hold_position_pda: &AccountInfo) -> Result<u64>
+freeze::frozen_balance(frozen_balance_pda: &AccountInfo) -> Result<u64>
 ```
 
-`held_amount` is the lien reader `transfer-hook::execute` calls. It returns `hold_position.held_amount`, or **0 when the PDA does not exist** — an account that has never had a hold created against it. Returning 0 rather than erroring is what lets the hook pass the account unconditionally, and lets mints that never use holds keep working.
+`common::held_amount` is the lien reader `transfer-hook::execute` and `execute_hold` both call. It returns `hold_position.held_amount` through `common::state::HoldPosition` — the field-for-field mirror of this program's own struct — or **0 when the PDA does not exist**, an account that has never had a hold created against it. Returning 0 rather than erroring is what lets a caller pass the account unconditionally, and lets mints that never use holds keep working. It lives in `common` rather than here because `hold` already depends on `operations`, so `operations` (or anything importing it) depending back on `hold` would be circular.
 
-`frozen_balance` is its mirror for the partial-freeze lien, reading `freeze::state::FrozenBalance.balance` with the same absent-means-0 rule. It lives here rather than in `freeze` because only the creation paths need the raw number — `freeze`'s own checks compare against the balance internally and never hand it out. Together the two make `balance − frozen − held` computable in one place.
+`freeze::frozen_balance` is its mirror for the partial-freeze lien, with the same absent-means-0 rule. A caller sums the two and passes the total straight to `freeze::require_locked_balance_covered` — see [`docs/freeze.md`](freeze.md#require_locked_balance_covered), which owns no lien itself and only compares.
 
-Both go through `Account::<T>::try_from` rather than `try_deserialize`, so the owner check is not skipped — see [`common.md`](common.md).
+Both readers go through `Account::<T>::try_from` rather than `try_deserialize`, so the owner check is not skipped — see [`common.md`](common.md).
 
 ---
 
 ## Interaction with the rest of the workspace
 
-**`transfer-hook`.** Its `ExtraAccountMetaList` carries 15 entries, the last two being the `hold` program id (index 18) and the source `hold_position` PDA (index 19). `execute` calls `freeze::require_locked_balance_covered(source_token, source_frozen_balance_pda, hold::held_amount(source_hold_position_pda))`, asserting `balance_post >= frozen + held`. Because `initialize_extra_account_meta_list` allocates the account with `init` at a fixed size and there is no update path, a mint's metalist cannot grow after deployment — a mint whose metalist predates these two entries cannot support holds.
+**`transfer-hook`.** Its `ExtraAccountMetaList` carries 15 entries, the last two being the `hold` program id (index 18) and the source `hold_position` PDA (index 19). `execute` sums `freeze::frozen_balance(source_frozen_balance_pda)` and `common::held_amount(source_hold_position_pda)` and passes the total to `freeze::require_locked_balance_covered(source_token, total_locked)`, asserting `balance_post >= frozen + held`. Because `initialize_extra_account_meta_list` allocates the account with `init` at a fixed size and there is no update path, a mint's metalist cannot grow after deployment — a mint whose metalist predates these two entries cannot support holds.
 
 **`operations`.** Owns the Auxiliary instruction `hold_transfer`, callable only by the `["hold_authority", mint]` PDA — see [`operations.md`](operations.md).
 

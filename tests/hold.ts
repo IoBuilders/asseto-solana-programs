@@ -112,7 +112,7 @@ describe("hold", () => {
         { amount: HOLD_AMOUNT, expiration, escrow: escrowKeypair.publicKey, destination: recipientTokenAccount }
       );
 
-      assert.equal(holdId.toNumber(), 0, "first hold on a position gets id 0");
+      assert.equal(holdId.toNumber(), 1, "first hold on a position gets id 1");
 
       // The whole point of the lien model: the balance is untouched.
       const tokenAccount = await getTokenAccount(holderTokenAccount);
@@ -120,7 +120,7 @@ describe("hold", () => {
 
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.toString());
-      assert.equal(position.nextHoldId.toNumber(), 1);
+      assert.equal(position.holdCount.toNumber(), 1);
       assert.equal(position.mint.toBase58(), mint.toBase58());
       assert.equal(position.tokenAccount.toBase58(), holderTokenAccount.toBase58());
 
@@ -135,7 +135,7 @@ describe("hold", () => {
       const event = await getHoldCreatedEvent(signature);
       assert.isNotNull(event, "HoldCreated event should be emitted");
       assert.equal(event!.mint.toBase58(), mint.toBase58());
-      assert.equal(event!.holdId.toNumber(), 0);
+      assert.equal(event!.holdId.toNumber(), 1);
       assert.equal(event!.amount.toString(), HOLD_AMOUNT.toString());
       assert.equal(event!.escrow.toBase58(), escrowKeypair.publicKey.toBase58());
     });
@@ -148,9 +148,9 @@ describe("hold", () => {
         escrow: escrowKeypair.publicKey,
       });
 
-      assert.equal(holdId.toNumber(), 1);
+      assert.equal(holdId.toNumber(), 2);
       const position = await getHoldPosition(mint, holderTokenAccount);
-      assert.equal(position.nextHoldId.toNumber(), 2);
+      assert.equal(position.holdCount.toNumber(), 2);
       assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.add(new anchor.BN(100)).toString());
     });
 
@@ -245,24 +245,26 @@ describe("hold", () => {
       );
     });
 
-    it("create_hold: fails with NotWhitelisted when the holder is not eligible", async () => {
+    it("create_hold: succeeds even when the holder is not whitelisted (compliance is checked at execution, not creation)", async () => {
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
-      await assertFails("NotWhitelisted", () =>
-        createHold({ authority: holderKeypair, mint, tokenAccount: holderTokenAccount }, { amount: HOLD_AMOUNT })
-      );
+      await createHold({ authority: holderKeypair, mint, tokenAccount: holderTokenAccount }, { amount: HOLD_AMOUNT });
+
+      const position = await getHoldPosition(mint, holderTokenAccount);
+      assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.toString());
     });
 
-    it("create_hold: fails with NotWhitelisted when the pinned destination is not eligible", async () => {
+    it("create_hold: succeeds even when the pinned destination is not whitelisted", async () => {
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
       await setWhitelistMarker(mint, holderTokenAccount);
 
-      await assertFails("NotWhitelisted", () =>
-        createHold(
-          { authority: holderKeypair, mint, tokenAccount: holderTokenAccount },
-          { amount: HOLD_AMOUNT, destination: recipientTokenAccount }
-        )
+      const { holdId } = await createHold(
+        { authority: holderKeypair, mint, tokenAccount: holderTokenAccount },
+        { amount: HOLD_AMOUNT, destination: recipientTokenAccount }
       );
+
+      const hold = await getHold(mint, holderTokenAccount, holdId);
+      assert.equal(hold.destination!.toBase58(), recipientTokenAccount.toBase58());
     });
 
     it("create_hold: succeeds in whitelist mode once both accounts are eligible", async () => {
@@ -298,7 +300,7 @@ describe("hold", () => {
 
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.toString());
-      assert.equal(position.nextHoldId.toNumber(), 1);
+      assert.equal(position.holdCount.toNumber(), 1);
 
       const hold = await getHold(mint, holderTokenAccount, holdId);
       assert.equal(hold.tokenAccount.toBase58(), holderTokenAccount.toBase58());
@@ -337,11 +339,11 @@ describe("hold", () => {
         { amount: HOLD_AMOUNT, escrow: escrowKeypair.publicKey }
       );
 
-      assert.equal(holdId.toNumber(), 1, "picks up next_hold_id left by create_hold");
+      assert.equal(holdId.toNumber(), 2, "picks up the hold_count left by create_hold");
 
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.muln(2).toString());
-      assert.equal(position.nextHoldId.toNumber(), 2);
+      assert.equal(position.holdCount.toNumber(), 2);
     });
 
     it("controller_create_hold: cannot exceed the available balance", async () => {
@@ -355,14 +357,24 @@ describe("hold", () => {
       );
     });
 
-    it("controller_create_hold: is refused on a non-whitelisted target, unlike controller_transfer", async () => {
+    it("controller_create_hold: succeeds against a non-whitelisted target; execute_hold enforces it later", async () => {
       await setRoles(mint, controllerKeypair.publicKey, [ROLE_CONTROLLER]);
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
+      const { holdId } = await controllerCreateHold(
+        { authority: controllerKeypair, mint, tokenAccount: holderTokenAccount, payer: payerKeypair.publicKey },
+        { amount: HOLD_AMOUNT, escrow: escrowKeypair.publicKey, destination: recipientTokenAccount }
+      );
+
+      const position = await getHoldPosition(mint, holderTokenAccount);
+      assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.toString());
+
+      // The commitment exists, but neither side is whitelisted yet, so it cannot
+      // be delivered until eligibility catches up — only released or reclaimed.
       await assertFails("NotWhitelisted", () =>
-        controllerCreateHold(
-          { authority: controllerKeypair, mint, tokenAccount: holderTokenAccount, payer: payerKeypair.publicKey },
-          { amount: HOLD_AMOUNT, escrow: escrowKeypair.publicKey }
+        executeHold(
+          { escrow: escrowKeypair, mint, tokenAccount: holderTokenAccount, destination: recipientTokenAccount },
+          { holdId, amount: HOLD_AMOUNT }
         )
       );
     });
@@ -458,7 +470,7 @@ describe("hold", () => {
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toNumber(), 0, "the lien should be gone");
 
-      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(0));
+      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(1));
       assert.equal(hold.currentAmount.toNumber(), 0);
       assert.deepEqual(hold.status, { closed: {} });
 
@@ -480,7 +492,7 @@ describe("hold", () => {
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.sub(half).toString());
 
-      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(0));
+      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(1));
       assert.equal(hold.currentAmount.toString(), HOLD_AMOUNT.sub(half).toString());
       assert.equal(hold.initialAmount.toString(), HOLD_AMOUNT.toString(), "initial_amount must not move");
       assert.deepEqual(hold.status, { active: {} });
@@ -516,7 +528,7 @@ describe("hold", () => {
     });
 
     it("execute_hold: fails with HoldExpired once the expiration has lapsed", async () => {
-      await setHoldRecord(mint, holderTokenAccount, new anchor.BN(0), {
+      await setHoldRecord(mint, holderTokenAccount, new anchor.BN(1), {
         escrow: escrowKeypair.publicKey,
         destination: recipientTokenAccount,
         initialAmount: HOLD_AMOUNT,
@@ -592,7 +604,7 @@ describe("hold", () => {
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toNumber(), 0);
 
-      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(0));
+      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(1));
       assert.deepEqual(hold.status, { closed: {} });
 
       const event = await getHoldReleasedEvent(signature);
@@ -609,7 +621,7 @@ describe("hold", () => {
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.sub(half).toString());
 
-      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(0));
+      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(1));
       assert.deepEqual(hold.status, { active: {} });
     });
 
@@ -673,7 +685,7 @@ describe("hold", () => {
     });
 
     it("reclaim_hold: anyone can clear an expired lien", async () => {
-      await setHoldRecord(mint, holderTokenAccount, new anchor.BN(0), {
+      await setHoldRecord(mint, holderTokenAccount, new anchor.BN(1), {
         escrow: escrowKeypair.publicKey,
         initialAmount: HOLD_AMOUNT,
         currentAmount: HOLD_AMOUNT,
@@ -690,7 +702,7 @@ describe("hold", () => {
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toNumber(), 0);
 
-      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(0));
+      const hold = await getHold(mint, holderTokenAccount, new anchor.BN(1));
       assert.equal(hold.currentAmount.toNumber(), 0);
       assert.deepEqual(hold.status, { expired: {} });
 
@@ -701,7 +713,7 @@ describe("hold", () => {
     });
 
     it("reclaim_hold: the freed balance becomes transferable again", async () => {
-      await setHoldRecord(mint, holderTokenAccount, new anchor.BN(0), {
+      await setHoldRecord(mint, holderTokenAccount, new anchor.BN(1), {
         escrow: escrowKeypair.publicKey,
         initialAmount: HOLD_AMOUNT,
         currentAmount: HOLD_AMOUNT,

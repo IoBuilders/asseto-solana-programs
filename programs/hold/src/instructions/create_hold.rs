@@ -28,13 +28,6 @@ pub fn create_hold<'info>(
         balance: ctx.accounts.token_account.amount,
         frozen_pda: &ctx.accounts.token_account_frozen_pda,
         frozen_balance_pda: &ctx.accounts.token_account_frozen_balance_pda,
-        transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
-        whitelist_pda: &ctx.accounts.token_account_whitelist_pda,
-        destination_whitelist_pda: ctx
-            .accounts
-            .destination_whitelist_pda
-            .as_ref()
-            .map(|account| account.as_ref()),
     };
 
     record_new_hold(
@@ -113,26 +106,6 @@ pub struct CreateHold<'info> {
         bump,
     )]
     pub token_account_frozen_balance_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; read by verify_transfer_control_mode. May be empty (no mode active).
-    #[account(
-        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub transfer_control_mode_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; must exist in whitelist mode.
-    #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), token_account.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub token_account_whitelist_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Address checked at runtime by `verify_whitelist_pda` against the
-    /// `destination` argument.
-    pub destination_whitelist_pda: Option<UncheckedAccount<'info>>,
 
     #[account(
         init_if_needed,

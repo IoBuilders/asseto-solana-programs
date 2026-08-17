@@ -22,8 +22,6 @@ pub enum ErrorCode {
     AmountExceedsHold,
     #[msg("Destination does not match the one pinned at hold creation")]
     DestinationMismatch,
-    #[msg("A pinned destination requires its whitelist PDA to be supplied")]
-    MissingDestinationWhitelist,
     #[msg("Held amount is inconsistent with the hold being resolved")]
     HeldAmountUnderflow,
 }

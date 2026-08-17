@@ -46,7 +46,7 @@ export type CreateHoldContext = BaseWriteContext &
   };
 
 export type CreateHoldArgs = {
-  /** Defaults to the position's current `next_hold_id`. */
+  /** Defaults to the position's next hold id (`hold_count + 1`). */
   holdId?: anchor.BN;
   amount?: anchor.BN;
   expiration?: anchor.BN;
@@ -78,10 +78,6 @@ export async function createHold(
       tokenAccount: callContext.tokenAccount,
       tokenAccountFrozenPda: frozenAccountPda(callContext.mint, callContext.tokenAccount),
       tokenAccountFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.tokenAccount),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      tokenAccountWhitelistPda: whitelistPda(callContext.mint, callContext.tokenAccount),
-      // Optional on-chain: only required when a destination is pinned.
-      destinationWhitelistPda: destination ? whitelistPda(callContext.mint, destination) : null,
       holdPosition: holdPositionPda(callContext.mint, callContext.tokenAccount),
       holdRecord: holdPda(callContext.mint, callContext.tokenAccount, holdId),
       assetClassVersionPda: assetClassVersionPda(
@@ -134,9 +130,6 @@ export async function controllerCreateHold(
       tokenAccount: callContext.tokenAccount,
       tokenAccountFrozenPda: frozenAccountPda(callContext.mint, callContext.tokenAccount),
       tokenAccountFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.tokenAccount),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      tokenAccountWhitelistPda: whitelistPda(callContext.mint, callContext.tokenAccount),
-      destinationWhitelistPda: destination ? whitelistPda(callContext.mint, destination) : null,
       holdPosition: holdPositionPda(callContext.mint, callContext.tokenAccount),
       holdRecord: holdPda(callContext.mint, callContext.tokenAccount, holdId),
       assetClassVersionPda: assetClassVersionPda(
@@ -173,7 +166,7 @@ export async function executeHold(
   callContext: ExecuteHoldContext,
   args?: ExecuteHoldArgs
 ): Promise<{ signature: string }> {
-  const holdId = args?.holdId ?? new anchor.BN(0);
+  const holdId = args?.holdId ?? new anchor.BN(1);
   const amount = args?.amount ?? new anchor.BN(1);
 
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
@@ -242,7 +235,7 @@ export async function releaseHold(
   callContext: ReleaseHoldContext,
   args?: ReleaseHoldArgs
 ): Promise<{ signature: string }> {
-  const holdId = args?.holdId ?? new anchor.BN(0);
+  const holdId = args?.holdId ?? new anchor.BN(1);
   const amount = args?.amount ?? new anchor.BN(1);
 
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
@@ -286,7 +279,7 @@ export async function reclaimHold(
   callContext: ReclaimHoldContext,
   args?: ReclaimHoldArgs
 ): Promise<{ signature: string }> {
-  const holdId = args?.holdId ?? new anchor.BN(0);
+  const holdId = args?.holdId ?? new anchor.BN(1);
 
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
 

@@ -183,13 +183,15 @@ in order.
    markers must exist, else `NotWhitelisted`.
 5. `freeze::require_unfrozen_account(&source_frozen_pda)` — the source must not be
    fully frozen, else `AccountFrozen`.
-6. `freeze::require_locked_balance_covered(&source_token, &source_frozen_balance_pda,
-   hold::held_amount(&source_hold_position_pda)?)` — every lien on the account must
-   still be covered. The hook runs **post-debit**, so this asserts
-   `balance_post >= frozen + held` (the pre-debit `available >= amount` restated),
-   else `InsufficientUnfrozenBalance`. The two liens are independent: `frozen`
-   comes from a management partial freeze, `held` is the sum of the account's
-   active holds (0 when the position PDA does not exist). See [`docs/hold.md`](hold.md).
+6. Sum `freeze::frozen_balance(&source_frozen_balance_pda)?` and
+   `common::held_amount(&source_hold_position_pda)?`, then
+   `freeze::require_locked_balance_covered(&source_token, total_locked)` — every
+   lien on the account must still be covered. The hook runs **post-debit**, so this
+   asserts `balance_post >= frozen + held` (the pre-debit `available >= amount`
+   restated), else `InsufficientUnfrozenBalance`. The two liens are independent:
+   `frozen` comes from a management partial freeze, `held` is the sum of the
+   account's active holds (0 when the position PDA does not exist). See
+   [`docs/hold.md`](hold.md).
 7. `require_functionality(asset_class_version_pda, TRANSFER_HOOK_EXECUTE)` — the
    asset-class version this mint is pinned to must have the hook's execute bit
    enabled.

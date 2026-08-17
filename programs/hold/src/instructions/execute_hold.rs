@@ -60,13 +60,11 @@ pub fn execute_hold<'info>(
         .ok_or(ErrorCode::HeldAmountUnderflow)?;
 
     let source_token_info = ctx.accounts.source_token.to_account_info();
-    require_locked_balance_covered(
-        &source_token_info,
-        &ctx.accounts.source_frozen_balance_pda,
-        held_after
-            .checked_add(amount)
-            .ok_or(ErrorCode::HeldAmountUnderflow)?,
-    )?;
+    let total_locked = freeze::frozen_balance(&ctx.accounts.source_frozen_balance_pda)?
+        .checked_add(held_after)
+        .and_then(|locked| locked.checked_add(amount))
+        .ok_or(ErrorCode::HeldAmountUnderflow)?;
+    require_locked_balance_covered(&source_token_info, total_locked)?;
 
     ctx.accounts.hold_position.held_amount = held_after;
 
