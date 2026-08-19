@@ -26,11 +26,12 @@ export type CreateTokenAccountArgs = {
   owner: PublicKey;
   payer?: Signer;
   destination?: Keypair;
+  createATA?: boolean;
 };
 
 export async function createTokenAccount(args: CreateTokenAccountArgs): Promise<PublicKey> {
   const provider = getProvider();
-  const destination = args.destination ?? Keypair.generate();
+  const destination = args.destination ?? args.createATA ? null : Keypair.generate();
 
   return createAccount(
     provider.connection,
