@@ -4,6 +4,7 @@ use std::cell::Ref;
 
 pub mod bitmask;
 pub mod functionalities;
+pub mod hook_accounts;
 pub mod merkle;
 pub mod pda_seeds;
 pub mod pda_utils;
@@ -11,6 +12,7 @@ pub mod program_ids;
 pub mod roles;
 pub mod state;
 
+pub use hook_accounts::{HookAccounts, HOOK_FORWARDED_ACCOUNT_COUNT};
 pub use merkle::{leaf_hash, verify_balance_proof, LeafData};
 
 #[cfg(test)]
@@ -28,6 +30,8 @@ pub enum CommonError {
     FunctionalityNotSupportedError,
     #[msg("Could not read the asset configuration account data")]
     InvalidAssetConfigurationData,
+    #[msg("Could not read the hold position account data")]
+    InvalidHoldPositionData,
     #[msg("The asset class version is not finalized")]
     AssetClassVersionNotFinalized,
     #[msg("Role is past the mask capacity")]
@@ -36,6 +40,10 @@ pub enum CommonError {
     MissingRole,
     #[msg("A whitelist PDA does not match the one derived for its destination")]
     WhitelistPdaMismatch,
+    #[msg("Amount exceeds the balance left spendable by the account's hold liens")]
+    InsufficientSpendableBalance,
+    #[msg("Provided hold_position_pda does not match the derived PDA for this account")]
+    HoldPositionPdaMismatch,
     #[msg("Merkle proof does not prove the given (account, balance) against the snapshot root")]
     InvalidMerkleProof,
 }
@@ -144,4 +152,62 @@ pub fn require_balance_proof(
         CommonError::InvalidMerkleProof
     );
     Ok(())
+}
+
+pub fn held_amount<'info>(hold_position_pda: &'info AccountInfo<'info>) -> Result<u64> {
+    if hold_position_pda.data_is_empty() {
+        return Ok(0);
+    }
+    Ok(Account::<state::HoldPosition>::try_from(hold_position_pda)?.held_amount)
+}
+
+/// Pre-debit check for the paths Token-2022 runs no transfer hook on: asserts
+/// `balance >= held + amount`, so taking `amount` out of the account still leaves
+/// every hold executable. Deliberately ignores the partial-freeze balance — see
+/// docs/operations.md. See docs/common.md.
+pub fn require_hold_covered<'info>(
+    token_account: &AccountInfo,
+    hold_position_pda: &'info AccountInfo<'info>,
+    amount: u64,
+) -> Result<()> {
+    use spl_token_2022_interface::extension::StateWithExtensions;
+    use spl_token_2022_interface::state::Account as TokenAccountState;
+
+    let token_data = token_account.try_borrow_data()?;
+    let token_state = StateWithExtensions::<TokenAccountState>::unpack(&token_data)
+        .map_err(|_| error!(CommonError::InsufficientSpendableBalance))?;
+
+    let required = held_amount(hold_position_pda)?
+        .checked_add(amount)
+        .ok_or(CommonError::InsufficientSpendableBalance)?;
+
+    require!(
+        token_state.base.amount >= required,
+        CommonError::InsufficientSpendableBalance
+    );
+
+    Ok(())
+}
+
+/// [`require_hold_covered`] for a `hold_position_pda` arriving through
+/// `remaining_accounts`, where no `seeds` constraint can validate its address: it is
+/// derived here and compared, so a caller cannot substitute an empty account to
+/// fake a zero lien.
+pub fn require_hold_covered_unverified_pda<'info>(
+    token_account: &'info AccountInfo<'info>,
+    hold_position_pda: &'info AccountInfo<'info>,
+    mint: &Pubkey,
+    amount: u64,
+) -> Result<()> {
+    let (expected_hold_position_pda, _) = Pubkey::find_program_address(
+        &pda_seeds::hold_position_seeds(mint, &token_account.key()),
+        &program_ids::HOLD_PROGRAM_ID,
+    );
+    require_keys_eq!(
+        hold_position_pda.key(),
+        expected_hold_position_pda,
+        CommonError::HoldPositionPdaMismatch
+    );
+
+    require_hold_covered(token_account, hold_position_pda, amount)
 }

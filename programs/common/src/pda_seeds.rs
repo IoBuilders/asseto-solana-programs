@@ -141,3 +141,27 @@ pub const DOCUMENT: &[u8] = b"document";
 pub fn document_seeds<'info>(mint: &'info Pubkey, name: &'info [u8]) -> Vec<&'info [u8]> {
     vec![DOCUMENT, mint.as_ref(), name]
 }
+
+/*********************************** HOLD ***********************************/
+pub const HOLD_POSITION: &[u8] = b"hold_position";
+pub const HOLD: &[u8] = b"hold";
+pub const HOLD_AUTHORITY: &[u8] = b"hold_authority";
+
+pub fn hold_position_seeds<'info>(
+    mint: &'info Pubkey,
+    token_account: &'info Pubkey,
+) -> Vec<&'info [u8]> {
+    vec![HOLD_POSITION, mint.as_ref(), token_account.as_ref()]
+}
+
+pub fn hold_seeds<'info>(
+    mint: &'info Pubkey,
+    token_account: &'info Pubkey,
+    hold_id: &'info [u8],
+) -> Vec<&'info [u8]> {
+    vec![HOLD, mint.as_ref(), token_account.as_ref(), hold_id]
+}
+
+pub fn hold_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![HOLD_AUTHORITY, mint.as_ref()]
+}

@@ -95,6 +95,18 @@ pub fn require_unfrozen_balance<'info>(
     Ok(())
 }
 
+/// Reads the amount locked by a partial freeze. Returns 0 if `frozen_balance_pda`
+/// does not exist (no partial freeze on this account).
+pub fn frozen_balance<'info>(frozen_balance_pda: &'info AccountInfo<'info>) -> Result<u64> {
+    if frozen_balance_pda.data_is_empty() {
+        return Ok(0);
+    }
+    use crate::errors::ErrorCode;
+    Ok(Account::<FrozenBalance>::try_from(frozen_balance_pda)
+        .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?
+        .balance)
+}
+
 /// Post-debit variant of [`require_unfrozen_balance`] for the transfer hook
 /// (Token-2022 runs it after debiting): asserts `balance_post >= frozen`, which
 /// is the pre-debit `available >= amount` restated for the post-debit balance.
@@ -102,6 +114,18 @@ pub fn require_unfrozen_balance<'info>(
 pub fn require_frozen_balance_covered<'info>(
     token_account: &AccountInfo,
     frozen_balance_pda: &'info AccountInfo<'info>,
+) -> Result<()> {
+    require_locked_balance_covered(token_account, frozen_balance(frozen_balance_pda)?)
+}
+
+/// Asserts `balance >= total_locked`, where `total_locked` is the caller's own sum
+/// of every lien on the account (its partial-freeze balance plus any lien owned by
+/// another program, e.g. `hold`'s `held_amount`). This function owns no lien
+/// itself — it only compares — so it takes no `frozen_balance_pda` and needs no
+/// dependency on whichever programs own the liens being summed.
+pub fn require_locked_balance_covered(
+    token_account: &AccountInfo,
+    total_locked: u64,
 ) -> Result<()> {
     use crate::errors::ErrorCode;
     use spl_token_2022_interface::extension::StateWithExtensions;
@@ -112,16 +136,8 @@ pub fn require_frozen_balance_covered<'info>(
         .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?;
     let account_balance = token_state.base.amount;
 
-    let frozen_balance: u64 = if frozen_balance_pda.data_is_empty() {
-        0
-    } else {
-        Account::<FrozenBalance>::try_from(frozen_balance_pda)
-            .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?
-            .balance
-    };
-
     require!(
-        account_balance >= frozen_balance,
+        account_balance >= total_locked,
         ErrorCode::InsufficientUnfrozenBalance
     );
 

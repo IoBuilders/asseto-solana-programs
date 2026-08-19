@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
 use common::program_ids::{
     DEACTIVATE_PROGRAM_ID, DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, FREEZE_PROGRAM_ID,
-    OPERATIONS_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID,
+    HOLD_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID,
 };
 use common::state::{AssetClassVersion, AssetConfiguration};
 use common::{pda_seeds, pda_utils, require_active, require_functionality};
-use freeze::{require_frozen_balance_covered, require_unfrozen_account};
+use freeze::{require_locked_balance_covered, require_unfrozen_account};
 use spl_token_2022_interface::extension::{
     transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
 };
@@ -41,11 +41,13 @@ pub fn execute<'info>(ctx: Context<'info, Execute<'info>>, _amount: u64) -> Resu
 
     require_unfrozen_account(&ctx.accounts.source_frozen_pda)?;
 
-    // The hook runs post-debit, so this asserts balance_post >= frozen.
-    require_frozen_balance_covered(
-        &ctx.accounts.source_token,
-        &ctx.accounts.source_frozen_balance_pda,
-    )?;
+    // The hook runs post-debit, so this asserts balance_post >= frozen + held.
+    let total_locked = freeze::frozen_balance(&ctx.accounts.source_frozen_balance_pda)?
+        .checked_add(common::held_amount(&ctx.accounts.source_hold_position_pda)?)
+        .ok_or(error!(
+            freeze::errors::ErrorCode::InsufficientUnfrozenBalance
+        ))?;
+    require_locked_balance_covered(&ctx.accounts.source_token, total_locked)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -175,4 +177,16 @@ pub struct Execute<'info> {
         bump,
     )]
     pub source_frozen_balance_pda: UncheckedAccount<'info>,
+
+    /// CHECK: hold program (index 18); resolves source_hold_position_pda in the metalist.
+    #[account(address = HOLD_PROGRAM_ID)]
+    pub hold_program: UncheckedAccount<'info>,
+
+    /// CHECK: Source held-balance accumulator (index 19); may be empty (no hold ever created).
+    #[account(
+        seeds = [pda_seeds::HOLD_POSITION, mint.key().as_ref(), source_token.key().as_ref()],
+        seeds::program = HOLD_PROGRAM_ID,
+        bump,
+    )]
+    pub source_hold_position_pda: UncheckedAccount<'info>,
 }

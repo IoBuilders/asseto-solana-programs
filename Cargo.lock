@@ -488,6 +488,7 @@ dependencies = [
  "document",
  "factory",
  "freeze",
+ "hold",
  "metadata-update",
  "mint",
  "operations",
@@ -845,6 +846,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "hold"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "common",
+ "freeze",
+ "operations",
+ "spl-token-2022-interface 3.0.1",
+ "transfer-control",
 ]
 
 [[package]]
@@ -2657,6 +2671,7 @@ dependencies = [
  "anchor-spl",
  "common",
  "freeze",
+ "hold",
  "spl-tlv-account-resolution",
  "spl-token-2022-interface 3.0.1",
  "spl-transfer-hook-interface",

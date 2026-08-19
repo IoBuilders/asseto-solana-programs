@@ -1,40 +1,26 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
-use common::pda_utils;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
-use common::{pda_seeds, require_active, require_functionality, require_role, roles, HookAccounts};
+use common::state::{AssetClassVersion, AssetConfiguration};
+use common::{pda_seeds, pda_utils, HookAccounts};
 use spl_token_2022_interface::{
     extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
 };
 
-use crate::events::ControllerTransferred;
+use crate::errors::OperationsError;
 use common::program_ids as constants;
 
-pub fn controller_transfer<'info>(
-    ctx: Context<'info, ControllerTransfer<'info>>,
-    amount: u64,
-) -> Result<()> {
-    require_role(
-        ctx.accounts.authority_roles_pda.load()?,
-        roles::ROLE_CONTROLLER,
-    )?;
+pub fn hold_transfer(ctx: Context<HoldTransfer>, amount: u64) -> Result<()> {
+    let mint_key = ctx.accounts.mint.key();
 
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
-
-    require_functionality(
-        ctx.accounts.asset_class_version_pda.load()?,
-        common::functionalities::OPERATIONS_CONTROLLER_TRANSFER,
-    )?;
-
-    // The hook exempts the permanent delegate, so it will not enforce the hold lien
-    // on this path — a seizure that ignored it would leave `held` above the balance
-    // and brick every later transfer, hold executions included.
-    common::require_hold_covered(
-        &ctx.accounts.from.to_account_info(),
-        &ctx.accounts.source_hold_position_pda,
-        amount,
-    )?;
+    require!(
+        pda_utils::is_caller_pda(
+            &ctx.accounts.hold_authority.key(),
+            &pda_seeds::hold_authority_seeds(&mint_key),
+            &constants::HOLD_PROGRAM_ID,
+        ),
+        OperationsError::UnauthorizedHoldAuthority
+    );
 
     let decimals = {
         let mint_data = ctx.accounts.mint.try_borrow_data()?;
@@ -43,15 +29,12 @@ pub fn controller_transfer<'info>(
         mint_state.base.decimals
     };
 
-    let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
-
     let permanent_delegate_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::permanent_delegate_seeds(&mint_key),
         &ctx.bumps.operations_authority,
     );
 
-    // ── Transfer via permanent delegate (CPI to Token-2022) ───────────────
     let mut transfer_ix = transfer_checked(
         &token_program_id,
         &ctx.accounts.from.key(),
@@ -102,37 +85,14 @@ pub fn controller_transfer<'info>(
         &[permanent_delegate_signer_seeds.as_slice()],
     )?;
 
-    // Emitted last so it only fires when the full transfer succeeds.
-    emit_cpi!(ControllerTransferred {
-        mint: mint_key,
-        controller: ctx.accounts.authority.key(),
-        from: ctx.accounts.from.key(),
-        to: ctx.accounts.to.key(),
-        value: amount,
-    });
-
     Ok(())
 }
 
-#[event_cpi]
 #[derive(Accounts)]
-pub struct ControllerTransfer<'info> {
-    pub authority: Signer<'info>,
-
-    #[account(
-        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
-        seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump = asset_configuration_pda.bump,
-    )]
-    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
-
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
-    #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
-    )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+pub struct HoldTransfer<'info> {
+    /// CHECK: Signer flag proves origin; the runtime check above proves this is
+    /// `hold`'s authority PDA for this mint, which only `hold` can invoke_signed.
+    pub hold_authority: Signer<'info>,
 
     /// CHECK: Validated by Token-2022 during `transfer_checked`; decimals read in the handler.
     pub mint: UncheckedAccount<'info>,
@@ -165,22 +125,42 @@ pub struct ControllerTransfer<'info> {
     pub transfer_hook_program: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
-    #[account(address = constants::FREEZE_PROGRAM_ID)]
-    pub freeze_program: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint; forwarded to the hook so its
-    /// metalist can resolve `asset_configuration_pda` as an external PDA.
     #[account(address = constants::DEPLOY_PROGRAM_ID)]
     pub deploy_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by constraint; forwarded to the hook so its
-    /// metalist can resolve `asset_class_version_pda` as an external PDA.
+    #[account(
+        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
+        seeds::program = constants::DEPLOY_PROGRAM_ID,
+        bump = asset_configuration_pda.bump,
+    )]
+    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
+
+    /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
+
+    #[account(
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
+            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
+        ],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::DEACTIVATE_PROGRAM_ID)]
     pub deactivate_program: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook.
+    #[account(
+        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
+        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
+        bump,
+    )]
+    pub deactivate_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]
@@ -194,7 +174,7 @@ pub struct ControllerTransfer<'info> {
     )]
     pub transfer_control_mode_pda: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; forwarded to the hook. May be empty (seizure from non-whitelisted).
+    /// CHECK: seeds verified; forwarded to the hook.
     #[account(
         seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), from.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
@@ -202,7 +182,7 @@ pub struct ControllerTransfer<'info> {
     )]
     pub source_whitelist_pda: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; forwarded to the hook. May be empty (seizure to non-whitelisted).
+    /// CHECK: seeds verified; forwarded to the hook.
     #[account(
         seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), to.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
@@ -210,7 +190,11 @@ pub struct ControllerTransfer<'info> {
     )]
     pub destination_whitelist_pda: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; forwarded to the hook. May be present (seizure from frozen account).
+    /// CHECK: Address verified by constraint; forwarded to the hook.
+    #[account(address = constants::FREEZE_PROGRAM_ID)]
+    pub freeze_program: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; forwarded to the hook.
     #[account(
         seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), from.key().as_ref()],
         seeds::program = constants::FREEZE_PROGRAM_ID,
@@ -230,7 +214,7 @@ pub struct ControllerTransfer<'info> {
     #[account(address = constants::HOLD_PROGRAM_ID)]
     pub hold_program: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; forwarded to the hook. May be empty (no holds on the source).
+    /// CHECK: seeds verified; forwarded to the hook. May be empty (no holds ever created).
     #[account(
         seeds = [pda_seeds::HOLD_POSITION, mint.key().as_ref(), from.key().as_ref()],
         seeds::program = constants::HOLD_PROGRAM_ID,
@@ -238,25 +222,5 @@ pub struct ControllerTransfer<'info> {
     )]
     pub source_hold_position_pda: UncheckedAccount<'info>,
 
-    #[account(
-        seeds = [
-            pda_seeds::ASSET_CLASS_VERSION,
-            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
-            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
-        ],
-        seeds::program = constants::FACTORY_PROGRAM_ID,
-        bump = asset_class_version_pda.load()?.bump,
-    )]
-    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
-
     pub token_2022_program: Program<'info, Token2022>,
-
-    /// CHECK: Address verified by seeds/bump; controller bit checked by require_role.
-    /// An absent PDA fails at account resolution (AccountOwnedByWrongProgram).
-    #[account(
-        seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
-        seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
-        bump = authority_roles_pda.load()?.bump,
-    )]
-    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 }

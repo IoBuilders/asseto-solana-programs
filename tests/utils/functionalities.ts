@@ -28,3 +28,4 @@ export const CAP_MAX_SUPPLY = 22;
 export const OPERATIONS_CONTROLLER_TRANSFER = 23;
 export const DOCUMENT_SET_DOCUMENT = 24;
 export const DOCUMENT_REMOVE_DOCUMENT = 25;
+export const HOLD_CREATE_HOLD = 26;

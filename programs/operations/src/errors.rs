@@ -6,4 +6,6 @@ pub enum OperationsError {
     EmptyBatch,
     #[msg("Expected exactly one remaining accounts (destination) per destination")]
     InvalidRemainingAccounts,
+    #[msg("Caller is not the hold program's authority PDA for this mint")]
+    UnauthorizedHoldAuthority,
 }

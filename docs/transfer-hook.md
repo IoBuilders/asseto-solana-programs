@@ -65,7 +65,7 @@ None.
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds rent |
 | `asset_configuration_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 13) |
+| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 15) |
 | `mint` | no | no | UncheckedAccount | Seed component and PDA-precompute input |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
@@ -94,6 +94,8 @@ interface (`source_token`, `mint`, `destination_token`, `owner`,
 | 15 | `freeze` program | literal pubkey — resolves @16..=17 |
 | 16 | `source_frozen_pda` | external PDA via @15 — seeds `["frozen_account", mint@1, source_token@0]` |
 | 17 | `source_frozen_balance_pda` | external PDA via @15 — seeds `["frozen_balance", mint@1, source_token@0]` |
+| 18 | `hold` program | literal pubkey — resolves @19 |
+| 19 | `source_hold_position_pda` | external PDA via @18 — seeds `["hold_position", mint@1, source_token@0]` |
 
 Every entry is read-only; the hook never writes. Because Token-2022 derives the
 seed-based entries and verifies the caller-supplied accounts against them before
@@ -138,7 +140,7 @@ discriminator when invoking the hook during `transfer_checked`.
 
 ### Accounts
 
-Indices 0–4 are fixed by the SPL interface; 5–17 are the metalist entries above,
+Indices 0–4 are fixed by the SPL interface; 5–19 are the metalist entries above,
 in order.
 
 | Index | Account |
@@ -161,6 +163,8 @@ in order.
 | 15 | `freeze_program` |
 | 16 | `source_frozen_pda` |
 | 17 | `source_frozen_balance_pda` |
+| 18 | `hold_program` |
+| 19 | `source_hold_position_pda` |
 
 ### Execution
 
@@ -179,10 +183,15 @@ in order.
    markers must exist, else `NotWhitelisted`.
 5. `freeze::require_unfrozen_account(&source_frozen_pda)` — the source must not be
    fully frozen, else `AccountFrozen`.
-6. `freeze::require_frozen_balance_covered(&source_token, &source_frozen_balance_pda)`
-   — the partial-freeze lock must still be covered. The hook runs **post-debit**,
-   so this asserts `balance_post >= frozen` (the pre-debit `available >= amount`
-   restated), else `InsufficientUnfrozenBalance`.
+6. Sum `freeze::frozen_balance(&source_frozen_balance_pda)?` and
+   `common::held_amount(&source_hold_position_pda)?`, then
+   `freeze::require_locked_balance_covered(&source_token, total_locked)` — every
+   lien on the account must still be covered. The hook runs **post-debit**, so this
+   asserts `balance_post >= frozen + held` (the pre-debit `available >= amount`
+   restated), else `InsufficientUnfrozenBalance`. The two liens are independent:
+   `frozen` comes from a management partial freeze, `held` is the sum of the
+   account's active holds (0 when the position PDA does not exist). See
+   [`docs/hold.md`](hold.md).
 7. `require_functionality(asset_class_version_pda, TRANSFER_HOOK_EXECUTE)` — the
    asset-class version this mint is pinned to must have the hook's execute bit
    enabled.

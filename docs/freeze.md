@@ -9,7 +9,7 @@ Exposes one category of instructions:
 
 Enforcement is entirely read-side: `transfer-hook::execute` reads these marker PDAs through the verification functions below and aborts the transfer. A frozen account is therefore still `Initialized` (not `Frozen`) as far as Token-2022 is concerned.
 
-Also exports three verification functions; `require_unfrozen_account` and `require_frozen_balance_covered` are the pair the transfer hook links in.
+Also exports five verification/reader functions; `require_unfrozen_account` and `require_locked_balance_covered` are the pair the transfer hook links in.
 
 ---
 
@@ -82,6 +82,14 @@ pub fn require_unfrozen_balance(
 
 Reads the current token balance from `token_account` and the frozen balance from `frozen_balance_pda`. Computes `available = account_balance.saturating_sub(frozen_balance)` and returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `available < amount`. If `frozen_balance_pda` is empty (no partial freeze), frozen balance is treated as zero. This is the **pre-debit** form (balance read before the transfer moves tokens).
 
+### `frozen_balance`
+
+```rust
+pub fn frozen_balance(frozen_balance_pda: &AccountInfo) -> Result<u64>
+```
+
+Reads the amount locked by a partial freeze straight off `frozen_balance_pda`, returning 0 when the PDA does not exist (no partial freeze on this account) rather than erroring. This is the reader a caller uses to build the `total_locked` sum it passes to `require_locked_balance_covered` below.
+
 ### `require_frozen_balance_covered`
 
 ```rust
@@ -91,7 +99,20 @@ pub fn require_frozen_balance_covered(
 ) -> Result<()>
 ```
 
-**Post-debit** variant of `require_unfrozen_balance`, for use inside `transfer-hook::execute`. Token-2022 invokes the hook *after* moving tokens, so the source is already debited. The pre-debit invariant `balance_pre - frozen >= amount` is algebraically `balance_post >= frozen`, so this compares the (post-debit) balance directly against the locked amount and needs no `amount` argument. Returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `account_balance < frozen_balance`. For a batch the hook fires once per leg after that leg's debit, so checking `balance_post >= frozen` at every leg keeps the cumulative movement within the lock.
+**Post-debit** variant of `require_unfrozen_balance`. Token-2022 invokes the hook *after* moving tokens, so the source is already debited. The pre-debit invariant `balance_pre - frozen >= amount` is algebraically `balance_post >= frozen`, so this compares the (post-debit) balance directly against the locked amount and needs no `amount` argument. Returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `account_balance < frozen_balance`. For a batch the hook fires once per leg after that leg's debit, so checking `balance_post >= frozen` at every leg keeps the cumulative movement within the lock.
+
+Thin wrapper: reads `frozen_balance(frozen_balance_pda)` and passes it straight to `require_locked_balance_covered`. Kept for a caller that only cares about the partial-freeze lien and has no other lien to add in; nothing in this workspace currently calls it, since every real caller also has a hold lien to fold in (see below).
+
+### `require_locked_balance_covered`
+
+```rust
+pub fn require_locked_balance_covered(
+    token_account: &AccountInfo,
+    total_locked: u64,
+) -> Result<()>
+```
+
+Asserts `balance >= total_locked`. This function owns no lien itself and reads no PDA — it is a pure comparator, so `total_locked` must already be the caller's own sum of every lien on the account (partial-freeze balance plus any lien owned by another program). That is what lets `freeze` stay free of a dependency on whichever program owns the other lien: today that is `hold`'s `held_amount`, which `transfer-hook::execute` and `hold::execute_hold` each read via `freeze::frozen_balance` + `common::held_amount`, sum, and pass in — see [`docs/hold.md`](hold.md). This is the function the hook actually calls.
 
 ---
 

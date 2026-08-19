@@ -368,11 +368,9 @@ describe("operations", () => {
         await batchBurnTokens(
           { mint, authority, sources: [source] },
           {
-            // One source expects one remaining account, but two are passed.
-            remainingAccounts: [
-              { pubkey: source, isWritable: true, isSigner: false },
-              { pubkey: source, isWritable: true, isSigner: false },
-            ],
+            // One source expects two remaining accounts (the token account and its
+            // hold_position PDA), but only the token account is passed.
+            remainingAccounts: [{ pubkey: source, isWritable: true, isSigner: false }],
           }
         );
         assert.fail("Expected InvalidRemainingAccounts error but instruction succeeded");
