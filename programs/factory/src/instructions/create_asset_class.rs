@@ -1,12 +1,13 @@
 use anchor_lang::prelude::*;
 use common::pda_seeds;
 
+use crate::events::AssetClassCreated;
 use crate::helpers::{require_not_paused, verify_manager};
 use crate::state::{AssetClassOwnership, Factory};
 
 pub fn create_asset_class(
     ctx: Context<CreateAssetClass>,
-    _config_id: u64,
+    config_id: u64,
     owner: Pubkey,
 ) -> Result<()> {
     require_not_paused(&ctx.accounts.factory)?;
@@ -17,9 +18,16 @@ pub fn create_asset_class(
     asset_class.latest_version = 0;
     asset_class.bump = ctx.bumps.asset_class_ownership_pda;
 
+    emit_cpi!(AssetClassCreated {
+        config_id,
+        owner,
+        manager: ctx.accounts.manager.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(config_id: u64, owner: Pubkey)]
 pub struct CreateAssetClass<'info> {

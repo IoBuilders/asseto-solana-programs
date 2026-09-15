@@ -113,6 +113,8 @@ The `factory` account uses Anchor's `init` constraint, so a second call fails be
 | `manager` | `Signer` | Account recorded as the factory manager. Must sign the transaction. |
 | `factory` | `Account<Factory>` (init) | Singleton config PDA. Seeds: `["factory"]`. `init` fails if it already exists. |
 | `system_program` | `Program<System>` | Required for account creation. |
+| `event_authority` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`; signs the self-CPI that emits `FactoryInitialized`. |
+| `program` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected account; this program's own id, target of the self-CPI. |
 
 **Execution**
 
@@ -120,6 +122,7 @@ The `factory` account uses Anchor's `init` constraint, so a second call fails be
 2. Stores `manager` from the signer account's key.
 3. Sets `pause = false`.
 4. Stores the PDA `bump`.
+5. Emits `FactoryInitialized { manager }` via `emit_cpi!`.
 
 ---
 
@@ -247,6 +250,8 @@ Callable only by the current `factory.manager`, and only while the factory is no
 | `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
 | `asset_class_ownership_pda` | `Account<AssetClassOwnership>` (init) | Asset-class ownership PDA. Seeds: `["asset_class_ownership", config_id]`. `init` fails if it already exists. |
 | `system_program` | `Program<System>` | Required for account creation. |
+| `event_authority` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`; signs the self-CPI that emits `AssetClassCreated`. |
+| `program` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected account; this program's own id, target of the self-CPI. |
 
 **Execution**
 
@@ -254,6 +259,7 @@ Callable only by the current `factory.manager`, and only while the factory is no
 2. `verify_manager` — fails unless `manager` is the recorded `factory.manager`.
 3. `init` creates the `asset_class_ownership` PDA at `["asset_class_ownership", config_id]` (fails if it already exists).
 4. Stores `owner`, sets `latest_version = 0`, and stores the PDA `bump`.
+5. Emits `AssetClassCreated { config_id, owner, manager }` via `emit_cpi!`.
 
 ---
 
@@ -352,12 +358,15 @@ Callable only by the asset class `owner`, and only while the factory is not paus
 | `asset_class_ownership_pda` | `Account<AssetClassOwnership>` | Ownership PDA. Seeds: `["asset_class_ownership", config_id]`. Read to verify the owner and pin `version`. |
 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>` (init) | Version PDA. Seeds: `["asset_class_version", config_id, version]`. `init` fails if it already exists. |
 | `system_program` | `Program<System>` | Required for account creation. |
+| `event_authority` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`; signs the self-CPI that emits `AssetClassVersionInitialized`. |
+| `program` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected account; this program's own id, target of the self-CPI. |
 
 **Execution**
 
 1. `require_not_paused` / `verify_owner`.
 2. `require version == latest_version + 1` (`InvalidVersion`).
 3. `load_init()` and write the header (`config_id`, `version`, `state = Draft`, `bump`). The mask is left zeroed.
+4. Emits `AssetClassVersionInitialized { config_id, version, owner }` via `emit_cpi!`.
 
 ### `enable_asset_class_version_functionalities(config_id: u64, version: u64, functionalities: Vec<u16>)`
 
@@ -373,12 +382,15 @@ Callable only by the asset class `owner`, and only while the factory is not paus
 | `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
 | `asset_class_ownership_pda` | `Account<AssetClassOwnership>` | Ownership PDA. Seeds: `["asset_class_ownership", config_id]`. Read to verify the owner. |
 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>` (mut) | Version PDA. Seeds: `["asset_class_version", config_id, version]`. Must be `Draft`. |
+| `event_authority` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`; signs the self-CPI that emits `AssetClassVersionFunctionalitiesEnabled`. |
+| `program` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected account; this program's own id, target of the self-CPI. |
 
 **Execution**
 
 1. `require_not_paused` / `verify_owner`.
 2. `require state == Draft` (`VersionNotDraft`).
 3. `common::bitmask::set_bits(&mut version_account.mask, &functionalities)` — turns on each bit (`mask[byte] |= 1 << bit`), bounds-checking every `f` against the mask length; its out-of-range signal is mapped to `ErrorCode::FunctionalityOutOfBounds`.
+4. Emits `AssetClassVersionFunctionalitiesEnabled { config_id, version, functionalities, owner }` via `emit_cpi!`.
 
 ### `disable_asset_class_version_functionalities(config_id: u64, version: u64, functionalities: Vec<u16>)`
 
@@ -386,11 +398,11 @@ Same shape as `enable_asset_class_version_functionalities`, but clears each bit 
 
 **Accounts**
 
-Same as `enable_asset_class_version_functionalities`.
+Same as `enable_asset_class_version_functionalities`, minus the `#[event_cpi]`-injected `event_authority` / `program` accounts — this instruction emits no event.
 
 **Execution**
 
-Same as `enable_asset_class_version_functionalities`, except the final step uses `common::bitmask::clear_bits` (`mask[byte] &= !(1 << bit)`).
+Same as `enable_asset_class_version_functionalities`, except the final step uses `common::bitmask::clear_bits` (`mask[byte] &= !(1 << bit)`) and no event is emitted.
 
 ### `finalize_asset_class_version(config_id: u64, version: u64)`
 
@@ -406,6 +418,8 @@ Callable only by the asset class `owner`, and only while the factory is not paus
 | `factory` | `Account<Factory>` | Singleton config PDA. Seeds: `["factory"]`. |
 | `asset_class_ownership_pda` | `Account<AssetClassOwnership>` (mut) | Ownership PDA. Seeds: `["asset_class_ownership", config_id]`. `latest_version` is advanced here. |
 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>` (mut) | Version PDA. Seeds: `["asset_class_version", config_id, version]`. Must be `Draft`; sealed to `Ready`. |
+| `event_authority` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`; signs the self-CPI that emits `AssetClassVersionFinalized`. |
+| `program` | `UncheckedAccount` | Anchor `#[event_cpi]`-injected account; this program's own id, target of the self-CPI. |
 
 **Execution**
 
@@ -413,6 +427,27 @@ Callable only by the asset class `owner`, and only while the factory is not paus
 2. `require state == Draft` (`VersionNotDraft`).
 3. `require version == latest_version + 1` (`InvalidVersion`, defensive).
 4. Sets `state = Ready` and `asset_class_ownership.latest_version = version`.
+5. Emits `AssetClassVersionFinalized { config_id, version, owner }` via `emit_cpi!`.
+
+---
+
+## Events
+
+Five of the factory's instructions emit an event via `emit_cpi!`; `nominate_manager` / `accept_nomination` / `cancel_nomination`, `nominate_asset_class_owner` / `accept_asset_class_ownership` / `cancel_asset_class_ownership`, `pause` / `unpause`, and `disable_asset_class_version_functionalities` emit none.
+
+| Event | Emitted by | Fields |
+|---|---|---|
+| `FactoryInitialized` | `initialize` | `manager: Pubkey` |
+| `AssetClassCreated` | `create_asset_class` | `config_id: u64`, `owner: Pubkey`, `manager: Pubkey` |
+| `AssetClassVersionInitialized` | `init_asset_class_version` | `config_id: u64`, `version: u64`, `owner: Pubkey` |
+| `AssetClassVersionFunctionalitiesEnabled` | `enable_asset_class_version_functionalities` | `config_id: u64`, `version: u64`, `functionalities: Vec<u16>`, `owner: Pubkey` |
+| `AssetClassVersionFinalized` | `finalize_asset_class_version` | `config_id: u64`, `version: u64`, `owner: Pubkey` |
+
+### Emitting events
+
+Every event is emitted with `emit_cpi!` (not `emit!`), which records it as a self-CPI captured in the transaction's `innerInstructions` rather than in program logs — avoiding log-truncation loss for off-chain indexers. This requires `#[event_cpi]` on the instruction's `Accounts` struct (injecting the `event_authority` and `program` accounts, seeds `["__event_authority"]`) and the `event-cpi` feature on `anchor-lang` in `Cargo.toml`. Because these events live in inner instructions, Anchor's log-based `program.addEventListener` cannot see them; the test suite decodes them from `innerInstructions` instead (see `tests/program_helpers/event_helper.ts`).
+
+`create_asset_class` records both the newly-created asset class's `owner` and the acting `manager` since the two can differ (a manager creates an asset class it does not itself own); the other four events record only the acting `owner` (or `manager`, for `initialize`), which for those instructions is unambiguous.
 
 ---
 

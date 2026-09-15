@@ -20,6 +20,12 @@ export function factoryPdaWithBump(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("factory")], FACTORY_PROGRAM_ID);
 }
 
+// ── __event_authority PDA ─────────────────────────────────────────────────────────────
+
+export function factoryEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], FACTORY_PROGRAM_ID)[0];
+}
+
 export async function clearFactory(): Promise<void> {
   await surfnetSetAccount(factoryPda(), { lamports: 0 });
 }
