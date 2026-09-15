@@ -21,8 +21,12 @@ pub struct AssetConfiguration {
 (`["asset_class", config_id, version_id]`, owned by `factory`) this mint is
 hooked to. The **seed** is stored — not the derived address — so downstream
 programs re-derive that PDA with `seeds::program = FACTORY_PROGRAM_ID`, matching
-how every other cross-program PDA is referenced in this workspace. The deployer
-can re-point the mint to a newer asset-class version by updating these fields.
+how every other cross-program PDA is referenced in this workspace. There is no
+instruction anywhere in the workspace that updates these fields once
+`deploy_mint` writes them, so a mint is pinned to one asset-class version
+permanently. `deploy_mint` also does not verify that pair actually exists in
+`factory` or that it is `Finalized` before writing it — see
+[`docs/TECH_DEBT.md`](TECH_DEBT.md) (TD-001, TD-002).
 
 The fields are defined in `common::state::AssetConfiguration` so downstream programs can deserialize it without importing `deploy`. This program defines its own `state::AssetConfiguration` with `#[account]` (required for `Account<AssetConfiguration>` usage) whose fields mirror `common`'s version and whose `LEN` delegates to it.
 

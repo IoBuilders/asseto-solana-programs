@@ -279,3 +279,4 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 - [`docs/document.md`](docs/document.md)
 - [`docs/hold.md`](docs/hold.md)
 - [`docs/transfer-hook-heap-oom.md`](docs/transfer-hook-heap-oom.md) — background on the 32 KiB Token-2022 heap limit that drove the verify_transfer + introspection design
+- [`docs/TECH_DEBT.md`](docs/TECH_DEBT.md) — known gaps between current behavior and intended design, tracked for future work
