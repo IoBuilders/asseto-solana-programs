@@ -2,12 +2,14 @@ import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { Factory } from "../../../target/types/factory";
-import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
+import { FACTORY_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import { BaseWriteContext, PayerContext } from "../base_helper";
+import { getEvent } from "../event_helper";
 import {
   assetClassOwnershipPda,
   assetClassPendingOwnerPda,
   assetClassVersionPda,
+  factoryEventAuthorityPda,
   factoryPda,
   factoryPendingManagerPda,
 } from "./factory_pda_helper";
@@ -23,23 +25,39 @@ export type InitializeFactoryContext = BaseWriteContext &
     manager?: Keypair;
   };
 
-export async function initializeFactory(callContext: InitializeFactoryContext = {}): Promise<void> {
+export async function initializeFactory(callContext: InitializeFactoryContext = {}): Promise<{ signature: string }> {
   const program = getFactoryProgram();
   const payer = callContext.payer ?? program.provider.publicKey!;
   const manager = callContext.manager ?? program.provider.wallet.payer;
 
   // `manager` is now a `Signer` account (not an instruction argument). The
   // caller must include the matching keypair in `callContext.signers`.
-  await program.methods
+  const signature = await program.methods
     .initialize()
     .accountsStrict({
       payer,
       manager: manager.publicKey,
       factory: factoryPda(),
       systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: factoryEventAuthorityPda(),
+      program: FACTORY_PROGRAM_ID,
     })
     .signers(callContext.signers ?? [manager])
     .rpc({ commitment: "confirmed" });
+
+  return { signature };
+}
+
+type FactoryInitializedEvent = {
+  manager: PublicKey;
+};
+
+/**
+ * Decodes the `FactoryInitialized` event from an `initialize` transaction. The
+ * coder returns the name in camelCase (`factoryInitialized`).
+ */
+export async function getFactoryInitializedEvent(signature: string) {
+  return getEvent<FactoryInitializedEvent>(getFactoryProgram(), signature, "factoryInitialized");
 }
 
 // ── nominateManager ──────────────────────────────
@@ -120,22 +138,40 @@ type CreateAssetClassArgs = {
 export async function createAssetClass(
   callContext: CreateAssetClassContext = {},
   args: CreateAssetClassArgs
-): Promise<void> {
+): Promise<{ signature: string }> {
   const program = getFactoryProgram();
   const manager = callContext.manager ?? program.provider.wallet.payer;
 
   const { configId, owner } = args;
 
-  await program.methods
+  const signature = await program.methods
     .createAssetClass(configId, owner)
     .accountsStrict({
       manager: manager.publicKey,
       factory: factoryPda(),
       assetClassOwnershipPda: assetClassOwnershipPda(configId),
       systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: factoryEventAuthorityPda(),
+      program: FACTORY_PROGRAM_ID,
     })
     .signers(callContext.signers ?? [manager])
     .rpc({ commitment: "confirmed" });
+
+  return { signature };
+}
+
+type AssetClassCreatedEvent = {
+  configId: anchor.BN;
+  owner: PublicKey;
+  manager: PublicKey;
+};
+
+/**
+ * Decodes the `AssetClassCreated` event from a `create_asset_class`
+ * transaction. The coder returns the name in camelCase (`assetClassCreated`).
+ */
+export async function getAssetClassCreatedEvent(signature: string) {
+  return getEvent<AssetClassCreatedEvent>(getFactoryProgram(), signature, "assetClassCreated");
 }
 
 // ── nominateAssetClassOwner ──────────────────────────────
@@ -272,12 +308,12 @@ export type InitAssetClassVersionContext = BaseWriteContext & { owner?: Keypair 
 export async function initAssetClassVersion(
   callContext: InitAssetClassVersionContext = {},
   args: InitAssetClassVersionArgs
-): Promise<void> {
+): Promise<{ signature: string }> {
   const program = getFactoryProgram();
   const owner = callContext.owner ?? program.provider.wallet.payer;
   const { configId, version } = args;
 
-  await program.methods
+  const signature = await program.methods
     .initAssetClassVersion(configId, version)
     .accountsStrict({
       owner: owner.publicKey,
@@ -285,9 +321,28 @@ export async function initAssetClassVersion(
       assetClassOwnershipPda: assetClassOwnershipPda(configId),
       assetClassVersionPda: assetClassVersionPda(configId, version),
       systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: factoryEventAuthorityPda(),
+      program: FACTORY_PROGRAM_ID,
     })
     .signers(callContext.signers ?? [owner])
     .rpc({ commitment: "confirmed" });
+
+  return { signature };
+}
+
+type AssetClassVersionInitializedEvent = {
+  configId: anchor.BN;
+  version: anchor.BN;
+  owner: PublicKey;
+};
+
+/**
+ * Decodes the `AssetClassVersionInitialized` event from an
+ * `init_asset_class_version` transaction. The coder returns the name in
+ * camelCase (`assetClassVersionInitialized`).
+ */
+export async function getAssetClassVersionInitializedEvent(signature: string) {
+  return getEvent<AssetClassVersionInitializedEvent>(getFactoryProgram(), signature, "assetClassVersionInitialized");
 }
 
 // ── enableAssetClassVersionFunctionalities ──────────────────────────────
@@ -317,21 +372,45 @@ type EnableAssetClassVersionFunctionalitiesArgs = {
 export async function enableAssetClassVersionFunctionalities(
   callContext: EnableAssetClassVersionFunctionalitiesContext = {},
   args: EnableAssetClassVersionFunctionalitiesArgs
-): Promise<void> {
+): Promise<{ signature: string }> {
   const program = getFactoryProgram();
   const owner = callContext.owner ?? program.provider.wallet.payer;
   const { configId, version, functionalities } = args;
 
-  await program.methods
+  const signature = await program.methods
     .enableAssetClassVersionFunctionalities(configId, version, functionalities)
     .accountsStrict({
       owner: owner.publicKey,
       factory: factoryPda(),
       assetClassOwnershipPda: assetClassOwnershipPda(configId),
       assetClassVersionPda: assetClassVersionPda(configId, version),
+      eventAuthority: factoryEventAuthorityPda(),
+      program: FACTORY_PROGRAM_ID,
     })
     .signers(callContext.signers ?? [owner])
     .rpc({ commitment: "confirmed" });
+
+  return { signature };
+}
+
+type AssetClassVersionFunctionalitiesEnabledEvent = {
+  configId: anchor.BN;
+  version: anchor.BN;
+  functionalities: number[];
+  owner: PublicKey;
+};
+
+/**
+ * Decodes the `AssetClassVersionFunctionalitiesEnabled` event from an
+ * `enable_asset_class_version_functionalities` transaction. The coder returns
+ * the name in camelCase (`assetClassVersionFunctionalitiesEnabled`).
+ */
+export async function getAssetClassVersionFunctionalitiesEnabledEvent(signature: string) {
+  return getEvent<AssetClassVersionFunctionalitiesEnabledEvent>(
+    getFactoryProgram(),
+    signature,
+    "assetClassVersionFunctionalitiesEnabled"
+  );
 }
 
 // ── disableAssetClassVersionFunctionalities ──────────────────────────────
@@ -376,19 +455,38 @@ type FinalizeAssetClassVersionArgs = {
 export async function finalizeAssetClassVersion(
   callContext: FinalizeAssetClassVersionContext = {},
   args: FinalizeAssetClassVersionArgs
-): Promise<void> {
+): Promise<{ signature: string }> {
   const program = getFactoryProgram();
   const owner = callContext.owner ?? program.provider.wallet.payer;
   const { configId, version } = args;
 
-  await program.methods
+  const signature = await program.methods
     .finalizeAssetClassVersion(configId, version)
     .accountsStrict({
       owner: owner.publicKey,
       factory: factoryPda(),
       assetClassOwnershipPda: assetClassOwnershipPda(configId),
       assetClassVersionPda: assetClassVersionPda(configId, version),
+      eventAuthority: factoryEventAuthorityPda(),
+      program: FACTORY_PROGRAM_ID,
     })
     .signers(callContext.signers ?? [owner])
     .rpc({ commitment: "confirmed" });
+
+  return { signature };
+}
+
+type AssetClassVersionFinalizedEvent = {
+  configId: anchor.BN;
+  version: anchor.BN;
+  owner: PublicKey;
+};
+
+/**
+ * Decodes the `AssetClassVersionFinalized` event from a
+ * `finalize_asset_class_version` transaction. The coder returns the name in
+ * camelCase (`assetClassVersionFinalized`).
+ */
+export async function getAssetClassVersionFinalizedEvent(signature: string) {
+  return getEvent<AssetClassVersionFinalizedEvent>(getFactoryProgram(), signature, "assetClassVersionFinalized");
 }

@@ -3,6 +3,7 @@ use common::pda_seeds;
 use common::state::ASSET_CLASS_VERSION_STATE_DRAFT;
 
 use crate::errors::ErrorCode;
+use crate::events::AssetClassVersionInitialized;
 use crate::helpers::{require_not_paused, verify_owner};
 use crate::state::{AssetClassOwnership, AssetClassVersion, Factory};
 
@@ -33,10 +34,18 @@ pub fn init_asset_class_version(
     version_account.version = version;
     version_account.state = ASSET_CLASS_VERSION_STATE_DRAFT;
     version_account.bump = bump;
+    drop(version_account);
+
+    emit_cpi!(AssetClassVersionInitialized {
+        config_id,
+        version,
+        owner: ctx.accounts.owner.key(),
+    });
 
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(config_id: u64, version: u64)]
 pub struct InitAssetClassVersion<'info> {

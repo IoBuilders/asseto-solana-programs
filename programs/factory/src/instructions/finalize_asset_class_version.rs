@@ -4,12 +4,13 @@ use common::{
 };
 
 use crate::errors::ErrorCode;
+use crate::events::AssetClassVersionFinalized;
 use crate::helpers::{require_not_paused, verify_owner};
 use crate::state::{AssetClassOwnership, AssetClassVersion, Factory};
 
 pub fn finalize_asset_class_version(
     ctx: Context<FinalizeAssetClassVersion>,
-    _config_id: u64,
+    config_id: u64,
     _version: u64,
 ) -> Result<()> {
     require_not_paused(&ctx.accounts.factory)?;
@@ -43,9 +44,16 @@ pub fn finalize_asset_class_version(
 
     ctx.accounts.asset_class_ownership_pda.latest_version = version;
 
+    emit_cpi!(AssetClassVersionFinalized {
+        config_id,
+        version,
+        owner: ctx.accounts.owner.key(),
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(config_id: u64, version: u64)]
 pub struct FinalizeAssetClassVersion<'info> {

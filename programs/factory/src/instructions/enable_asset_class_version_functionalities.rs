@@ -1,4 +1,5 @@
 use crate::errors::ErrorCode;
+use crate::events::AssetClassVersionFunctionalitiesEnabled;
 use crate::helpers::{require_not_paused, verify_owner};
 use crate::state::{AssetClassOwnership, AssetClassVersion, Factory};
 use anchor_lang::prelude::*;
@@ -6,8 +7,8 @@ use common::{bitmask, pda_seeds, state::ASSET_CLASS_VERSION_STATE_DRAFT};
 
 pub fn enable_asset_class_version_functionalities(
     ctx: Context<EnableAssetClassVersionFunctionalities>,
-    _config_id: u64,
-    _version: u64,
+    config_id: u64,
+    version: u64,
     functionalities: Vec<u16>,
 ) -> Result<()> {
     require_not_paused(&ctx.accounts.factory)?;
@@ -24,10 +25,19 @@ pub fn enable_asset_class_version_functionalities(
 
     bitmask::set_bits(&mut version_account.mask, &functionalities)
         .map_err(|_| error!(ErrorCode::FunctionalityOutOfBounds))?;
+    drop(version_account);
+
+    emit_cpi!(AssetClassVersionFunctionalitiesEnabled {
+        config_id,
+        version,
+        functionalities,
+        owner: ctx.accounts.owner.key(),
+    });
 
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(config_id: u64, version: u64)]
 pub struct EnableAssetClassVersionFunctionalities<'info> {

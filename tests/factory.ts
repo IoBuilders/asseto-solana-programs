@@ -14,6 +14,11 @@ import {
   disableAssetClassVersionFunctionalities,
   enableAssetClassVersionFunctionalities,
   finalizeAssetClassVersion,
+  getAssetClassCreatedEvent,
+  getAssetClassVersionFinalizedEvent,
+  getAssetClassVersionFunctionalitiesEnabledEvent,
+  getAssetClassVersionInitializedEvent,
+  getFactoryInitializedEvent,
   initAssetClassVersion,
   initializeFactory,
   isFunctionalityEnabled,
@@ -79,7 +84,7 @@ describe("factory", () => {
       // Always runs the instruction — on a fresh validator the singleton PDA does
       // not exist yet, so this both creates it and exercises the handler.
       // `manager` is a required signer, so it must be passed in `signers`.
-      await initializeFactory({ manager: FACTORY_MANAGER });
+      const { signature } = await initializeFactory({ manager: FACTORY_MANAGER });
 
       const stored = await getFactory();
       assert.equal(stored.manager.toBase58(), FACTORY_MANAGER.publicKey.toBase58(), "manager mismatch");
@@ -90,6 +95,14 @@ describe("factory", () => {
       const info = await getAccountInfo(factoryPda());
       assert.isNotNull(info, "factory PDA should be created by initialize");
       assert.equal(info!.owner.toBase58(), FACTORY_PROGRAM_ID.toBase58(), "factory PDA should be owned by factory");
+
+      const event = await getFactoryInitializedEvent(signature);
+      assert.isNotNull(event, "FactoryInitialized event should be emitted");
+      assert.equal(
+        event!.manager.toBase58(),
+        FACTORY_MANAGER.publicKey.toBase58(),
+        "event manager should match the recorded manager"
+      );
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -410,7 +423,7 @@ describe("factory", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("creates the ownership PDA with owner, latest_version=0 and bump", async () => {
-      await createAssetClass(
+      const { signature } = await createAssetClass(
         { manager: FACTORY_MANAGER },
         { configId: ASSET_CLASS_CONFIG_ID, owner: ASSET_CLASS_OWNER.publicKey }
       );
@@ -423,6 +436,24 @@ describe("factory", () => {
       const info = await getAccountInfo(assetClassOwnershipPda(ASSET_CLASS_CONFIG_ID));
       assert.isNotNull(info, "asset class PDA should be created");
       assert.equal(info!.owner.toBase58(), FACTORY_PROGRAM_ID.toBase58(), "asset class PDA should be owned by factory");
+
+      const event = await getAssetClassCreatedEvent(signature);
+      assert.isNotNull(event, "AssetClassCreated event should be emitted");
+      assert.equal(
+        event!.configId.toString(),
+        ASSET_CLASS_CONFIG_ID.toString(),
+        "event config_id should match the created asset class"
+      );
+      assert.equal(
+        event!.owner.toBase58(),
+        ASSET_CLASS_OWNER.publicKey.toBase58(),
+        "event owner should match the recorded owner"
+      );
+      assert.equal(
+        event!.manager.toBase58(),
+        FACTORY_MANAGER.publicKey.toBase58(),
+        "event manager should match the acting manager"
+      );
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -747,7 +778,7 @@ describe("factory", () => {
         "precondition: asset class version PDA should not exist before init"
       );
 
-      await initAssetClassVersion(
+      const { signature } = await initAssetClassVersion(
         { owner: ASSET_CLASS_OWNER },
         { configId: ASSET_CLASS_CONFIG_ID, version: ASSET_CLASS_VERSION }
       );
@@ -764,6 +795,24 @@ describe("factory", () => {
         info!.owner.toBase58(),
         FACTORY_PROGRAM_ID.toBase58(),
         "asset class version PDA should be owned by factory"
+      );
+
+      const event = await getAssetClassVersionInitializedEvent(signature);
+      assert.isNotNull(event, "AssetClassVersionInitialized event should be emitted");
+      assert.equal(
+        event!.configId.toString(),
+        ASSET_CLASS_CONFIG_ID.toString(),
+        "event config_id should match the initialized version"
+      );
+      assert.equal(
+        event!.version.toString(),
+        ASSET_CLASS_VERSION.toString(),
+        "event version should match the initialized version"
+      );
+      assert.equal(
+        event!.owner.toBase58(),
+        ASSET_CLASS_OWNER.publicKey.toBase58(),
+        "event owner should match the acting owner"
       );
     });
 
@@ -860,7 +909,7 @@ describe("factory", () => {
       const functionality0 = 0;
       const functionality17 = 17;
 
-      await enableAssetClassVersionFunctionalities(
+      const { signature } = await enableAssetClassVersionFunctionalities(
         { owner: ASSET_CLASS_OWNER },
         {
           configId: ASSET_CLASS_CONFIG_ID,
@@ -876,6 +925,29 @@ describe("factory", () => {
         `functionalities ${functionality0} & ${functionality17} should be enabled`
       );
       assert.isFalse(isFunctionalityEnabled(assetClassVersion.mask, 2), "functionality 2 should be untouched");
+
+      const event = await getAssetClassVersionFunctionalitiesEnabledEvent(signature);
+      assert.isNotNull(event, "AssetClassVersionFunctionalitiesEnabled event should be emitted");
+      assert.equal(
+        event!.configId.toString(),
+        ASSET_CLASS_CONFIG_ID.toString(),
+        "event config_id should match the enabled version"
+      );
+      assert.equal(
+        event!.version.toString(),
+        ASSET_CLASS_VERSION.toString(),
+        "event version should match the enabled version"
+      );
+      assert.deepEqual(
+        event!.functionalities,
+        [functionality0, functionality17],
+        "event functionalities should match the ones passed to the instruction"
+      );
+      assert.equal(
+        event!.owner.toBase58(),
+        ASSET_CLASS_OWNER.publicKey.toBase58(),
+        "event owner should match the acting owner"
+      );
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -1091,7 +1163,7 @@ describe("factory", () => {
       const before = await getAssetClassVersion(ASSET_CLASS_CONFIG_ID, ASSET_CLASS_VERSION);
       assert.equal(before.state, 0, "precondition: version should be Draft (0) before finalize");
 
-      await finalizeAssetClassVersion(
+      const { signature } = await finalizeAssetClassVersion(
         { owner: ASSET_CLASS_OWNER },
         { configId: ASSET_CLASS_CONFIG_ID, version: ASSET_CLASS_VERSION }
       );
@@ -1102,6 +1174,24 @@ describe("factory", () => {
         (await getAssetClassOwnership(ASSET_CLASS_CONFIG_ID)).latestVersion.toString(),
         ASSET_CLASS_VERSION.toString(),
         "latest_version should advance to the finalized version"
+      );
+
+      const event = await getAssetClassVersionFinalizedEvent(signature);
+      assert.isNotNull(event, "AssetClassVersionFinalized event should be emitted");
+      assert.equal(
+        event!.configId.toString(),
+        ASSET_CLASS_CONFIG_ID.toString(),
+        "event config_id should match the finalized version"
+      );
+      assert.equal(
+        event!.version.toString(),
+        ASSET_CLASS_VERSION.toString(),
+        "event version should match the finalized version"
+      );
+      assert.equal(
+        event!.owner.toBase58(),
+        ASSET_CLASS_OWNER.publicKey.toBase58(),
+        "event owner should match the acting owner"
       );
     });
 
