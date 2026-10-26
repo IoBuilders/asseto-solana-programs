@@ -17,6 +17,7 @@ import { pausableAuthorityPda } from "./pause/pause_pda_helper";
 import { mintAuthorityPda } from "./mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "./metadata_update/metadata_update_pda_helper";
 import { rolesPda } from "./access_control/access_control_pda_helper";
+import { assetClassVersionPda, ensureAssetClassVersionFinalized } from "./factory/factory_pda_helper";
 
 function getDeployProgram(): Program<Deploy> {
   return anchor.workspace.Deploy as Program<Deploy>;
@@ -36,6 +37,7 @@ type DeployMintArgs = {
   additionalMetadata?: { key: string; value: string }[];
   assetClassConfigId?: anchor.BN | number;
   assetClassVersionId?: anchor.BN | number;
+  ensureAssetClassVersionFinalized?: boolean;
 };
 
 function getDefaultArgs(): Required<DeployMintArgs> {
@@ -47,6 +49,7 @@ function getDefaultArgs(): Required<DeployMintArgs> {
     additionalMetadata: [],
     assetClassConfigId: new anchor.BN(0),
     assetClassVersionId: new anchor.BN(0),
+    ensureAssetClassVersionFinalized: true,
   };
 }
 
@@ -63,6 +66,12 @@ export async function deployMint(
   const mint = callContext?.mint ?? Keypair.generate();
   const deployer = callContext?.deployer ?? program.provider.wallet.payer;
   const signers = callContext?.signers ? callContext.signers : [mint, deployer];
+  const assetClassConfigId = new anchor.BN(effectiveArgs.assetClassConfigId);
+  const assetClassVersionId = new anchor.BN(effectiveArgs.assetClassVersionId);
+
+  if (effectiveArgs.ensureAssetClassVersionFinalized) {
+    await ensureAssetClassVersionFinalized(assetClassConfigId, assetClassVersionId);
+  }
 
   const signature = await getDeployProgram()
     .methods.deployMint({
@@ -71,14 +80,15 @@ export async function deployMint(
       symbol: effectiveArgs.symbol,
       uri: effectiveArgs.uri,
       additionalMetadata: effectiveArgs.additionalMetadata,
-      assetClassConfigId: new anchor.BN(effectiveArgs.assetClassConfigId),
-      assetClassVersionId: new anchor.BN(effectiveArgs.assetClassVersionId),
+      assetClassConfigId,
+      assetClassVersionId,
     })
     .accountsStrict({
       payer: callContext?.payer ?? deployer.publicKey,
       deployer: deployer.publicKey,
       mint: mint.publicKey,
       assetConfigurationPda: pdaUtils.assetConfigurationPda(mint.publicKey),
+      assetClassVersionPda: assetClassVersionPda(assetClassConfigId, assetClassVersionId),
       tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint.publicKey),
       mintAuthority: mintAuthorityPda(mint.publicKey),
       permanentDelegateAuthority: permanentDelegatePda(mint.publicKey),

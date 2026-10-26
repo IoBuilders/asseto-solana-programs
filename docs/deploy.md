@@ -18,15 +18,17 @@ pub struct AssetConfiguration {
 ```
 
 `asset_class_config_id` + `asset_class_version_id` are the seed of the factory asset-class PDA
-(`["asset_class", config_id, version_id]`, owned by `factory`) this mint is
+(`["asset_class_version", config_id, version_id]`, owned by `factory`) this mint is
 hooked to. The **seed** is stored — not the derived address — so downstream
 programs re-derive that PDA with `seeds::program = FACTORY_PROGRAM_ID`, matching
 how every other cross-program PDA is referenced in this workspace. There is no
 instruction anywhere in the workspace that updates these fields once
 `deploy_mint` writes them, so a mint is pinned to one asset-class version
-permanently. `deploy_mint` also does not verify that pair actually exists in
-`factory` or that it is `Finalized` before writing it — see
-[`docs/TECH_DEBT.md`](TECH_DEBT.md) (TD-001, TD-002).
+permanently. `deploy_mint` only accepts a pair whose `AssetClassVersion` exists and is
+`Finalized` (see `asset_class_version_pda` under [Accounts](#accounts)). By design it does
+not check that the deployer owns that asset class: a finalized version is a public template any
+deployer can build a mint on — the asset-class owner controls what a version supports, not who
+may use it.
 
 The fields are defined in `common::state::AssetConfiguration` so downstream programs can deserialize it without importing `deploy`. This program defines its own `state::AssetConfiguration` with `#[account]` (required for `Account<AssetConfiguration>` usage) whose fields mirror `common`'s version and whose `LEN` delegates to it.
 
@@ -36,7 +38,7 @@ Downstream programs read this account as a typed `Account<AssetConfiguration>` (
 
 ## Instruction: `deploy_mint`
 
-Deploys new Token-2022 mints with all required extensions. This is the entry point for the entire system — all other programs trace authorization back to the `asset_configuration_pda` created here. It also bootstraps access control: a final CPI to `access_control::initialize` grants the deployer `ROLE_ADMIN` on the new mint.
+Deploys new Token-2022 mints with all required extensions, hooked to an existing, finalized `factory` asset-class version. This is the entry point for the entire system — all other programs trace authorization back to the `asset_configuration_pda` created here. It also bootstraps access control: a final CPI to `access_control::initialize` grants the deployer `ROLE_ADMIN` on the new mint.
 
 Sets up the following Token-2022 extensions, each governed by a distinct program-derived authority:
 
@@ -76,6 +78,7 @@ pub struct MetadataField {
 | `payer` | yes | yes | Signer | Pays rent for mint account, `asset_configuration_pda`, and `extra_account_meta_list` |
 | `deployer` | no | yes | Signer | Granted `ROLE_ADMIN` on this mint in step 15; can be same wallet as `payer` |
 | `asset_configuration_pda` | yes | no | `Account<AssetConfiguration>` | init; seeds `["asset_configuration", mint]` |
+| `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", params.asset_class_config_id, params.asset_class_version_id]`, `seeds::program = FACTORY_PROGRAM_ID`. Must be `Finalized`, else `CommonError::AssetClassVersionNotFinalized`; a version that was never created fails account resolution with `AccountOwnedByWrongProgram` |
 | `mint` | yes | yes | UncheckedAccount | Fresh keypair; must sign so SystemProgram can allocate it |
 | `temp_mint_authority` | no | no | UncheckedAccount | PDA seeds `["temp_mint_authority", mint]`; no storage; used as transient signer for steps 9–12 and the `access_control::initialize` CPI in step 15 |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]`, `seeds::program = MINT_PROGRAM_ID` |
@@ -142,7 +145,7 @@ pub struct MetadataField {
 - Transfers mint authority from `temp_mint_authority` to `mint_authority`.
 
 **13 — Record the mint configuration**
-- Writes `asset_class_config_id`, `asset_class_version_id`, and PDA bump into `asset_configuration_pda`.
+- Writes `asset_class_config_id` / `asset_class_version_id` (read from the validated `asset_class_version_pda`) and the PDA bump into `asset_configuration_pda`.
 
 **14 — CPI → `initialize_extra_account_meta_list`** (signed by `asset_configuration_pda`)
 - Calls `transfer_hook::initialize_extra_account_meta_list`.
@@ -202,6 +205,8 @@ pub struct MintDeployed {
 MintAuthorityMustBeSigner,
 InvalidMintAccountSize,
 ```
+
+Also raised from `common`: `CommonError::AssetClassVersionNotFinalized` (the `asset_class_version_pda` constraint).
 
 ---
 
