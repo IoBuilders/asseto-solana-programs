@@ -1,4 +1,4 @@
-import * as pdaUtils from "../../utils/pda_utils";
+import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, DEACTIVATE_PROGRAM_ID } from "../../utils/address_utils";
@@ -6,7 +6,6 @@ import { Deactivate } from "../../../target/types/deactivate";
 import { MintWriteContext } from "../base_helper";
 import { PublicKey } from "@solana/web3.js";
 import { getEvent } from "../event_helper";
-import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { deactivatePda, deactivateEventAuthorityPda } from "./deactivate_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
@@ -28,7 +27,7 @@ export async function deactivateMint(callContext: MintWriteContext): Promise<{ s
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: deactivateEventAuthorityPda(),

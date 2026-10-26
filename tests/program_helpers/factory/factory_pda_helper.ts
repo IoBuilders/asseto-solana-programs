@@ -4,7 +4,7 @@ import BN from "bn.js";
 import { getFactoryProgram } from "./factory_instruction_helper";
 import * as anchor from "@anchor-lang/core";
 import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
-import { getAssetConfiguration } from "../deploy_helper";
+import { getAssetConfiguration } from "../deploy/deploy_pda_helper";
 
 // ── factory PDA ───────────────────────────────────────────────────────────────────
 

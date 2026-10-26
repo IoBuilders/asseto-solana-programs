@@ -195,7 +195,7 @@ pub struct MintDeployed {
   them auto-resolved; `.accountsStrict()` must pass them explicitly.
 - The event is **not** in `Program data:` logs. Read it from the transaction's
   inner instructions: strip the 8-byte self-CPI tag, then decode with the
-  program event coder (see `tests/program_helpers/deploy_helper.ts::getMintDeployedEvent`).
+  program event coder (see `tests/program_helpers/deploy/deploy_instruction_helper.ts::getMintDeployedEvent`).
 
 ---
 

@@ -4,24 +4,27 @@ import {
   SYSTEM_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   ACCESS_CONTROL_PROGRAM_ID,
-} from "../utils/address_utils";
+} from "../../utils/address_utils";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
-import { Deploy } from "../../target/types/deploy";
-import { BaseWriteContext, PayerContext } from "./base_helper";
-import { getEvent } from "./event_helper";
-import * as pdaUtils from "../utils/pda_utils";
-import { permanentDelegatePda, permissionedBurnPda } from "./operations/operations_pda_helper";
-import { pausableAuthorityPda } from "./pause/pause_pda_helper";
-import { mintAuthorityPda } from "./mint/mint_pda_helper";
-import { metadataUpdateAuthorityPda } from "./metadata_update/metadata_update_pda_helper";
-import { rolesPda } from "./access_control/access_control_pda_helper";
-import { assetClassVersionPda, ensureAssetClassVersionFinalized } from "./factory/factory_pda_helper";
+import { Deploy } from "../../../target/types/deploy";
+import { BaseWriteContext, PayerContext } from "../base_helper";
+import { getEvent } from "../event_helper";
+import { assetConfigurationPda, deployEventAuthorityPda, tempMintAuthorityPda } from "./deploy_pda_helper";
+import { extraAccountMetaListPda, transferHookAuthorityPda } from "../transfer_hook/transfer_hook_pda_helper";
+import { permanentDelegatePda, permissionedBurnPda } from "../operations/operations_pda_helper";
+import { pausableAuthorityPda } from "../pause/pause_pda_helper";
+import { mintAuthorityPda } from "../mint/mint_pda_helper";
+import { metadataUpdateAuthorityPda } from "../metadata_update/metadata_update_pda_helper";
+import { rolesPda } from "../access_control/access_control_pda_helper";
+import { assetClassVersionPda, ensureAssetClassVersionFinalized } from "../factory/factory_pda_helper";
 
-function getDeployProgram(): Program<Deploy> {
+export function getDeployProgram(): Program<Deploy> {
   return anchor.workspace.Deploy as Program<Deploy>;
 }
+
+// ── deploy_mint ──────────────────────────────────────────────────────────────
 
 type DeployMintContext = BaseWriteContext &
   PayerContext & {
@@ -87,21 +90,21 @@ export async function deployMint(
       payer: callContext?.payer ?? deployer.publicKey,
       deployer: deployer.publicKey,
       mint: mint.publicKey,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(mint.publicKey),
+      assetConfigurationPda: assetConfigurationPda(mint.publicKey),
       assetClassVersionPda: assetClassVersionPda(assetClassConfigId, assetClassVersionId),
-      tempMintAuthority: pdaUtils.tempMintAuthorityPda(mint.publicKey),
+      tempMintAuthority: tempMintAuthorityPda(mint.publicKey),
       mintAuthority: mintAuthorityPda(mint.publicKey),
       permanentDelegateAuthority: permanentDelegatePda(mint.publicKey),
       permissionedBurnAuthority: permissionedBurnPda(mint.publicKey),
       metadataUpdateAuthority: metadataUpdateAuthorityPda(mint.publicKey),
       pausableAuthority: pausableAuthorityPda(mint.publicKey),
-      transferHookAuthority: pdaUtils.transferHookAuthorityPda(mint.publicKey),
-      extraAccountMetaList: pdaUtils.extraAccountMetaListPda(mint.publicKey),
+      transferHookAuthority: transferHookAuthorityPda(mint.publicKey),
+      extraAccountMetaList: extraAccountMetaListPda(mint.publicKey),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       rent: SYSVAR_RENT_PUBKEY,
-      eventAuthority: pdaUtils.deployEventAuthorityPda(),
+      eventAuthority: deployEventAuthorityPda(),
       program: DEPLOY_PROGRAM_ID,
       rolesPda: rolesPda(mint.publicKey, deployer.publicKey),
       accessControlProgram: ACCESS_CONTROL_PROGRAM_ID,
@@ -131,9 +134,4 @@ type MintDeployedEvent = {
  */
 export async function getMintDeployedEvent(signature: string) {
   return getEvent<MintDeployedEvent>(getDeployProgram(), signature, "mintDeployed");
-}
-
-export async function getAssetConfiguration(mint: PublicKey) {
-  const pda = pdaUtils.assetConfigurationPda(mint);
-  return await getDeployProgram().account.assetConfiguration.fetch(pda, "confirmed");
 }

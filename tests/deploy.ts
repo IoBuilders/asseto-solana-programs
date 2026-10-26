@@ -9,12 +9,12 @@ import {
   getPermissionedBurn,
 } from "@solana/spl-token";
 import { assert } from "chai";
-import * as pdaUtils from "./utils/pda_utils";
+import { deployMint, getMintDeployedEvent } from "./program_helpers/deploy/deploy_instruction_helper";
+import { assetConfigurationPdaWithBump, getAssetConfiguration } from "./program_helpers/deploy/deploy_pda_helper";
 import { permanentDelegatePda, permissionedBurnPda } from "./program_helpers/operations/operations_pda_helper";
 import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
 import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "./program_helpers/metadata_update/metadata_update_pda_helper";
-import { deployMint, getMintDeployedEvent, getAssetConfiguration } from "./program_helpers/deploy_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
 import { getRoles, isRoleGranted, rolesPdaWithBump } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN } from "./utils/roles";
@@ -127,7 +127,7 @@ describe("deploy", () => {
 
     // ── Assertions: Asset configuration PDA ─────────────────────────────────────
     // Verify the stored bump is consistent with the derived PDA address.
-    const [, expectedBump] = pdaUtils.assetConfigurationPdaWithBump(mint);
+    const [, expectedBump] = assetConfigurationPdaWithBump(mint);
     assert.equal(assetConfigurationAccount.bump, expectedBump, "stored bump should match the canonical PDA bump");
     // The asset-class PDA seed (config_id, version_id) is persisted verbatim.
     assert.equal(

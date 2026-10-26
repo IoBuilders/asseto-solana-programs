@@ -1,4 +1,4 @@
-import * as pdaUtils from "../../utils/pda_utils";
+import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, SNAPSHOT_PROGRAM_ID } from "../../utils/address_utils";
@@ -7,7 +7,6 @@ import { Program } from "@anchor-lang/core";
 import { Coupon } from "../../../target/types/coupon";
 import { PublicKey } from "@solana/web3.js";
 import { getEvent } from "../event_helper";
-import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { couponAuthorityPda, couponCounterPda, couponPda, couponEventAuthorityPda } from "./coupon_pda_helper";
 import {
@@ -82,7 +81,7 @@ export async function createCoupon(
       payer: callContext.payer ?? callContext.authority.publicKey,
       authority: authority.publicKey,
       mint: callContext.mint,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       couponAuthority: couponAuthorityPda(callContext.mint),
       couponCounter: couponCounterPda(callContext.mint),
@@ -163,7 +162,7 @@ export async function setCouponRate(
     .accountsStrict({
       authority: authority.publicKey,
       mint: context.mint,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(context.mint),
+      assetConfigurationPda: assetConfigurationPda(context.mint),
       deactivatePda: deactivatePda(context.mint),
       coupon: couponPda(context.mint, effectiveArgs.couponId),
       eventAuthority: couponEventAuthorityPda(),

@@ -2,7 +2,7 @@ import * as anchor from "@anchor-lang/core";
 import { Keypair, SendTransactionError } from "@solana/web3.js";
 import { getPermissionedBurn, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
-import { deployMint } from "./program_helpers/deploy_helper";
+import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { permissionedBurnPda } from "./program_helpers/operations/operations_pda_helper";
 import {
   createTokenAccount,

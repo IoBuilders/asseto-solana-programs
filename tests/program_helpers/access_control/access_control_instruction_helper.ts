@@ -3,7 +3,7 @@ import { Program } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { AccessControl } from "../../../target/types/access_control";
 import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
-import * as pdaUtils from "../../utils/pda_utils";
+import { assetConfigurationPda } from "../deploy/deploy_pda_helper";
 import { BaseWriteContext, MintContext, MintWriteWithPayerContext } from "../base_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { assetClassVersionPdaForMint } from "../factory/factory_pda_helper";
@@ -67,7 +67,7 @@ export async function grantRoles(callContext: GrantRolesContext, args: GrantRole
     .accountsStrict({
       payer,
       authority: authority.publicKey,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(mint),
+      assetConfigurationPda: assetConfigurationPda(mint),
       authorityRolesPda: rolesPda(mint, authority.publicKey),
       account,
       deactivatePda: deactivatePda(mint),
@@ -104,7 +104,7 @@ export async function revokeRoles(
     .revokeRoles(args.roles)
     .accountsStrict({
       authority: authority.publicKey,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(mint),
+      assetConfigurationPda: assetConfigurationPda(mint),
       authorityRolesPda: rolesPda(mint, authority.publicKey),
       account,
       deactivatePda: deactivatePda(mint),

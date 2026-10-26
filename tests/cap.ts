@@ -3,7 +3,7 @@ import { AnchorError } from "@anchor-lang/core";
 import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { CAP_PROGRAM_ID } from "./utils/address_utils";
-import { deployMint } from "./program_helpers/deploy_helper";
+import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_CAP } from "./utils/roles";
 import { getMaxSupplySetEvent, setMaxSupply } from "./program_helpers/cap/cap_instruction_helper";
