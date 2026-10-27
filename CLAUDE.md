@@ -77,7 +77,7 @@ asseto-solana-programs/
 ├── Cargo.toml                — workspace root (glob: programs/*)
 ├── programs/
 │   ├── common/               — shared library: no program ID, no entrypoint
-│   ├── deploy/               — deploys mints; records the asset-class config/version ids in `asset_configuration_pda`; bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
+│   ├── deploy/               — deploys mints; records the asset-class config/version ids in `asset_configuration_pda` (only for an existing, `Finalized` `factory` `AssetClassVersion`); bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
 │   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated). Both enforce the `cap` supply cap before issuing
 │   ├── metadata-update/      — controls metadata updates
 │   ├── freeze/               — management freeze/unfreeze (full + partial), expressed purely as marker PDAs; enforced read-side by `transfer-hook::execute`, no Token-2022 CPI

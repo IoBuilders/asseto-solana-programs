@@ -1,4 +1,5 @@
 import * as anchor from "@anchor-lang/core";
+import { AnchorError } from "@anchor-lang/core";
 import { SendTransactionError } from "@solana/web3.js";
 import { Keypair } from "@solana/web3.js";
 import {
@@ -17,6 +18,11 @@ import { deployMint, getMintDeployedEvent, getAssetConfiguration } from "./progr
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
 import { getRoles, isRoleGranted, rolesPdaWithBump } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN } from "./utils/roles";
+import {
+  ASSET_CLASS_VERSION_STATE_DRAFT,
+  clearAssetClassVersion,
+  setAssetClassVersion,
+} from "./program_helpers/factory/factory_pda_helper";
 
 // ── Test mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -28,6 +34,10 @@ const MINT_ISIN_VALUE = "CH0012221716";
 // Asset-class PDA seed (config_id, version_id) the mint is hooked to.
 const MINT_ASSET_CLASS_CONFIG_ID = 7;
 const MINT_ASSET_CLASS_VERSION_ID = 3;
+// Versions under the same config the failure cases plant themselves; kept apart from the
+// happy-path one so the helper's auto-finalization never touches them.
+const DRAFT_ASSET_CLASS_VERSION_ID = 4;
+const MISSING_ASSET_CLASS_VERSION_ID = 5;
 
 describe("deploy", () => {
   const provider = anchor.AnchorProvider.env();
@@ -189,6 +199,58 @@ describe("deploy", () => {
       assert.isTrue(
         logs.some((l) => l.includes("already in use")),
         "transaction logs should mention account already in use"
+      );
+    }
+  });
+
+  it("deploy_mint: fails with AssetClassVersionNotFinalized when the asset-class version is still a draft", async () => {
+    const configId = new anchor.BN(MINT_ASSET_CLASS_CONFIG_ID);
+    const versionId = new anchor.BN(DRAFT_ASSET_CLASS_VERSION_ID);
+    await setAssetClassVersion(configId, versionId, { state: ASSET_CLASS_VERSION_STATE_DRAFT });
+
+    try {
+      await deployMint(
+        {},
+        {
+          assetClassConfigId: configId,
+          assetClassVersionId: versionId,
+          ensureAssetClassVersionFinalized: false,
+        }
+      );
+      assert.fail("Expected AssetClassVersionNotFinalized error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "AssetClassVersionNotFinalized",
+        "error code should be AssetClassVersionNotFinalized"
+      );
+    }
+  });
+
+  it("deploy_mint: fails when the asset-class version does not exist", async () => {
+    const configId = new anchor.BN(MINT_ASSET_CLASS_CONFIG_ID);
+    const versionId = new anchor.BN(MISSING_ASSET_CLASS_VERSION_ID);
+    await clearAssetClassVersion(configId, versionId);
+
+    try {
+      await deployMint(
+        {},
+        {
+          assetClassConfigId: configId,
+          assetClassVersionId: versionId,
+          ensureAssetClassVersionFinalized: false,
+        }
+      );
+      assert.fail("Expected deploy against a missing asset-class version to fail but it succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(
+        anchorErr.error.errorCode.code,
+        "AccountOwnedByWrongProgram",
+        "error code should be AccountOwnedByWrongProgram"
       );
     }
   });

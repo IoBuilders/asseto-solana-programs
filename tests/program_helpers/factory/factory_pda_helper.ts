@@ -179,7 +179,7 @@ export const FUNCTIONALITIES_MASK_CHUNK_BITS = 8;
 export const FUNCTIONALITIES_BYTES_MASK = FUNCTIONALITIES_BITS_MASK / FUNCTIONALITIES_MASK_CHUNK_BITS;
 
 export async function getAssetClassVersion(configId: anchor.BN, version: anchor.BN) {
-  return await getFactoryProgram().account.assetClassVersion.fetch(
+  return await getFactoryProgram().account.assetClassVersion.fetchNullable(
     assetClassVersionPda(configId, version),
     "confirmed"
   );
@@ -198,6 +198,21 @@ export function assetClassVersionPdaWithBump(configId: BN, version: BN): [Public
 
 export async function clearAssetClassVersion(configId: anchor.BN, version: anchor.BN): Promise<void> {
   await surfnetSetAccount(assetClassVersionPda(configId, version), { lamports: 0 });
+}
+
+/**
+ * Makes sure a `Finalized` version exists at `(configId, version)` so `deploy_mint` accepts it.
+ * A missing version is created with an empty mask; a `Draft` one only has its state flipped (its
+ * mask is kept), because the "not finalized" tests leave the shared version in `Draft`.
+ */
+export async function ensureAssetClassVersionFinalized(configId: anchor.BN, version: anchor.BN): Promise<void> {
+  const existing = await getAssetClassVersion(configId, version);
+  if (existing === null) {
+    return setAssetClassVersion(configId, version, { state: ASSET_CLASS_VERSION_STATE_FINALIZED });
+  }
+  if (existing.state !== ASSET_CLASS_VERSION_STATE_FINALIZED) {
+    await setAssetClassVersionInner(configId, version, ASSET_CLASS_VERSION_STATE_FINALIZED, Buffer.from(existing.mask));
+  }
 }
 
 export async function setAssetClassVersionForMint(
@@ -222,6 +237,15 @@ export async function setAssetClassVersion(
     mask[byte] |= 1 << bit;
   }
 
+  await setAssetClassVersionInner(configId, version, state, mask);
+}
+
+async function setAssetClassVersionInner(
+  configId: anchor.BN,
+  version: anchor.BN,
+  state: number,
+  mask: Buffer
+): Promise<void> {
   const [pda, bump] = assetClassVersionPdaWithBump(configId, version);
   const data = await encodeAssetClassVersion(configId, version, bump, state, mask);
   const lamports = await getBalanceForRentExeption(data.length);

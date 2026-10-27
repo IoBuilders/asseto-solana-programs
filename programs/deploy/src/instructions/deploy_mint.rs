@@ -3,7 +3,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_spl::token_2022::Token2022;
 use common::program_ids as constants;
-use common::{pda_seeds, pda_utils};
+use common::state::AssetClassVersion;
+use common::{pda_seeds, pda_utils, CommonError};
 use solana_system_interface::instruction as system_instruction;
 use spl_token_2022_interface::{
     extension::{
@@ -282,8 +283,11 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     )?;
 
     // ── 13. Record the mint configuration ────────────────────────────────
-    ctx.accounts.asset_configuration_pda.asset_class_config_id = params.asset_class_config_id;
-    ctx.accounts.asset_configuration_pda.asset_class_version_id = params.asset_class_version_id;
+    {
+        let asset_class_version = ctx.accounts.asset_class_version_pda.load()?;
+        ctx.accounts.asset_configuration_pda.asset_class_config_id = asset_class_version.config_id;
+        ctx.accounts.asset_configuration_pda.asset_class_version_id = asset_class_version.version;
+    }
     ctx.accounts.asset_configuration_pda.bump = ctx.bumps.asset_configuration_pda;
 
     // ── 14. Initialize the ExtraAccountMetaList for the transfer hook ────────
@@ -336,6 +340,7 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
 
 #[event_cpi]
 #[derive(Accounts)]
+#[instruction(params: DeployMintParams)]
 pub struct DeployMint<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -350,6 +355,20 @@ pub struct DeployMint<'info> {
         bump,
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
+
+    #[account(
+        seeds = [
+            pda_seeds::ASSET_CLASS_VERSION,
+            &params.asset_class_config_id.to_le_bytes(),
+            &params.asset_class_version_id.to_le_bytes(),
+        ],
+        seeds::program = constants::FACTORY_PROGRAM_ID,
+        bump = asset_class_version_pda.load()?.bump,
+        constraint = asset_class_version_pda.load()?.state
+            == common::state::ASSET_CLASS_VERSION_STATE_FINALIZED
+            @ CommonError::AssetClassVersionNotFinalized,
+    )]
+    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     /// CHECK: Uninitialized account validated entirely by Token-2022 during
     /// the extension and mint initialization CPIs below.
