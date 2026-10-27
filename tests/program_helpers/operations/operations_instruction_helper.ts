@@ -1,5 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
-import * as pdaUtils from "../../utils/pda_utils";
+import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
+import { extraAccountMetaListPda } from "../transfer_hook/transfer_hook_pda_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
@@ -18,7 +19,6 @@ import {
 import { holdPositionPda } from "../hold/hold_pda_helper";
 import { MintWriteContext, MintWriteWithPayerContext } from "../base_helper";
 import { getEvent, getEvents } from "../event_helper";
-import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, permissionedBurnPda, operationsEventAuthorityPda } from "./operations_pda_helper";
@@ -66,7 +66,7 @@ export async function burnTokens(
       authority: callContext.authority.publicKey,
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
       permissionedBurnAuthority: permissionedBurnPda(callContext.mint),
@@ -142,7 +142,7 @@ export async function batchBurnTokens(
     .methods.batchBurn(amounts)
     .accountsStrict({
       authority: callContext.authority.publicKey,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       operationsAuthority: permanentDelegatePda(callContext.mint),
@@ -198,13 +198,13 @@ export async function controllerTransfer(
     .methods.controllerTransfer(amount)
     .accountsStrict({
       authority: callContext.authority.publicKey,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       from: callContext.from,
       to: callContext.to,
       operationsAuthority: permanentDelegatePda(callContext.mint),
-      extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
+      extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       freezeProgram: FREEZE_PROGRAM_ID,
       deployProgram: DEPLOY_PROGRAM_ID,

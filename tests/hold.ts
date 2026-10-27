@@ -3,7 +3,7 @@ import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { beforeEach } from "mocha";
-import { deployMint } from "./program_helpers/deploy_helper";
+import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
 import {
   HOLD_CREATE_HOLD,

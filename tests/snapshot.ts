@@ -3,7 +3,7 @@ import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { SNAPSHOT_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "./utils/address_utils";
-import { deployMint } from "./program_helpers/deploy_helper";
+import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { createCoupon } from "./program_helpers/coupon/coupon_instruction_helper";
 import { takeSnapshot } from "./program_helpers/snapshot/snapshot_instruction_helper";
 import {

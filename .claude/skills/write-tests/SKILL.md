@@ -37,7 +37,7 @@ const payerKeypair = provider.wallet.payer!;
 Test files (`tests/*.ts`) don't access `anchor.workspace` directly. All program clients are instantiated inside the corresponding `program_helpers/` file, typed with the generated IDL type:
 
 ```ts
-// inside pause_helper.ts
+// inside program_helpers/pause/pause_instruction_helper.ts
 function getPauseProgram(): Program<Pause> {
   return anchor.workspace.Pause as Program<Pause>;
 }
@@ -49,20 +49,24 @@ Test files only call the exported helper functions — they never touch `anchor.
 
 All shared test logic lives here. Import from the relevant helper rather than re-implementing inline.
 
-| File | Key exports |
-|---|---|
-| `base_helper.ts` | Context type hierarchy (`DeployerContext`, `MintWriteContext`, etc.) |
-| `deploy_helper.ts` | `deployMint(context, args?)` |
-| `mint_helper.ts` | `mintTokens(context, args?)` |
-| `spl_token_helper.ts` | `createTokenAccount`, `getTokenAccount`, `getMint`, `createMint`, `mintTo` |
-| `transfer_helper.ts` | `splTransfer(context, args?)`, `buildSplTransferCheckedInstruction(...)`, `batchTransfer(context, args?)` |
-| `freeze_helper.ts` | `freezeAccount`, `unfreezeAccount`, `partiallyFreezeAccount`, `removePartialFreeze` |
-| `pause_helper.ts` | `pauseMint`, `unpauseMint` |
-| `deactivate_helper.ts` | `deactivateMint` |
-| `snapshot_helper.ts` | `takeSnapshot` |
-| `coupon_helper.ts` | `createCoupon` |
-| `bond_helper.ts` | `updateBondTerms` |
-| `account_helper.ts` | `requestAirdrop`, `getAccountInfo`, `getBalanceForRentExeption` |
+**Per-program helpers** live in `tests/program_helpers/<program>/` (snake_case program name), split in two files:
+
+| File                              | Contents                                                                                                                                                                                            |
+|-----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `<program>_instruction_helper.ts` | `get<Program>Program()` accessor, then one `// ── <instruction> ──` section per instruction (context/args types → defaults → instruction function → event type(s) → `get*Event` getter)             |
+| `<program>_pda_helper.ts`         | One `// ── <seed> PDA ──` section per PDA the program owns: `<name>Pda(...)` / `<name>PdaWithBump(...)`, plus test-only account getters/setters (`get*`, `set*` / `clear*` via surfpool cheatcodes) |
+
+For example `deploy/deploy_instruction_helper.ts` (`deployMint`, `getMintDeployedEvent`), `deploy/deploy_pda_helper.ts` (`assetConfigurationPda`, `getAssetConfiguration`, …), `transfer_hook/transfer_hook_pda_helper.ts` (`transferHookAuthorityPda`, `extraAccountMetaListPda`). A PDA is imported from the helper of the program that **owns** it, even when another program's instruction uses it.
+
+**Shared helpers** stay flat in `tests/program_helpers/`:
+
+| File                  | Key exports                                                                                               |
+|-----------------------|-----------------------------------------------------------------------------------------------------------|
+| `base_helper.ts`      | Context type hierarchy (`DeployerContext`, `MintWriteContext`, etc.)                                      |
+| `spl_token_helper.ts` | `createTokenAccount`, `getTokenAccount`, `getMint`, `createMint`, `mintTo`, `mintTokensViaSurfpool`, …    |
+| `transfer_helper.ts`  | `splTransfer(context, args?)`, `buildSplTransferCheckedInstruction(...)`, `batchTransfer(context, args?)` |
+| `event_helper.ts`     | `getEvent` (shared, `emit!`/`emit_cpi!`-agnostic event decoder used by every `get*Event`)                 |
+| `account_helper.ts`   | `requestAirdrop`, `getAccountInfo`, `getBalanceForRentExeption`, `surfnetSetAccount`                      |
 
 ### Context type hierarchy (from `base_helper.ts`)
 
@@ -77,10 +81,10 @@ Helpers compose these types. When calling a helper, pass an object that satisfie
 
 ## 5. `deployMint()` — shared helper, not local
 
-`deployMint` lives in `deploy_helper.ts`. Import it; don't re-implement it per file.
+`deployMint` lives in `program_helpers/deploy/deploy_instruction_helper.ts`. Import it; don't re-implement it per file.
 
 ```ts
-import { deployMint } from "./program_helpers/deploy_helper";
+import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 
 const { mint } = await deployMint({ deployer }, { decimals: 6 });
 ```
@@ -94,13 +98,18 @@ type DeployMintArgs = {
   symbol?: string;                 // default: "TEST_TOKEN"
   uri?: string;                    // default: "https://example.com/metadata.json"
   additionalMetadata?: { key: string; value: string }[];  // default: []
+  assetClassConfigId?: anchor.BN | number;   // default: 0
+  assetClassVersionId?: anchor.BN | number;  // default: 0
+  ensureAssetClassVersionFinalized?: boolean; // default: true
 };
 ```
+
+`deploy_mint` only accepts an existing, `Finalized` asset-class version, so by default `deployMint` first calls `ensureAssetClassVersionFinalized` (`factory_pda_helper.ts`): a missing version is created with an empty mask, a `Draft` one is flipped to `Finalized` keeping its mask. Pass `ensureAssetClassVersionFinalized: false` only in tests that need the version to be missing or `Draft` at deploy time.
 
 ## 6. `mintTokens()` — minting bond/asset tokens to an account
 
 ```ts
-import { mintTokens } from "./program_helpers/mint_helper";
+import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
 
 await mintTokens(
   { deployer, mint, destination: holderTokenAccount },
@@ -152,17 +161,14 @@ const info = await getAccountInfo(somePda);
 
 All SPL helpers default to `TOKEN_2022_PROGRAM_ID` and `{ commitment: "confirmed" }` — no need to pass those.
 
-## 8. PDA derivation — use `pda_utils`
+## 8. PDA derivation — use the owning program's `*_pda_helper.ts`
 
-Derive PDAs via `tests/utils/pda_utils.ts` rather than inline `findProgramAddressSync`:
+Derive PDAs via the PDA helper of the program that owns them (see §4) rather than inline `findProgramAddressSync`:
 
 ```ts
-import * as pdaUtils from "./utils/pda_utils";
-
-const assetConfigurationPda = pdaUtils.assetConfigurationPda(mint);
-const treasuryAuthority      = pdaUtils.treasuryAuthorityPda(mint);
-const snapshotCounterPda     = pdaUtils.snapshotCounterPda(mint);
-// etc.
+import { assetConfigurationPda } from "./program_helpers/deploy/deploy_pda_helper";
+import { treasuryAuthorityPda } from "./program_helpers/treasury/treasury_pda_helper";
+import { snapshotCounterPda } from "./program_helpers/snapshot/snapshot_pda_helper";
 ```
 
 ## 9. Role setup for Management-instruction tests
@@ -235,12 +241,12 @@ hard-coded 32 KiB heap and ignores it (see `docs/transfer-hook.md`).
 
 This is the part that most often breaks a test. Pick based on **where the error is raised**:
 
-| Where the error comes from | Caught as | How to assert |
-|---|---|---|
-| Directly in the instruction you called | `AnchorError` | `assert.instanceOf(err, AnchorError)` → `err.error.errorCode.code === "SomeCode"` |
-| Via Anchor CPI into a sibling program | `AnchorError` — Anchor parses it from logs | same |
-| Inside `transfer-hook::execute` (Token-2022 invoked) | `AnchorError` when the call went through Anchor's `.rpc()` or a helper that re-parses the logs (`splTransfer`, `batchTransfer`) — otherwise `SendTransactionError` | assert the code as usual; for a raw `sendAndConfirm`, run `AnchorError.parse(sendErr.logs)` yourself |
-| Token-2022 native error (owner mismatch, paused, etc.) | `SendTransactionError` | inspect `.logs` for Token-2022 substring |
+| Where the error comes from                             | Caught as                                                                                                                                                          | How to assert                                                                                        |
+|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| Directly in the instruction you called                 | `AnchorError`                                                                                                                                                      | `assert.instanceOf(err, AnchorError)` → `err.error.errorCode.code === "SomeCode"`                    |
+| Via Anchor CPI into a sibling program                  | `AnchorError` — Anchor parses it from logs                                                                                                                         | same                                                                                                 |
+| Inside `transfer-hook::execute` (Token-2022 invoked)   | `AnchorError` when the call went through Anchor's `.rpc()` or a helper that re-parses the logs (`splTransfer`, `batchTransfer`) — otherwise `SendTransactionError` | assert the code as usual; for a raw `sendAndConfirm`, run `AnchorError.parse(sendErr.logs)` yourself |
+| Token-2022 native error (owner mismatch, paused, etc.) | `SendTransactionError`                                                                                                                                             | inspect `.logs` for Token-2022 substring                                                             |
 
 Canonical templates:
 

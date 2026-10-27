@@ -1,5 +1,5 @@
 import { PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import * as pdaUtils from "../../utils/pda_utils";
+import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
@@ -8,7 +8,6 @@ import { MintWriteWithPayerContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { MetadataUpdate } from "../../../target/types/metadata_update";
 import { getEvent } from "../event_helper";
-import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { metadataUpdateAuthorityPda, metadataUpdateEventAuthorityPda } from "./metadata_update_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
@@ -53,7 +52,7 @@ export async function updateMetadataField(
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       metadataUpdateAuthority: metadataUpdateAuthorityPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -123,7 +122,7 @@ export async function removeMetadataField(
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       metadataUpdateAuthority: metadataUpdateAuthorityPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,

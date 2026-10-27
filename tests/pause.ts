@@ -3,7 +3,7 @@ import { AnchorError } from "@anchor-lang/core";
 import { PublicKey } from "@solana/web3.js";
 import { getPausableConfig } from "@solana/spl-token";
 import { assert } from "chai";
-import { deployMint } from "./program_helpers/deploy_helper";
+import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import {
   getPausedEvent,
   getUnpausedEvent,

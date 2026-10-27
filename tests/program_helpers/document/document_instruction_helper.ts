@@ -3,11 +3,10 @@ import { Program } from "@anchor-lang/core";
 import { PublicKey } from "@solana/web3.js";
 import { Document } from "../../../target/types/document";
 import { DOCUMENT_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
-import * as pdaUtils from "../../utils/pda_utils";
+import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { MintWriteWithPayerContext } from "../base_helper";
 import { getEvent } from "../event_helper";
-import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { documentEventAuthorityPda, documentPda, nameToBytes } from "./document_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
@@ -50,7 +49,7 @@ export async function setDocument(
       payer: callContext.payer ?? callContext.authority.publicKey,
       authority: callContext.authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, callContext.authority.publicKey),
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       documentPda: documentPda(callContext.mint, effectiveArgs.name),
@@ -114,7 +113,7 @@ export async function removeDocument(
       payer: callContext.payer ?? callContext.authority.publicKey,
       authority: callContext.authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, callContext.authority.publicKey),
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       documentPda: documentPda(callContext.mint, effectiveArgs.name),

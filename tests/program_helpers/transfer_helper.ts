@@ -1,5 +1,6 @@
 import { AccountMeta, PublicKey, SendTransactionError, Transaction, TransactionInstruction } from "@solana/web3.js";
-import * as pdaUtils from "../utils/pda_utils";
+import { assetConfigurationPda, getAssetConfiguration } from "./deploy/deploy_pda_helper";
+import { extraAccountMetaListPda } from "./transfer_hook/transfer_hook_pda_helper";
 import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { createTransferCheckedInstruction, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
@@ -20,7 +21,6 @@ import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
 import { frozenAccountPda, frozenBalancePda } from "./freeze/freeze_pda_helper";
-import { getAssetConfiguration } from "./deploy_helper";
 import { assetClassVersionPda } from "./factory/factory_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
@@ -150,10 +150,10 @@ export async function buildSplTransferCheckedInstruction(
   const readonly = (pubkey: PublicKey): AccountMeta => ({ pubkey, isWritable: false, isSigner: false });
 
   instruction.keys.push(
-    readonly(pdaUtils.extraAccountMetaListPda(callContext.mint)),
+    readonly(extraAccountMetaListPda(callContext.mint)),
     readonly(TRANSFER_HOOK_PROGRAM_ID),
     readonly(DEPLOY_PROGRAM_ID),
-    readonly(pdaUtils.assetConfigurationPda(callContext.mint)),
+    readonly(assetConfigurationPda(callContext.mint)),
     readonly(FACTORY_PROGRAM_ID),
     readonly(assetClassVersionPda(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId)),
     readonly(DEACTIVATE_PROGRAM_ID),
@@ -220,11 +220,11 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       sourceOwner: callContext.sourceOwner,
       source: callContext.source,
       mint: callContext.mint,
-      extraAccountMetaList: pdaUtils.extraAccountMetaListPda(callContext.mint),
+      extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       freezeProgram: FREEZE_PROGRAM_ID,
       deployProgram: DEPLOY_PROGRAM_ID,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       factoryProgram: FACTORY_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,

@@ -2,8 +2,8 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
-import * as pdaUtils from "./utils/pda_utils";
-import { deployMint } from "./program_helpers/deploy_helper";
+import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
+import { assetConfigurationPda } from "./program_helpers/deploy/deploy_pda_helper";
 import {
   createTokenAccount,
   getMint,
@@ -40,7 +40,7 @@ describe("operations", () => {
 
   describe("burn ", async () => {
     let mint: PublicKey;
-    let assetConfigurationPda: PublicKey;
+    let assetConfigurationKey: PublicKey;
     const MINT_DECIMALS = 6;
 
     // A fresh mint per test (unpaused + active out of the box) plus a fresh
@@ -50,7 +50,7 @@ describe("operations", () => {
     // via surfpool cheatcodes, so `burn` is the only instruction each test runs.
     beforeEach(async () => {
       ({ mint } = await deployMint({}, { decimals: MINT_DECIMALS }));
-      assetConfigurationPda = pdaUtils.assetConfigurationPda(mint);
+      assetConfigurationKey = assetConfigurationPda(mint);
       await setAssetClassVersionForMint(mint, { functionalities: [OPERATIONS_BURN] });
       await setRoles(mint, authority!.publicKey, [ROLE_CONTROLLER]);
     });
@@ -60,7 +60,7 @@ describe("operations", () => {
       const burnAmount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
 
       // Plant 1 000 tokens on the source account (owned by the mint-owner PDA).
-      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationKey });
       await mintTokensViaSurfpool(mint, source, mintAmount);
 
       // ── Call burn ──────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ describe("operations", () => {
     });
 
     it("burn: fails with MissingRole when authority does not have the controller role", async () => {
-      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationKey });
 
       // A keypair that has nothing to do with this mint — it is NOT the recorded deployer.
       const rogueKeypair = Keypair.generate();
@@ -105,7 +105,7 @@ describe("operations", () => {
     });
 
     it("burn: fails when mint is paused", async () => {
-      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationKey });
       await mintTokensViaSurfpool(mint, source, new anchor.BN(1));
       await setMintPaused(mint, true);
 
@@ -127,7 +127,7 @@ describe("operations", () => {
     });
 
     it("burn: fails with Deactivated when mint has been deactivated", async () => {
-      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationKey });
 
       // ── Deactivate the mint ────────────────────────────────────────────────
       await setDeactivateMarker(mint);
@@ -144,7 +144,7 @@ describe("operations", () => {
     });
 
     it("burn: fails with FunctionalityNotSupportedError when the burn functionality is not enabled", async () => {
-      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationKey });
 
       // Re-seed the asset-class version WITHOUT the burn functionality.
       await setAssetClassVersionForMint(mint, { functionalities: [] });
@@ -164,7 +164,7 @@ describe("operations", () => {
     });
 
     it("burn: fails with AssetClassVersionNotFinalized when the asset-class version is not finalized", async () => {
-      const source = await createTokenAccount({ mint, owner: assetConfigurationPda });
+      const source = await createTokenAccount({ mint, owner: assetConfigurationKey });
 
       await setAssetClassVersionForMint(mint, {
         state: ASSET_CLASS_VERSION_STATE_DRAFT,

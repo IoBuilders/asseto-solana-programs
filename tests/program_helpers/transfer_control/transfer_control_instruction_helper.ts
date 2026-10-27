@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import * as pdaUtils from "../../utils/pda_utils";
+import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
@@ -7,7 +7,6 @@ import { SYSTEM_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID } from "../../utils/addr
 import { MintWriteContext } from "../base_helper";
 import { TransferControl } from "../../../target/types/transfer_control";
 import { getEvent } from "../event_helper";
-import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { transferControlModePda, transferControlEventAuthorityPda, whitelistPda } from "./transfer_control_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
@@ -51,7 +50,7 @@ export async function initializeTransferControlMode(
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
@@ -101,7 +100,7 @@ export async function addToWhitelist(callContext: AddToWhitelistContext): Promis
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       account: callContext.account,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       whitelistPda: whitelistPda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(
@@ -151,7 +150,7 @@ export async function removeFromWhitelist(callContext: RemoveFromWhitelistContex
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       account: callContext.account,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       whitelistPda: whitelistPda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(

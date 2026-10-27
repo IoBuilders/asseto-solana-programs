@@ -2,7 +2,7 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
-import { deployMint } from "./program_helpers/deploy_helper";
+import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { createTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
 import {
   addToWhitelist,

@@ -1,5 +1,5 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
-import * as pdaUtils from "../../utils/pda_utils";
+import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
@@ -8,7 +8,6 @@ import { MintWriteContext } from "../base_helper";
 import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
 import { getEvent, getEvents } from "../event_helper";
-import { getAssetConfiguration } from "../deploy_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
@@ -53,7 +52,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       authority: callContext.authority.publicKey,
       mint: callContext.mint,
       destination: callContext.destination,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mintAuthority: mintAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
@@ -124,7 +123,7 @@ export async function batchMintTokens(
     .batchMint(amounts)
     .accountsStrict({
       authority: authority.publicKey,
-      assetConfigurationPda: pdaUtils.assetConfigurationPda(callContext.mint),
+      assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       mintAuthority: mintAuthorityPda(callContext.mint),
