@@ -25,6 +25,8 @@ pub const ACCESS_CONTROL_PROGRAM_ID: Pubkey =
 pub const CAP_PROGRAM_ID: Pubkey = pubkey!("64THHYmfoHeWxbZQYq8yRsQJYydfd7yPa6MzNgebiJLm");
 pub const DOCUMENT_PROGRAM_ID: Pubkey = pubkey!("DzYjHw2JUBT8RdNqT8P5soRxJhmL6obibRUs5sMJ2Khi");
 pub const HOLD_PROGRAM_ID: Pubkey = pubkey!("J8iq5Qz8tXLswZBbUFHuJukf3jpwEXLGVpvFoPZb2qY3");
+pub const NOMINAL_VALUE_PROGRAM_ID: Pubkey =
+    pubkey!("DJSxxL9WJkag9gCifqQs5EBD4uow9beP8CyDaZDj2rLL");
 
 #[cfg(test)]
 mod tests {
@@ -51,5 +53,6 @@ mod tests {
         assert_eq!(CAP_PROGRAM_ID, cap::ID);
         assert_eq!(DOCUMENT_PROGRAM_ID, document::ID);
         assert_eq!(HOLD_PROGRAM_ID, hold::ID);
+        assert_eq!(NOMINAL_VALUE_PROGRAM_ID, nominal_value::ID);
     }
 }

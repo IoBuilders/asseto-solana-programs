@@ -30,6 +30,9 @@ pub const OPERATIONS_CONTROLLER_TRANSFER: u16 = 23;
 pub const DOCUMENT_SET_DOCUMENT: u16 = 24;
 pub const DOCUMENT_REMOVE_DOCUMENT: u16 = 25;
 pub const HOLD_CREATE_HOLD: u16 = 26;
+pub const NOMINAL_VALUE_INITIALIZE: u16 = 27;
+pub const NOMINAL_VALUE_PUBLISH: u16 = 28;
+pub const NOMINAL_VALUE_REPUBLISH: u16 = 29;
 
 #[cfg(test)]
 mod tests {

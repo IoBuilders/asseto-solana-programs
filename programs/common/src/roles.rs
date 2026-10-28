@@ -16,6 +16,7 @@ pub const ROLE_DEACTIVATE: u16 = 8;
 pub const ROLE_CUSTOM_DATA_MANAGER: u16 = 9;
 pub const ROLE_CAP: u16 = 10;
 pub const ROLE_DOCUMENT_MANAGER: u16 = 11;
+pub const ROLE_NOMINAL_VALUE: u16 = 12;
 
 #[cfg(test)]
 mod tests {

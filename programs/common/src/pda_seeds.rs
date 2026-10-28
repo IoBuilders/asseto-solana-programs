@@ -165,3 +165,10 @@ pub fn hold_seeds<'info>(
 pub fn hold_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![HOLD_AUTHORITY, mint.as_ref()]
 }
+
+/******************************* NOMINAL VALUE ******************************/
+pub const NOMINAL_VALUE: &[u8] = b"nominal_value";
+
+pub fn nominal_value_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![NOMINAL_VALUE, mint.as_ref()]
+}
