@@ -19,7 +19,7 @@ import { holdPositionPda } from "./hold/hold_pda_helper";
 import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
-import { transferControlModePda, whitelistPda } from "./transfer_control/transfer_control_pda_helper";
+import { transferControlModePda, controlListPda } from "./transfer_control/transfer_control_pda_helper";
 import { frozenAccountPda, frozenBalancePda } from "./freeze/freeze_pda_helper";
 import { assetClassVersionPda } from "./factory/factory_pda_helper";
 
@@ -160,8 +160,8 @@ export async function buildSplTransferCheckedInstruction(
     readonly(deactivatePda(callContext.mint)),
     readonly(TRANSFER_CONTROL_PROGRAM_ID),
     readonly(transferControlModePda(callContext.mint)),
-    readonly(whitelistPda(callContext.mint, callContext.source)),
-    readonly(whitelistPda(callContext.mint, callContext.destination)),
+    readonly(controlListPda(callContext.mint, callContext.source)),
+    readonly(controlListPda(callContext.mint, callContext.destination)),
     readonly(FREEZE_PROGRAM_ID),
     readonly(frozenAccountPda(callContext.mint, callContext.source)),
     readonly(frozenBalancePda(callContext.mint, callContext.source)),
@@ -185,7 +185,7 @@ export type BatchTransferArgs = {
   // The `amounts` instruction argument. Defaults to `1` per destination.
   amounts?: anchor.BN[];
   // Overrides batch_transfer's remaining accounts. Defaults to
-  // `[destination (writable), destinationWhitelistPda]` per destination.
+  // `[destination (writable), destinationControlListPda]` per destination.
   // Provide to exercise error paths.
   transferRemainingAccounts?: AccountMeta[];
 };
@@ -203,13 +203,13 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
   const preInstructions = [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits })];
 
   // Two remaining accounts per destination: the destination token account
-  // (writable) followed by its whitelist PDA — the hook resolves the latter
+  // (writable) followed by its control-list PDA — the hook resolves the latter
   // from the destination on every leg.
   const transferRemainingAccounts: AccountMeta[] =
     args?.transferRemainingAccounts ??
     callContext.destinations.flatMap((destination) => [
       { pubkey: destination, isWritable: true, isSigner: false },
-      { pubkey: whitelistPda(callContext.mint, destination), isWritable: false, isSigner: false },
+      { pubkey: controlListPda(callContext.mint, destination), isWritable: false, isSigner: false },
     ]);
 
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
@@ -234,7 +234,7 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       deactivatePda: deactivatePda(callContext.mint),
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.source),
+      sourceControlListPda: controlListPda(callContext.mint, callContext.source),
       sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
       sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
       holdProgram: HOLD_PROGRAM_ID,

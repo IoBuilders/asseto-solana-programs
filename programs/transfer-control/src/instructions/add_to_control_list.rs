@@ -3,12 +3,12 @@ use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
-use crate::events::AccountWhitelisted;
-use crate::state::WhitelistStatus;
+use crate::events::AccountAddedToControlList;
+use crate::state::ControlListStatus;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
-pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
+pub fn add_to_control_list(ctx: Context<AddToControlList>) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
         roles::ROLE_CONTROL_LIST,
@@ -22,13 +22,13 @@ pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
-        common::functionalities::TRANSFER_CONTROL_ADD_TO_WHITELIST,
+        common::functionalities::TRANSFER_CONTROL_ADD_TO_CONTROL_LIST,
     )?;
 
-    // ── Record canonical bump in the whitelist marker PDA ─────────────────────
-    ctx.accounts.whitelist_pda.bump = ctx.bumps.whitelist_pda;
+    // ── Record canonical bump in the control-list marker PDA ─────────────────────
+    ctx.accounts.control_list_pda.bump = ctx.bumps.control_list_pda;
 
-    emit_cpi!(AccountWhitelisted {
+    emit_cpi!(AccountAddedToControlList {
         mint: ctx.accounts.mint.key(),
         account: ctx.accounts.account.key(),
         operator: ctx.accounts.authority.key(),
@@ -39,7 +39,7 @@ pub fn add_to_whitelist(ctx: Context<AddToWhitelist>) -> Result<()> {
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct AddToWhitelist<'info> {
+pub struct AddToControlList<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -60,7 +60,7 @@ pub struct AddToWhitelist<'info> {
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: Address used as a seed for whitelist_pda; not otherwise validated here.
+    /// CHECK: Address used as a seed for control_list_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
@@ -74,11 +74,11 @@ pub struct AddToWhitelist<'info> {
     #[account(
         init_if_needed,
         payer = authority,
-        space = WhitelistStatus::DISCRIMINATOR.len() + WhitelistStatus::INIT_SPACE,
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), account.key().as_ref()],
+        space = ControlListStatus::DISCRIMINATOR.len() + ControlListStatus::INIT_SPACE,
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]
-    pub whitelist_pda: Account<'info, WhitelistStatus>,
+    pub control_list_pda: Account<'info, ControlListStatus>,
 
     #[account(
         seeds = [

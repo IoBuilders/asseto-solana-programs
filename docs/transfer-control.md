@@ -6,11 +6,11 @@ Governs who may transfer tokens for a given mint. One mode is currently supporte
 
 | Mode | Effect |
 |---|---|
-| **Whitelist** | Both source and destination must be individually whitelisted before a transfer is allowed |
+| **Whitelist** | Both source and destination must be individually in the control list before a transfer is allowed |
 
 If no mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
 
-Also exports `verify_transfer_control_mode`, a helper function used by `mint` and `transfer-hook` to enforce the active mode against one or more whitelist PDAs.
+Also exports `verify_transfer_control_mode`, a helper function used by `mint` and `transfer-hook` to enforce the active mode against one or more control-list PDAs.
 
 ---
 
@@ -35,7 +35,7 @@ pub enum TransferMode { Whitelist }
 
 ```rust
 pub enum TransferControlError {
-    NotWhitelisted,  // whitelist mode is active and a whitelist_pda passed to verify_transfer_control_mode is empty
+    NotWhitelisted,  // Whitelist mode is active and a control_list_pda passed to verify_transfer_control_mode is empty
 }
 ```
 
@@ -43,30 +43,30 @@ pub enum TransferControlError {
 
 ## Exported Functions
 
-### `verify_whitelist`
+### `verify_control_list_membership`
 
 ```rust
-pub fn verify_whitelist(whitelist_pda: &AccountInfo) -> Result<()>
+pub fn verify_control_list_membership(control_list_pda: &AccountInfo) -> Result<()>
 ```
 
-Returns `Ok(())` if `whitelist_pda` exists (non-empty data — the account has been whitelisted), else `Err(TransferControlError::NotWhitelisted)`. A standalone existence check for callers that can't use `verify_transfer_control_mode` because their whitelist PDAs aren't seed-constrained by Anchor — e.g. `mint::batch_mint`, which reads one whitelist PDA per destination from `remaining_accounts` and must first re-derive/match its address with `common::verify_whitelist_pda` before calling this.
+Returns `Ok(())` if `control_list_pda` exists (non-empty data — the account is in the control list), else `Err(TransferControlError::NotWhitelisted)`. A standalone existence check for callers that can't use `verify_transfer_control_mode` because their control-list PDAs aren't seed-constrained by Anchor — e.g. `mint::batch_mint`, which reads one control-list PDA per destination from `remaining_accounts` and must first re-derive/match its address with `common::verify_control_list_pda` before calling this.
 
 ### `verify_transfer_control_mode`
 
 ```rust
 pub fn verify_transfer_control_mode(
     transfer_control_mode_pda: &AccountInfo,
-    whitelist_pdas: &[&AccountInfo],
+    control_list_pdas: &[&AccountInfo],
 ) -> Result<()>
 ```
 
-`transfer_control_mode_pda` and every `whitelist_pda` are raw, unchecked PDAs — their address is verified by the caller's `seeds`/`bump` constraints, but Anchor does not deserialize their contents. Behaviour:
+`transfer_control_mode_pda` and every `control_list_pda` are raw, unchecked PDAs — their address is verified by the caller's `seeds`/`bump` constraints, but Anchor does not deserialize their contents. Behaviour:
 
 - If `transfer_control_mode_pda` has empty data, no mode is active — returns `Ok(())` immediately.
 - Otherwise, Borsh-deserializes `TransferControlMode` from the account data (via `try_deserialize`, which also checks the discriminator).
-- If `mode == TransferMode::Whitelist`, every account in `whitelist_pdas` is checked with `data_is_empty()`; an empty account (not whitelisted) errors with `TransferControlError::NotWhitelisted`.
+- If `mode == TransferMode::Whitelist`, every account in `control_list_pdas` is checked with `data_is_empty()`; an empty account (not in the control list) errors with `TransferControlError::NotWhitelisted`.
 
-Called by `mint::mint` (with the single `destination_whitelist_pda`) and `transfer-hook::execute` (with both `source_whitelist_pda` and `destination_whitelist_pda`).
+Called by `mint::mint` (with the single `destination_control_list_pda`) and `transfer-hook::execute` (with both `source_control_list_pda` and `destination_control_list_pda`).
 
 ---
 
@@ -105,17 +105,17 @@ Calling `initialize` a second time for the same mint fails at the System program
 
 ---
 
-## Instruction: `add_to_whitelist` (Management)
+## Instruction: `add_to_control_list` (Management)
 
 No parameters.
 
-Creates a `whitelist_pda` marker for a specific token account. If the PDA already exists, the instruction is a no-op.
+Creates a `control_list_pda` marker for a specific token account. If the PDA already exists, the instruction is a no-op.
 
 ### Preconditions
 
 - `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint.
 - `require_not_paused`, `require_active`
-- `require_functionality(TRANSFER_CONTROL_ADD_TO_WHITELIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_ADD_TO_WHITELIST` functionality bit enabled.
+- `require_functionality(TRANSFER_CONTROL_ADD_TO_CONTROL_LIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_ADD_TO_CONTROL_LIST` functionality bit enabled.
 
 ### Accounts
 
@@ -125,9 +125,9 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `account` | no | no | UncheckedAccount | Token account to whitelist; used as a seed |
+| `account` | no | no | UncheckedAccount | Token account to add to the control list; used as a seed |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| `whitelist_pda` | yes | no | Account | `init_if_needed`; seeds `["whitelist", mint, account]`, `payer = authority` |
+| `control_list_pda` | yes | no | Account | `init_if_needed`; seeds `["control_list", mint, account]`, `payer = authority` |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |
 | `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
@@ -135,21 +135,21 @@ Creates a `whitelist_pda` marker for a specific token account. If the PDA alread
 
 ---
 
-## Instruction: `remove_from_whitelist` (Management)
+## Instruction: `remove_from_control_list` (Management)
 
 No parameters.
 
-Closes the `whitelist_pda` and returns rent to `authority`. If the PDA does not exist, the instruction is a no-op.
+Closes the `control_list_pda` and returns rent to `authority`. If the PDA does not exist, the instruction is a no-op.
 
 ### Preconditions
 
 - `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint.
 - `require_not_paused`, `require_active`
-- `require_functionality(TRANSFER_CONTROL_REMOVE_FROM_WHITELIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_REMOVE_FROM_WHITELIST` functionality bit enabled.
+- `require_functionality(TRANSFER_CONTROL_REMOVE_FROM_CONTROL_LIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_REMOVE_FROM_CONTROL_LIST` functionality bit enabled.
 
 ### Accounts
 
-Same shape as `add_to_whitelist` but the `whitelist_pda` constraint uses `close = authority`.
+Same shape as `add_to_control_list` but the `control_list_pda` constraint uses `close = authority`.
 
 ---
 
@@ -171,27 +171,27 @@ pub struct TransferControlModeSet {
 }
 ```
 
-### `AccountWhitelisted`
+### `AccountAddedToControlList`
 
-Emitted at the end of `add_to_whitelist`, including on the no-op path where the `whitelist_pda`
+Emitted at the end of `add_to_control_list`, including on the no-op path where the `control_list_pda`
 already existed.
 
 ```rust
 #[event]
-pub struct AccountWhitelisted {
+pub struct AccountAddedToControlList {
     pub mint: Pubkey,
     pub account: Pubkey,
     pub operator: Pubkey,
 }
 ```
 
-### `AccountRemovedFromWhitelist`
+### `AccountRemovedFromControlList`
 
-Emitted at the end of `remove_from_whitelist`, after the `whitelist_pda` close has been queued.
+Emitted at the end of `remove_from_control_list`, after the `control_list_pda` close has been queued.
 
 ```rust
 #[event]
-pub struct AccountRemovedFromWhitelist {
+pub struct AccountRemovedFromControlList {
     pub mint: Pubkey,
     pub account: Pubkey,
     pub operator: Pubkey,

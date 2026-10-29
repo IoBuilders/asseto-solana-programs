@@ -552,7 +552,7 @@ describe("operations", () => {
       }
     });
 
-    // The permanent-delegate bypass: the transfer hook skips whitelist / frozen
+    // The permanent-delegate bypass: the transfer hook skips control-list / frozen
     // compliance when the authority is the permanent_delegate PDA, so a
     // controller can seize tokens a normal holder transfer cannot move. Each
     // test proves the contrast: the normal `transfer` is rejected by the hook,
@@ -593,13 +593,13 @@ describe("operations", () => {
       );
     });
 
-    it("controller_transfer: seizes to a non-whitelisted destination under whitelist mode", async () => {
+    it("controller_transfer: seizes to a unlisted destination under Whitelist mode", async () => {
       const initialBalance = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
       const seizeAmount = new anchor.BN(100 * 10 ** MINT_DECIMALS);
       const accounts = await createFundedAccounts(initialBalance);
       const { from, to, fromOwner } = accounts;
 
-      // Whitelist mode ON, but neither the source nor the destination is whitelisted.
+      // Whitelist mode ON, but neither the source nor the destination is in the control list.
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
       // A normal holder transfer is rejected by the hook with NotWhitelisted…
@@ -608,7 +608,7 @@ describe("operations", () => {
           { mint, source: from, sourceOwner: fromOwner.publicKey, destination: to, signers: [fromOwner] },
           { amount: seizeAmount }
         );
-        assert.fail("normal transfer under whitelist mode with non-whitelisted accounts should be rejected");
+        assert.fail("normal transfer under Whitelist mode with unlisted accounts should be rejected");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         assert.equal(
@@ -618,18 +618,18 @@ describe("operations", () => {
         );
       }
 
-      // …but the controller seizes regardless of whitelist state.
+      // …but the controller seizes regardless of control-list state.
       await callControllerTransfer(authority!, accounts, seizeAmount);
 
       assert.equal(
         (await getTokenAccount(from)).amount.toString(),
         initialBalance.sub(seizeAmount).toString(),
-        "source should be debited by the seized amount despite whitelist mode"
+        "source should be debited by the seized amount despite Whitelist mode"
       );
       assert.equal(
         (await getTokenAccount(to)).amount.toString(),
         seizeAmount.toString(),
-        "non-whitelisted destination should receive the seized amount"
+        "unlisted destination should receive the seized amount"
       );
     });
   });

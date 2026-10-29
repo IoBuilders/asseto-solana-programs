@@ -46,8 +46,8 @@ pub fn execute_hold<'info>(
     verify_transfer_control_mode(
         &ctx.accounts.transfer_control_mode_pda,
         &[
-            &ctx.accounts.source_whitelist_pda,
-            &ctx.accounts.destination_whitelist_pda,
+            &ctx.accounts.source_control_list_pda,
+            &ctx.accounts.destination_control_list_pda,
         ],
     )?;
     require_unfrozen_account(&ctx.accounts.source_frozen_pda)?;
@@ -104,8 +104,11 @@ pub fn execute_hold<'info>(
                 deactivate_pda: ctx.accounts.deactivate_pda.to_account_info(),
                 transfer_control_program: ctx.accounts.transfer_control_program.to_account_info(),
                 transfer_control_mode_pda: ctx.accounts.transfer_control_mode_pda.to_account_info(),
-                source_whitelist_pda: ctx.accounts.source_whitelist_pda.to_account_info(),
-                destination_whitelist_pda: ctx.accounts.destination_whitelist_pda.to_account_info(),
+                source_control_list_pda: ctx.accounts.source_control_list_pda.to_account_info(),
+                destination_control_list_pda: ctx
+                    .accounts
+                    .destination_control_list_pda
+                    .to_account_info(),
                 freeze_program: ctx.accounts.freeze_program.to_account_info(),
                 source_frozen_pda: ctx.accounts.source_frozen_pda.to_account_info(),
                 source_frozen_balance_pda: ctx.accounts.source_frozen_balance_pda.to_account_info(),
@@ -253,21 +256,21 @@ pub struct ExecuteHold<'info> {
     )]
     pub transfer_control_mode_pda: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; must exist in whitelist mode.
+    /// CHECK: seeds verified; must exist in Whitelist mode.
     #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), source_token.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
-    pub source_whitelist_pda: UncheckedAccount<'info>,
+    pub source_control_list_pda: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; must exist in whitelist mode.
+    /// CHECK: seeds verified; must exist in Whitelist mode.
     #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), destination_token.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), destination_token.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
-    pub destination_whitelist_pda: UncheckedAccount<'info>,
+    pub destination_control_list_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to operations.
     #[account(address = constants::FREEZE_PROGRAM_ID)]

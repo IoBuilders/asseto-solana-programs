@@ -84,9 +84,9 @@ asseto-solana-programs/
 │   ├── operations/           — permanent-delegate operations: burn (`burn` + `batch_burn`, co-signed by the `permissioned_burn` PDA), force-transfer (`controller_transfer`) + `hold_transfer` (auxiliary, CPI-only from `hold`)
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
-│   ├── transfer-control/     — whitelist mode: `initialize` sets the mode, `add_to_whitelist` / `remove_from_whitelist` manage per-account markers
+│   ├── transfer-control/     — control list (`Whitelist` mode): `initialize` sets the mode, `add_to_control_list` / `remove_from_control_list` manage per-account markers
 │   ├── transfer/             — a single instruction, `batch_transfer` (one source holder → N destinations via `remaining_accounts`, 2 accounts per leg); the singular path has no instruction here at all — the client submits Token-2022's own `transfer_checked` with the hook's accounts appended. No compliance logic: it only forwards the hook block per leg
-│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate holding the whole compliance suite (deactivation, transfer-mode/whitelist, frozen account, post-debit cover of the partial-freeze **and** hold liens) + `TRANSFER_HOOK_EXECUTE` functionality check. No introspection, no sysvar; bypasses every check when the authority is the `permanent_delegate` PDA. Writes nothing
+│   ├── transfer-hook/        — SPL Transfer Hook; read-only gate holding the whole compliance suite (deactivation, transfer-mode/control list, frozen account, post-debit cover of the partial-freeze **and** hold liens) + `TRANSFER_HOOK_EXECUTE` functionality check. No introspection, no sysvar; bypasses every check when the authority is the `permanent_delegate` PDA. Writes nothing
 │   ├── snapshot/             — snapshot counter + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
 │   ├── bond/                 — typed PDA exposing on-chain-readable bond terms (interest rate, par value, min denomination, issuance date, day-count)
 │   ├── coupon/               — coupon issuance: increments coupon counter + CPIs `take_snapshot` + records `(snapshot_id, payment_date)` per coupon
@@ -202,7 +202,7 @@ Auxiliary instructions cannot be called by any external wallet. `take_snapshot` 
 | `["pausable_authority", mint]` | `pause` | Token-2022 Pausable authority |
 | `["deactivate", mint]` | `deactivate` | Marker: mint permanently deactivated |
 | `["transfer_control_mode", mint]` | `transfer-control` | Stores the active `TransferMode` (currently only `Whitelist`) + bump; created once by `initialize` (no close/update path) |
-| `["whitelist", mint, account]` | `transfer-control` | Marker: account is whitelisted |
+| `["control_list", mint, account]` | `transfer-control` | Marker: account is in the control list |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority (set on the mint by `deploy_mint`); not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
 | `["snapshot_counter", mint]` | `snapshot` | Id of the **next** snapshot for the mint (0-based; after N snapshots `count == N`). Created by `take_snapshot` |
@@ -244,7 +244,7 @@ pub asset_configuration_pda: UncheckedAccount<'info>,
 | `Pausable` | `["pausable_authority", mint]` | `pause` | Pause/unpause all Token-2022 operations |
 | `PermissionedBurn` | `["permissioned_burn", mint]` | `operations` | Burning requires this authority as an extra signer, so the plain Token-2022 `Burn` is rejected and `operations::burn` / `batch_burn` are the only burn path |
 | `TokenMetadata` | `["metadata_update_authority", mint]` | `metadata-update` | Embedded name/symbol/URI + custom fields |
-| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook holds the full compliance suite (deactivation, transfer-mode, whitelist, frozen account, post-debit cover of the partial-freeze and hold liens) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. It reads no `Instructions` sysvar, so every path (bare `transfer_checked`, `transfer::batch_transfer`, `operations::controller_transfer`, or a CPI from any program) is gated identically — the one exemption is the `permanent_delegate` authority, which skips every check. Its `ExtraAccountMetaList` is capped by Token-2022's 32 KiB heap — see [`docs/transfer-hook.md`](docs/transfer-hook.md#metalist-contents) before adding entries. |
+| `TransferHook` | `["transfer_hook_authority", mint]` | `transfer-hook` | Invokes `transfer-hook::execute` on every `transfer_checked`. The hook holds the full compliance suite (deactivation, transfer-mode, control list, frozen account, post-debit cover of the partial-freeze and hold liens) plus the `TRANSFER_HOOK_EXECUTE` functionality check, and writes nothing. It reads no `Instructions` sysvar, so every path (bare `transfer_checked`, `transfer::batch_transfer`, `operations::controller_transfer`, or a CPI from any program) is gated identically — the one exemption is the `permanent_delegate` authority, which skips every check. Its `ExtraAccountMetaList` is capped by Token-2022's 32 KiB heap — see [`docs/transfer-hook.md`](docs/transfer-hook.md#metalist-contents) before adding entries. |
 
 ---
 

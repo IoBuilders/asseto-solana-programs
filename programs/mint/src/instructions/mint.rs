@@ -26,7 +26,7 @@ pub fn mint<'info>(ctx: Context<'info, MintTokens<'info>>, amount: u64) -> Resul
     // ── Transfer control mode check ──────────────────────────────────────
     verify_transfer_control_mode(
         &ctx.accounts.transfer_control_mode_pda,
-        &[&ctx.accounts.destination_whitelist_pda],
+        &[&ctx.accounts.destination_control_list_pda],
     )?;
 
     // ── Supply cap check ─────────────────────────────────────────────────
@@ -119,11 +119,11 @@ pub struct MintTokens<'info> {
 
     /// CHECK: Address verified by seeds/bump; existence checked by verify_transfer_control_mode if needed
     #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), destination.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), destination.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
-    pub destination_whitelist_pda: UncheckedAccount<'info>,
+    pub destination_control_list_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by seeds/bump; absence means no cap is set, contents read by require_within_max_supply.
     #[account(

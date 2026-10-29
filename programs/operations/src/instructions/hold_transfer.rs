@@ -61,8 +61,8 @@ pub fn hold_transfer(ctx: Context<HoldTransfer>, amount: u64) -> Result<()> {
         deactivate_pda: &ctx.accounts.deactivate_pda,
         transfer_control_program: &ctx.accounts.transfer_control_program,
         transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
-        source_whitelist_pda: &ctx.accounts.source_whitelist_pda,
-        destination_whitelist_pda: &ctx.accounts.destination_whitelist_pda,
+        source_control_list_pda: &ctx.accounts.source_control_list_pda,
+        destination_control_list_pda: &ctx.accounts.destination_control_list_pda,
         freeze_program: &ctx.accounts.freeze_program,
         source_frozen_pda: &ctx.accounts.source_frozen_pda,
         source_frozen_balance_pda: &ctx.accounts.source_frozen_balance_pda,
@@ -176,19 +176,19 @@ pub struct HoldTransfer<'info> {
 
     /// CHECK: seeds verified; forwarded to the hook.
     #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), from.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), from.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
-    pub source_whitelist_pda: UncheckedAccount<'info>,
+    pub source_control_list_pda: UncheckedAccount<'info>,
 
     /// CHECK: seeds verified; forwarded to the hook.
     #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), to.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), to.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
-    pub destination_whitelist_pda: UncheckedAccount<'info>,
+    pub destination_control_list_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::FREEZE_PROGRAM_ID)]

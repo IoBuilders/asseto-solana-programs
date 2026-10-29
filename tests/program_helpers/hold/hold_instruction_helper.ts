@@ -22,7 +22,7 @@ import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { frozenAccountPda, frozenBalancePda } from "../freeze/freeze_pda_helper";
 import { permanentDelegatePda } from "../operations/operations_pda_helper";
-import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
+import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
 import { getEvent } from "../event_helper";
 import { holdAuthorityPda, holdEventAuthorityPda, holdPda, holdPositionPda, nextHoldId } from "./hold_pda_helper";
 
@@ -201,8 +201,8 @@ export async function executeHold(
       deactivateProgram: DEACTIVATE_PROGRAM_ID,
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.tokenAccount),
-      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
+      sourceControlListPda: controlListPda(callContext.mint, callContext.tokenAccount),
+      destinationControlListPda: controlListPda(callContext.mint, callContext.destination),
       freezeProgram: FREEZE_PROGRAM_ID,
       sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.tokenAccount),
       sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.tokenAccount),

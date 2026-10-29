@@ -10,7 +10,7 @@ This is where the whole transfer compliance suite lives. Two responsibilities:
 
 1. **Compliance gate.** Runs every transfer rule against the accounts Token-2022
    forwards from the `ExtraAccountMetaList`: mint not deactivated, transfer-mode
-   / whitelist (source and destination), source not fully frozen, and the source's
+   / control list (source and destination), source not fully frozen, and the source's
    partial-freeze lock still covered after the debit.
 2. **Functionality gate.** Reads the mint's `asset_configuration_pda` to locate
    its `asset_class_version_pda` and requires the `TRANSFER_HOOK_EXECUTE` bit to
@@ -89,8 +89,8 @@ interface (`source_token`, `mint`, `destination_token`, `owner`,
 | 10 | `deactivate_pda` | external PDA via @9 — seeds `["deactivate", mint@1]` |
 | 11 | `transfer-control` program | literal pubkey — resolves @12..=14 |
 | 12 | `transfer_control_mode_pda` | external PDA via @11 — seeds `["transfer_control_mode", mint@1]` |
-| 13 | `source_whitelist_pda` | external PDA via @11 — seeds `["whitelist", mint@1, source_token@0]` |
-| 14 | `destination_whitelist_pda` | external PDA via @11 — seeds `["whitelist", mint@1, destination_token@2]` |
+| 13 | `source_control_list_pda` | external PDA via @11 — seeds `["control_list", mint@1, source_token@0]` |
+| 14 | `destination_control_list_pda` | external PDA via @11 — seeds `["control_list", mint@1, destination_token@2]` |
 | 15 | `freeze` program | literal pubkey — resolves @16..=17 |
 | 16 | `source_frozen_pda` | external PDA via @15 — seeds `["frozen_account", mint@1, source_token@0]` |
 | 17 | `source_frozen_balance_pda` | external PDA via @15 — seeds `["frozen_balance", mint@1, source_token@0]` |
@@ -158,8 +158,8 @@ in order.
 | 10 | `deactivate_pda` |
 | 11 | `transfer_control_program` |
 | 12 | `transfer_control_mode_pda` |
-| 13 | `source_whitelist_pda` |
-| 14 | `destination_whitelist_pda` |
+| 13 | `source_control_list_pda` |
+| 14 | `destination_control_list_pda` |
 | 15 | `freeze_program` |
 | 16 | `source_frozen_pda` |
 | 17 | `source_frozen_balance_pda` |
@@ -178,8 +178,8 @@ in order.
    skipping steps 3–6. See [below](#permanent-delegate-bypass).
 3. `require_active(&deactivate_pda)` — the mint must not be deactivated.
 4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda,
-   &[&source_whitelist_pda, &destination_whitelist_pda])` — a no-op when
-   `transfer_control_mode_pda` is empty (no mode active); in whitelist mode both
+   &[&source_control_list_pda, &destination_control_list_pda])` — a no-op when
+   `transfer_control_mode_pda` is empty (no mode active); in Whitelist mode both
    markers must exist, else `NotWhitelisted`.
 5. `freeze::require_unfrozen_account(&source_frozen_pda)` — the source must not be
    fully frozen, else `AccountFrozen`.
@@ -222,7 +222,7 @@ future wrapper could break.
 The previous design achieved the same guarantee the hard way: the compliance
 suite lived in a `transfer::verify_transfer` instruction, and the hook read the
 `Instructions` sysvar to require it at index N-1 with matching arguments, plus a
-whitelist of legal instructions at index N to stop a wrapper from interposing.
+allow-list of legal instructions at index N to stop a wrapper from interposing.
 That was forced by Token-2022's 32 KiB heap — the metalist could not carry the
 compliance PDAs at the time — and it cost composability (mandatory two-instruction
 layout), a TOCTOU window between the check and the movement, and a large
@@ -240,7 +240,7 @@ the metalist had shrunk elsewhere — see the size note under
 `execute` returns early, running no compliance check at all, when the transfer
 authority is the `["permanent_delegate", mint]` PDA owned by `operations`. This is
 what makes `operations::controller_transfer` a genuine seizure path: a controller
-can move tokens out of a frozen or non-whitelisted account, or into one.
+can move tokens out of a frozen or unlisted account, or into one.
 
 It is not a hole a holder can reach. Token-2022 verifies that the authority signed
 the transfer, and only `operations` can produce that signature via

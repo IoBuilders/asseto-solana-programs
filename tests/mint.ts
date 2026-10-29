@@ -35,8 +35,8 @@ import {
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   setTransferControlModeMarker,
-  setWhitelistMarker,
-  whitelistPda,
+  setControlListMarker,
+  controlListPda,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import { setMaxSupplyPda } from "./program_helpers/cap/cap_pda_helper";
 import { U64_MAX } from "./constants";
@@ -136,7 +136,7 @@ describe("mint", () => {
     }
   });
 
-  it("mint: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
+  it("mint: fails with NotWhitelisted when Whitelist mode is active and destination is not in the control list", async () => {
     const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
@@ -331,14 +331,14 @@ describe("batch_mint", () => {
     }
   });
 
-  it("batch_mint: succeeds when whitelist mode is active and every destination is whitelisted", async () => {
+  it("batch_mint: succeeds when Whitelist mode is active and every destination is in the control list", async () => {
     const destinationA = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const destinationB = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const amounts = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
     const destinations = [destinationA, destinationB];
     await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
     for (const destination of destinations) {
-      await setWhitelistMarker(mint, destination);
+      await setControlListMarker(mint, destination);
     }
 
     await batchMintTokens({ mint, authority, destinations }, { amounts });
@@ -348,7 +348,7 @@ describe("batch_mint", () => {
       assert.equal(
         account.amount.toString(),
         amounts[i].toString(),
-        "each whitelisted destination should receive its amount"
+        "each listed destination should receive its amount"
       );
     }
   });
@@ -404,14 +404,14 @@ describe("batch_mint", () => {
     }
   });
 
-  it("batch_mint: fails with NotWhitelisted when whitelist mode is active and a destination is not whitelisted", async () => {
-    const whitelisted = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
-    const notWhitelisted = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+  it("batch_mint: fails with NotWhitelisted when Whitelist mode is active and a destination is not in the control list", async () => {
+    const listed = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const notListed = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
-    await setWhitelistMarker(mint, whitelisted); // only the first destination is whitelisted
+    await setControlListMarker(mint, listed); // only the first destination is in the control list
 
     try {
-      await batchMintTokens({ mint, authority, destinations: [whitelisted, notWhitelisted] });
+      await batchMintTokens({ mint, authority, destinations: [listed, notListed] });
       assert.fail("Expected NotWhitelisted error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
@@ -493,28 +493,28 @@ describe("batch_mint", () => {
     }
   });
 
-  it("batch_mint: fails with WhitelistPdaMismatch when a remaining whitelist PDA is not the derived one", async () => {
+  it("batch_mint: fails with ControlListPdaMismatch when a remaining control-list PDA is not the derived one", async () => {
     const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const other = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
-    // The whitelist PDA is only checked when whitelist mode is active.
+    // The control-list PDA is only checked when Whitelist mode is active.
     await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
     try {
       await batchMintTokens(
         { mint, authority, destinations: [destination] },
         {
-          // Destination matches, but the whitelist PDA is derived for a different account.
+          // Destination matches, but the control-list PDA is derived for a different account.
           remainingAccounts: [
             { pubkey: destination, isWritable: true, isSigner: false },
-            { pubkey: whitelistPda(mint, other), isWritable: false, isSigner: false },
+            { pubkey: controlListPda(mint, other), isWritable: false, isSigner: false },
           ],
         }
       );
-      assert.fail("Expected WhitelistPdaMismatch error but instruction succeeded");
+      assert.fail("Expected ControlListPdaMismatch error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
       const anchorErr = err as AnchorError;
-      assert.equal(anchorErr.error.errorCode.code, "WhitelistPdaMismatch");
+      assert.equal(anchorErr.error.errorCode.code, "ControlListPdaMismatch");
     }
   });
 

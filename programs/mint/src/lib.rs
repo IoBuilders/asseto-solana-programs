@@ -18,8 +18,8 @@ pub mod mint {
 
     /// Mints, in a single instruction, `amounts[i]` tokens to the `i`-th destination
     /// for every index `i` of the given Token-2022 mint. Runs the same checks as
-    /// `mint` (issuer role, active, functionality, whitelist) but skips snapshots.
-    /// Per-destination token accounts and whitelist PDAs are passed via
+    /// `mint` (issuer role, active, functionality, control list) but skips snapshots.
+    /// Per-destination token accounts and control-list PDAs are passed via
     /// `remaining_accounts` (two per destination). Only a `ROLE_ISSUER` holder may call it.
     pub fn batch_mint<'info>(
         ctx: Context<'info, BatchMintTokens<'info>>,

@@ -9,7 +9,7 @@ import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
 import { getEvent, getEvents } from "../event_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
-import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
+import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { maxSupplyPda } from "../cap/cap_pda_helper";
@@ -56,7 +56,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       deactivatePda: deactivatePda(callContext.mint),
       mintAuthority: mintAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
-      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.destination),
+      destinationControlListPda: controlListPda(callContext.mint, callContext.destination),
       maxSupplyPda: maxSupplyPda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
@@ -92,7 +92,7 @@ export type BatchMintTokensContext = MintWriteContext & {
 type BatchMintTokensArgs = {
   // The `amounts` instruction argument. Defaults to `1` per destination.
   amounts?: anchor.BN[];
-  // Overrides the remaining accounts. Defaults to `[destination (writable), whitelistPda]`
+  // Overrides the remaining accounts. Defaults to `[destination (writable), controlListPda]`
   // per destination, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
@@ -107,12 +107,12 @@ export async function batchMintTokens(
 
   const amounts = args?.amounts ?? callContext.destinations.map(() => new anchor.BN(1));
 
-  // Two remaining accounts per destination, in order: [destination (writable), whitelistPda].
+  // Two remaining accounts per destination, in order: [destination (writable), controlListPda].
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
     callContext.destinations.flatMap((destination) => [
       { pubkey: destination, isWritable: true, isSigner: false },
-      { pubkey: whitelistPda(callContext.mint, destination), isWritable: false, isSigner: false },
+      { pubkey: controlListPda(callContext.mint, destination), isWritable: false, isSigner: false },
     ]);
 
   // The asset-class version PDA is derived from the ids recorded in the mint's

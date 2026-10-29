@@ -31,14 +31,14 @@ import {
   MINT_MINT,
   OPERATIONS_BURN,
   PAUSE_PAUSE,
-  TRANSFER_CONTROL_ADD_TO_WHITELIST,
+  TRANSFER_CONTROL_ADD_TO_CONTROL_LIST,
   TRANSFER_CONTROL_INITIALIZE,
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   setTransferControlModeMarker,
-  setWhitelistMarker,
+  setControlListMarker,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import { setFrozenBalancePda } from "./program_helpers/freeze/freeze_pda_helper";
 
@@ -64,7 +64,7 @@ describe("transfer", () => {
         PAUSE_PAUSE,
         OPERATIONS_BURN,
         TRANSFER_CONTROL_INITIALIZE,
-        TRANSFER_CONTROL_ADD_TO_WHITELIST,
+        TRANSFER_CONTROL_ADD_TO_CONTROL_LIST,
         DEACTIVATE_DEACTIVATE,
         FREEZE_FREEZE_ACCOUNT,
         FREEZE_PARTIALLY_FREEZE_ACCOUNT,
@@ -390,19 +390,19 @@ describe("transfer", () => {
   // nested transfer_checked → hook CPI as an AnchorError with the same code).
   describe("compliance (enforced by transfer-hook)", async () => {
     // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails with NotWhitelisted when whitelist mode is active and source is not whitelisted", async () => {
-      // Mint tokens to source before activating whitelist mode
+    it("transfer: fails with NotWhitelisted when Whitelist mode is active and source is not in the control list", async () => {
+      // Mint tokens to source before activating Whitelist mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create destination token account
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      // Activate whitelist mode
+      // Activate Whitelist mode
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
-      // Add destination to whitelist — source is NOT whitelisted
-      await setWhitelistMarker(mint, destination);
+      // Add destination to the control list — source is NOT in the control list
+      await setControlListMarker(mint, destination);
 
       const sourceBefore = (await getTokenAccount(source)).amount;
       const destBefore = (await getTokenAccount(destination)).amount;
@@ -435,19 +435,19 @@ describe("transfer", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("transfer: fails with NotWhitelisted when whitelist mode is active and destination is not whitelisted", async () => {
-      // Mint tokens to source before activating whitelist mode
+    it("transfer: fails with NotWhitelisted when Whitelist mode is active and destination is not in the control list", async () => {
+      // Mint tokens to source before activating Whitelist mode
       const source = await createTokenAccount({ mint, owner: sourceOwner });
       await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
 
       // Create destination token account
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      // Activate whitelist mode
+      // Activate Whitelist mode
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
-      // Add source to whitelist — destination is NOT whitelisted
-      await setWhitelistMarker(mint, source);
+      // Add source to the control list — destination is NOT in the control list
+      await setControlListMarker(mint, source);
 
       const sourceBefore = (await getTokenAccount(source)).amount;
       const destBefore = (await getTokenAccount(destination)).amount;
@@ -585,7 +585,7 @@ describe("transfer", () => {
 
       try {
         // batch_transfer needs 2 remaining accounts per leg (destination + its
-        // whitelist PDA); here we pass 1 account for 2 amounts (needs 4).
+        // control-list PDA); here we pass 1 account for 2 amounts (needs 4).
         await batchTransfer(
           { mint, source, sourceOwner, destinations: [d1, d2], signers: [sourceOwnerKeypair] },
           { amounts, transferRemainingAccounts: [{ pubkey: d1, isWritable: true, isSigner: false }] }

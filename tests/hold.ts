@@ -10,7 +10,7 @@ import {
   MINT_MINT,
   OPERATIONS_BURN,
   OPERATIONS_CONTROLLER_TRANSFER,
-  TRANSFER_CONTROL_ADD_TO_WHITELIST,
+  TRANSFER_CONTROL_ADD_TO_CONTROL_LIST,
   TRANSFER_CONTROL_INITIALIZE,
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
@@ -29,7 +29,7 @@ import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda
 import { setFrozenAccountPda, setFrozenBalancePda } from "./program_helpers/freeze/freeze_pda_helper";
 import {
   setTransferControlModeMarker,
-  setWhitelistMarker,
+  setControlListMarker,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { splTransfer } from "./program_helpers/transfer_helper";
@@ -91,7 +91,7 @@ describe("hold", () => {
         MINT_MINT,
         TRANSFER_HOOK_EXECUTE,
         TRANSFER_CONTROL_INITIALIZE,
-        TRANSFER_CONTROL_ADD_TO_WHITELIST,
+        TRANSFER_CONTROL_ADD_TO_CONTROL_LIST,
         OPERATIONS_CONTROLLER_TRANSFER,
         OPERATIONS_BURN,
       ],
@@ -245,7 +245,7 @@ describe("hold", () => {
       );
     });
 
-    it("create_hold: succeeds even when the holder is not whitelisted (compliance is checked at execution, not creation)", async () => {
+    it("create_hold: succeeds even when the holder is not in the control list (compliance is checked at execution, not creation)", async () => {
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
       await createHold({ authority: holderKeypair, mint, tokenAccount: holderTokenAccount }, { amount: HOLD_AMOUNT });
@@ -254,9 +254,9 @@ describe("hold", () => {
       assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.toString());
     });
 
-    it("create_hold: succeeds even when the pinned destination is not whitelisted", async () => {
+    it("create_hold: succeeds even when the pinned destination is not in the control list", async () => {
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
-      await setWhitelistMarker(mint, holderTokenAccount);
+      await setControlListMarker(mint, holderTokenAccount);
 
       const { holdId } = await createHold(
         { authority: holderKeypair, mint, tokenAccount: holderTokenAccount },
@@ -267,10 +267,10 @@ describe("hold", () => {
       assert.equal(hold.destination!.toBase58(), recipientTokenAccount.toBase58());
     });
 
-    it("create_hold: succeeds in whitelist mode once both accounts are eligible", async () => {
+    it("create_hold: succeeds in Whitelist mode once both accounts are eligible", async () => {
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
-      await setWhitelistMarker(mint, holderTokenAccount);
-      await setWhitelistMarker(mint, recipientTokenAccount);
+      await setControlListMarker(mint, holderTokenAccount);
+      await setControlListMarker(mint, recipientTokenAccount);
 
       const { holdId } = await createHold(
         { authority: holderKeypair, mint, tokenAccount: holderTokenAccount },
@@ -357,7 +357,7 @@ describe("hold", () => {
       );
     });
 
-    it("controller_create_hold: succeeds against a non-whitelisted target; execute_hold enforces it later", async () => {
+    it("controller_create_hold: succeeds against a unlisted target; execute_hold enforces it later", async () => {
       await setRoles(mint, controllerKeypair.publicKey, [ROLE_CONTROLLER]);
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
@@ -369,7 +369,7 @@ describe("hold", () => {
       const position = await getHoldPosition(mint, holderTokenAccount);
       assert.equal(position.heldAmount.toString(), HOLD_AMOUNT.toString());
 
-      // The commitment exists, but neither side is whitelisted yet, so it cannot
+      // The commitment exists, but neither side is in the control list yet, so it cannot
       // be delivered until eligibility catches up — only released or reclaimed.
       await assertFails("NotWhitelisted", () =>
         executeHold(
@@ -545,11 +545,11 @@ describe("hold", () => {
       );
     });
 
-    it("execute_hold: fails when the destination is not whitelisted, even though the delegate bypasses the hook", async () => {
+    it("execute_hold: fails when the destination is not in the control list, even though the delegate bypasses the hook", async () => {
       // The permanent delegate skips the hook's compliance suite entirely, so this
       // asserts the check hold::execute_hold runs in its place.
       await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
-      await setWhitelistMarker(mint, holderTokenAccount);
+      await setControlListMarker(mint, holderTokenAccount);
 
       await assertFails("NotWhitelisted", () =>
         executeHold(

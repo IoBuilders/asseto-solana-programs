@@ -33,26 +33,26 @@ export async function setTransferControlModeMarker(mint: PublicKey, mode: any): 
   });
 }
 
-// ── whitelist PDA ──────────────────────────────────────────────────────────────
+// ── control-list PDA ──────────────────────────────────────────────────────────────
 
-export function whitelistPda(mint: PublicKey, account: PublicKey): PublicKey {
-  return whitelistPdaWithBump(mint, account)[0];
+export function controlListPda(mint: PublicKey, account: PublicKey): PublicKey {
+  return controlListPdaWithBump(mint, account)[0];
 }
 
-export function whitelistPdaWithBump(mint: PublicKey, account: PublicKey): [PublicKey, number] {
+export function controlListPdaWithBump(mint: PublicKey, account: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("whitelist"), mint.toBuffer(), account.toBuffer()],
+    [Buffer.from("control_list"), mint.toBuffer(), account.toBuffer()],
     TRANSFER_CONTROL_PROGRAM_ID
   );
 }
 
-export async function getWhitelistStatusByPda(pda: PublicKey) {
-  return await getTransferControlProgram().account.whitelistStatus.fetchNullable(pda, "confirmed");
+export async function getControlListStatusByPda(pda: PublicKey) {
+  return await getTransferControlProgram().account.controlListStatus.fetchNullable(pda, "confirmed");
 }
 
-export async function setWhitelistMarker(mint: PublicKey, account: PublicKey): Promise<void> {
-  const [pda, bump] = whitelistPdaWithBump(mint, account);
-  const data = await getTransferControlProgram().coder.accounts.encode("whitelistStatus", { bump });
+export async function setControlListMarker(mint: PublicKey, account: PublicKey): Promise<void> {
+  const [pda, bump] = controlListPdaWithBump(mint, account);
+  const data = await getTransferControlProgram().coder.accounts.encode("controlListStatus", { bump });
   const lamports = await getBalanceForRentExeption(data.length);
   await surfnetSetAccount(pda, {
     lamports,
