@@ -50,6 +50,6 @@ shutdown_wait = 2000
 rpc_port = 8899
 ws_port = 8900
 host = "127.0.0.1"
-online = false
+online = true
 log_level = "warn"
 block_production_mode = "clock"
