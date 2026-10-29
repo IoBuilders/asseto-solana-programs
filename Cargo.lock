@@ -491,6 +491,7 @@ dependencies = [
  "hold",
  "metadata-update",
  "mint",
+ "nominal-value",
  "operations",
  "pause",
  "snapshot",
@@ -1010,6 +1011,14 @@ dependencies = [
  "snapshot",
  "spl-token-2022-interface 3.0.1",
  "transfer-control",
+]
+
+[[package]]
+name = "nominal-value"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "common",
 ]
 
 [[package]]

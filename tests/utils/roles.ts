@@ -13,3 +13,4 @@ export const ROLE_DEACTIVATE = 8;
 export const ROLE_CUSTOM_DATA_MANAGER = 9;
 export const ROLE_CAP = 10;
 export const ROLE_DOCUMENT_MANAGER = 11;
+export const ROLE_NOMINAL_VALUE = 12;
