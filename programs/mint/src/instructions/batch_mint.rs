@@ -8,7 +8,7 @@ use common::{
     pda_seeds, require_active, require_functionality, require_role, roles, verify_control_list_pda,
 };
 use spl_token_2022_interface::instruction::mint_to;
-use transfer_control::verify_control_list_membership;
+use transfer_control::verify_transfer_control_mode;
 
 use crate::errors::MintError;
 use crate::events::Issued;
@@ -50,14 +50,18 @@ pub fn batch_mint<'info>(
         batch_total,
     )?;
 
-    let control_list_active = !ctx
-        .accounts
-        .transfer_control_mode_pda
-        .to_account_info()
-        .data_is_empty();
-
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
+
+    let mut destination_control_list_pdas = Vec::with_capacity(amounts.len());
+    for pair in ctx.remaining_accounts.chunks_exact(2) {
+        verify_control_list_pda(&pair[1], &pair[0].key(), &mint_key)?;
+        destination_control_list_pdas.push(&pair[1]);
+    }
+    verify_transfer_control_mode(
+        &ctx.accounts.transfer_control_mode_pda,
+        &destination_control_list_pdas,
+    )?;
 
     let mint_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::mint_authority_seeds(&mint_key),
@@ -67,13 +71,7 @@ pub fn batch_mint<'info>(
     for i in 0..amounts.len() {
         let amount = amounts[i];
         let destination = &ctx.remaining_accounts[i * 2];
-        let destination_control_list_pda = &ctx.remaining_accounts[i * 2 + 1];
         let destination_key = destination.key();
-
-        if control_list_active {
-            verify_control_list_pda(destination_control_list_pda, &destination_key, &mint_key)?;
-            verify_control_list_membership(&destination_control_list_pda.to_account_info())?;
-        }
 
         // ──  Mint tokens (CPI to Token-2022) ────────────────────────────────
         invoke_signed(
@@ -144,7 +142,7 @@ pub struct BatchMintTokens<'info> {
     )]
     pub max_supply_pda: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by seeds/bump; contents read by get_transfer_mode.
+    /// CHECK: Address verified by seeds/bump; contents read by verify_transfer_control_mode.
     #[account(
         seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
