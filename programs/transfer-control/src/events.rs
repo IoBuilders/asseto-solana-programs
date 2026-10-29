@@ -10,14 +10,14 @@ pub struct TransferControlModeSet {
 }
 
 #[event]
-pub struct AccountWhitelisted {
+pub struct AccountAddedToControlList {
     pub mint: Pubkey,
     pub account: Pubkey,
     pub operator: Pubkey,
 }
 
 #[event]
-pub struct AccountRemovedFromWhitelist {
+pub struct AccountRemovedFromControlList {
     pub mint: Pubkey,
     pub account: Pubkey,
     pub operator: Pubkey,

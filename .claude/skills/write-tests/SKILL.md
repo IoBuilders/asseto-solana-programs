@@ -216,14 +216,14 @@ await splTransfer(
 ```
 
 There is no verify pre-instruction to build or malform — all compliance runs inside
-`transfer-hook::execute`, so error cases are set up by planting state (whitelist
+`transfer-hook::execute`, so error cases are set up by planting state (control-list
 marker, frozen PDA, deactivate marker) and then calling `splTransfer` normally. Use
 `buildSplTransferCheckedInstruction` if a test needs the instruction rather than a
 sent transaction, and `splTransferWithoutHookAccounts` for the "hook block omitted"
 error case.
 
 `batchTransfer()` covers `transfer::batch_transfer`; its `transferRemainingAccounts`
-option overrides the per-leg `(destination, whitelistPda)` pairs for error paths.
+option overrides the per-leg `(destination, controlListPda)` pairs for error paths.
 
 ### Compute budget on raw transfer calls
 

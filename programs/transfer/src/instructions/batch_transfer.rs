@@ -16,8 +16,8 @@ pub fn batch_transfer<'info>(
     amounts: Vec<u64>,
 ) -> Result<()> {
     require!(!amounts.is_empty(), TransferError::EmptyBatch);
-    // Two remaining accounts per leg: destination token account + its whitelist
-    // PDA (the metalist resolves the destination whitelist from the destination,
+    // Two remaining accounts per leg: destination token account + its control-list
+    // PDA (the metalist resolves the destination control-list PDA from the destination,
     // so the hook needs that account forwarded on every leg).
     require!(
         ctx.remaining_accounts.len() == amounts.len() * 2,
@@ -38,7 +38,7 @@ pub fn batch_transfer<'info>(
 
     for (i, &amount) in amounts.iter().enumerate() {
         let destination = &ctx.remaining_accounts[i * 2];
-        let destination_whitelist_pda = &ctx.remaining_accounts[i * 2 + 1];
+        let destination_control_list_pda = &ctx.remaining_accounts[i * 2 + 1];
 
         // ── Transfer ───────────────────────────────────────────────────────
         let mut transfer_ix = transfer_checked(
@@ -63,8 +63,8 @@ pub fn batch_transfer<'info>(
             deactivate_pda: &ctx.accounts.deactivate_pda,
             transfer_control_program: &ctx.accounts.transfer_control_program,
             transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
-            source_whitelist_pda: &ctx.accounts.source_whitelist_pda,
-            destination_whitelist_pda,
+            source_control_list_pda: &ctx.accounts.source_control_list_pda,
+            destination_control_list_pda,
             freeze_program: &ctx.accounts.freeze_program,
             source_frozen_pda: &ctx.accounts.source_frozen_pda,
             source_frozen_balance_pda: &ctx.accounts.source_frozen_balance_pda,
@@ -91,7 +91,7 @@ pub fn batch_transfer<'info>(
 ///
 /// Indices 0–2 (`source_owner`, `source`, `mint`) are fixed. The constant
 /// compliance PDAs and program ids the hook needs are named accounts; the
-/// per-leg `(destination, destination_whitelist_pda)` pairs are appended as
+/// per-leg `(destination, destination_control_list_pda)` pairs are appended as
 /// `remaining_accounts` (`remaining_accounts.len() == amounts.len() * 2`).
 #[derive(Accounts)]
 pub struct BatchTransferTokens<'info> {
@@ -174,13 +174,13 @@ pub struct BatchTransferTokens<'info> {
     )]
     pub transfer_control_mode_pda: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; forwarded to the hook (must exist in whitelist mode).
+    /// CHECK: seeds verified; forwarded to the hook (must exist in Whitelist mode).
     #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), source.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), source.key().as_ref()],
         seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
-    pub source_whitelist_pda: UncheckedAccount<'info>,
+    pub source_control_list_pda: UncheckedAccount<'info>,
 
     /// CHECK: seeds verified; forwarded to the hook (must be empty for transfers to proceed).
     #[account(

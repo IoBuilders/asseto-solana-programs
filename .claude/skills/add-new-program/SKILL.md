@@ -69,7 +69,7 @@ The workspace `Cargo.toml` picks programs up via the `programs/*` glob, so nothi
 Every instruction belongs to one of the three categories in `CLAUDE.md`'s **Instruction Categories** table. Use the matching authorization pattern:
 
 - **Management** — caller is any authority holding the relevant role. Gate with `common::require_role(authority_roles_pda.load()?, roles::ROLE_X)` + optionally `require_not_paused` / `require_active` / `require_functionality`. If an existing role fits, reuse it (`common::roles`); otherwise append a new `ROLE_*` constant at the end of that file (never reorder/remove — a unit test enforces sequential-from-zero). See the `add-new-instruction` skill for the exact precondition idiom and the three supporting accounts (`authority_roles_pda`, `asset_configuration_pda`, `asset_class_version_pda`) this requires.
-- **Operational** — caller is a token holder / participant. Gate with program-specific access rules (ownership checks, whitelist, etc.).
+- **Operational** — caller is a token holder / participant. Gate with program-specific access rules (ownership checks, control list, etc.).
 - **Auxiliary** — callable only via CPI from another program. Declare `calling_authority: Signer` and check at runtime that its pubkey equals a known PDA (`mint_authority` / `permanent_delegate` / `transfer_hook_authority` / …). No external wallet can produce those signatures.
 
 ## 5. If the program owns a Token-2022 extension authority PDA

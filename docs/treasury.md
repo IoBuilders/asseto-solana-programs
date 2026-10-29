@@ -143,7 +143,7 @@ After the precondition checks, the handler reads the cluster clock (`Clock::get(
 require_balance_proof(&merkle_proof, snapshot_merkle_root.merkle_root, account, balance)?;
 ```
 
-`require_balance_proof` is a thin `common` wrapper (mirroring `verify_whitelist_pda`)
+`require_balance_proof` is a thin `common` wrapper (mirroring `verify_control_list_pda`)
 that calls the pure `merkle::verify_balance_proof` primitive and raises
 `CommonError::InvalidMerkleProof` on failure — keeping the crypto primitive a
 host-testable `bool` while matching the `require_*` convention.

@@ -14,6 +14,6 @@ pub struct TransferControlMode {
 
 #[account]
 #[derive(InitSpace)]
-pub struct WhitelistStatus {
+pub struct ControlListStatus {
     pub bump: u8,
 }

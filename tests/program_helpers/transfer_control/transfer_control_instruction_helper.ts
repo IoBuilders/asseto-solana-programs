@@ -8,7 +8,11 @@ import { MintWriteContext } from "../base_helper";
 import { TransferControl } from "../../../target/types/transfer_control";
 import { getEvent } from "../event_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
-import { transferControlModePda, transferControlEventAuthorityPda, whitelistPda } from "./transfer_control_pda_helper";
+import {
+  transferControlModePda,
+  transferControlEventAuthorityPda,
+  controlListPda,
+} from "./transfer_control_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export const TRANSFER_CONTROL_WHITELIST = { whitelist: {} };
@@ -82,19 +86,19 @@ export async function getTransferControlModeSetEvent(signature: string) {
   return getEvent<TransferControlModesSetEvent>(getTransferControlProgram(), signature, "transferControlModeSet");
 }
 
-// ── add_to_whitelist ─────────────────────────────────────────────────────────
+// ── add_to_control_list ─────────────────────────────────────────────────────────
 
-export type AddToWhitelistContext = MintWriteContext & {
+export type AddToControlListContext = MintWriteContext & {
   account: PublicKey;
 };
 
-export async function addToWhitelist(callContext: AddToWhitelistContext): Promise<{ signature: string }> {
+export async function addToControlList(callContext: AddToControlListContext): Promise<{ signature: string }> {
   const program = getTransferControlProgram();
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
-    .addToWhitelist()
+    .addToControlList()
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
@@ -102,7 +106,7 @@ export async function addToWhitelist(callContext: AddToWhitelistContext): Promis
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
-      whitelistPda: whitelistPda(callContext.mint, callContext.account),
+      controlListPda: controlListPda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -117,34 +121,34 @@ export async function addToWhitelist(callContext: AddToWhitelistContext): Promis
   return { signature };
 }
 
-type AccountWhitelistedEvent = {
+type AccountAddedToControlListEvent = {
   mint: PublicKey;
   account: PublicKey;
   operator: PublicKey;
 };
 
 /**
- * Decodes the `AccountWhitelisted` event from an `add_to_whitelist` transaction.
- * The coder returns the name in camelCase (`accountWhitelisted`). Delegates to
+ * Decodes the `AccountAddedToControlList` event from an `add_to_control_list` transaction.
+ * The coder returns the name in camelCase (`accountAddedToControlList`). Delegates to
  * the shared, emit!/emit_cpi!-agnostic event helper.
  */
-export async function getAccountWhitelistedEvent(signature: string) {
-  return getEvent<AccountWhitelistedEvent>(getTransferControlProgram(), signature, "accountWhitelisted");
+export async function getAccountAddedToControlListEvent(signature: string) {
+  return getEvent<AccountAddedToControlListEvent>(getTransferControlProgram(), signature, "accountAddedToControlList");
 }
 
-// ── remove_from_whitelist ────────────────────────────────────────────────────
+// ── remove_from_control_list ────────────────────────────────────────────────────
 
-export type RemoveFromWhitelistContext = MintWriteContext & {
+export type RemoveFromControlListContext = MintWriteContext & {
   account: PublicKey;
 };
 
-export async function removeFromWhitelist(callContext: RemoveFromWhitelistContext): Promise<{ signature: string }> {
+export async function removeFromControlList(callContext: RemoveFromControlListContext): Promise<{ signature: string }> {
   const program = getTransferControlProgram();
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
   const authority = callContext.authority ?? program.provider.wallet.payer;
 
   const signature = await program.methods
-    .removeFromWhitelist()
+    .removeFromControlList()
     .accountsStrict({
       authority: authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
@@ -152,7 +156,7 @@ export async function removeFromWhitelist(callContext: RemoveFromWhitelistContex
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
-      whitelistPda: whitelistPda(callContext.mint, callContext.account),
+      controlListPda: controlListPda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -166,21 +170,21 @@ export async function removeFromWhitelist(callContext: RemoveFromWhitelistContex
   return { signature };
 }
 
-type AccountRemovedFromWhitelistEvent = {
+type AccountRemovedFromControlListEvent = {
   mint: PublicKey;
   account: PublicKey;
   operator: PublicKey;
 };
 
 /**
- * Decodes the `AccountRemovedFromWhitelist` event from a `remove_from_whitelist` transaction.
- * The coder returns the name in camelCase (`accountRemovedFromWhitelist`). Delegates to
+ * Decodes the `AccountRemovedFromControlList` event from a `remove_from_control_list` transaction.
+ * The coder returns the name in camelCase (`accountRemovedFromControlList`). Delegates to
  * the shared, emit!/emit_cpi!-agnostic event helper.
  */
-export async function getAccountRemovedFromWhitelistEvent(signature: string) {
-  return getEvent<AccountRemovedFromWhitelistEvent>(
+export async function getAccountRemovedFromControlListEvent(signature: string) {
+  return getEvent<AccountRemovedFromControlListEvent>(
     getTransferControlProgram(),
     signature,
-    "accountRemovedFromWhitelist"
+    "accountRemovedFromControlList"
   );
 }

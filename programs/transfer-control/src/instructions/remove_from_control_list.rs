@@ -3,12 +3,12 @@ use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
-use crate::events::AccountRemovedFromWhitelist;
-use crate::state::WhitelistStatus;
+use crate::events::AccountRemovedFromControlList;
+use crate::state::ControlListStatus;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
-pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
+pub fn remove_from_control_list(ctx: Context<RemoveFromControlList>) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
         roles::ROLE_CONTROL_LIST,
@@ -22,10 +22,10 @@ pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
-        common::functionalities::TRANSFER_CONTROL_REMOVE_FROM_WHITELIST,
+        common::functionalities::TRANSFER_CONTROL_REMOVE_FROM_CONTROL_LIST,
     )?;
 
-    emit_cpi!(AccountRemovedFromWhitelist {
+    emit_cpi!(AccountRemovedFromControlList {
         mint: ctx.accounts.mint.key(),
         account: ctx.accounts.account.key(),
         operator: ctx.accounts.authority.key(),
@@ -36,7 +36,7 @@ pub fn remove_from_whitelist(ctx: Context<RemoveFromWhitelist>) -> Result<()> {
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct RemoveFromWhitelist<'info> {
+pub struct RemoveFromControlList<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -57,7 +57,7 @@ pub struct RemoveFromWhitelist<'info> {
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: Address used as a seed for whitelist_pda; not otherwise validated here.
+    /// CHECK: Address used as a seed for control_list_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
@@ -71,10 +71,10 @@ pub struct RemoveFromWhitelist<'info> {
     #[account(
         mut,
         close = authority,
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), account.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]
-    pub whitelist_pda: Account<'info, WhitelistStatus>,
+    pub control_list_pda: Account<'info, ControlListStatus>,
 
     #[account(
         seeds = [

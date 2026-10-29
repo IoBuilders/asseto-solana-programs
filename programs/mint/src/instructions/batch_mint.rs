@@ -5,10 +5,10 @@ use cap::require_within_max_supply;
 use common::pda_utils;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{
-    pda_seeds, require_active, require_functionality, require_role, roles, verify_whitelist_pda,
+    pda_seeds, require_active, require_functionality, require_role, roles, verify_control_list_pda,
 };
 use spl_token_2022_interface::instruction::mint_to;
-use transfer_control::verify_whitelist;
+use transfer_control::verify_control_list_membership;
 
 use crate::errors::MintError;
 use crate::events::Issued;
@@ -50,7 +50,7 @@ pub fn batch_mint<'info>(
         batch_total,
     )?;
 
-    let whitelist_active = !ctx
+    let control_list_active = !ctx
         .accounts
         .transfer_control_mode_pda
         .to_account_info()
@@ -67,12 +67,12 @@ pub fn batch_mint<'info>(
     for i in 0..amounts.len() {
         let amount = amounts[i];
         let destination = &ctx.remaining_accounts[i * 2];
-        let destination_whitelist_pda = &ctx.remaining_accounts[i * 2 + 1];
+        let destination_control_list_pda = &ctx.remaining_accounts[i * 2 + 1];
         let destination_key = destination.key();
 
-        if whitelist_active {
-            verify_whitelist_pda(destination_whitelist_pda, &destination_key, &mint_key)?;
-            verify_whitelist(&destination_whitelist_pda.to_account_info())?;
+        if control_list_active {
+            verify_control_list_pda(destination_control_list_pda, &destination_key, &mint_key)?;
+            verify_control_list_membership(&destination_control_list_pda.to_account_info())?;
         }
 
         // ──  Mint tokens (CPI to Token-2022) ────────────────────────────────

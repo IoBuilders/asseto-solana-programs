@@ -23,7 +23,7 @@ import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, permissionedBurnPda, operationsEventAuthorityPda } from "./operations_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
-import { transferControlModePda, whitelistPda } from "../transfer_control/transfer_control_pda_helper";
+import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
 import { frozenAccountPda, frozenBalancePda } from "../freeze/freeze_pda_helper";
 
 export function getOperationsProgram(): Program<Operations> {
@@ -126,7 +126,7 @@ export async function batchBurnTokens(
   // Two remaining accounts per source: the token account to burn from (writable),
   // then its hold-position PDA, whose address
   // `require_hold_covered_unverified_pda` re-derives and checks. There is no
-  // whitelist PDA — burn has no whitelist gate.
+  // control-list PDA — burn has no control-list gate.
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
     callContext.sources.flatMap((source) => [
@@ -188,7 +188,7 @@ export async function controllerTransfer(
   // `asset_configuration` account — the same values the on-chain program reads.
   const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
-  // Compliance lives in transfer-hook::execute, which bypasses the whitelist /
+  // Compliance lives in transfer-hook::execute, which bypasses the control-list /
   // frozen checks for permanent-delegate transfers. Token-2022 still resolves the
   // whole metalist, so every forwarded PDA must be supplied (may be empty).
   // Metalist resolution plus the hook CPI exceeds the default 200k CU budget.
@@ -212,8 +212,8 @@ export async function controllerTransfer(
       deactivateProgram: DEACTIVATE_PROGRAM_ID,
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
-      sourceWhitelistPda: whitelistPda(callContext.mint, callContext.from),
-      destinationWhitelistPda: whitelistPda(callContext.mint, callContext.to),
+      sourceControlListPda: controlListPda(callContext.mint, callContext.from),
+      destinationControlListPda: controlListPda(callContext.mint, callContext.to),
       sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.from),
       sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.from),
       holdProgram: HOLD_PROGRAM_ID,

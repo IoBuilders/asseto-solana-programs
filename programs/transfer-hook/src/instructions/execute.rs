@@ -34,8 +34,8 @@ pub fn execute<'info>(ctx: Context<'info, Execute<'info>>, _amount: u64) -> Resu
     verify_transfer_control_mode(
         &ctx.accounts.transfer_control_mode_pda,
         &[
-            &ctx.accounts.source_whitelist_pda,
-            &ctx.accounts.destination_whitelist_pda,
+            &ctx.accounts.source_control_list_pda,
+            &ctx.accounts.destination_control_list_pda,
         ],
     )?;
 
@@ -130,7 +130,7 @@ pub struct Execute<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// CHECK: transfer-control program (index 11); resolves the mode + whitelist PDAs.
+    /// CHECK: transfer-control program (index 11); resolves the mode + control-list PDAs.
     #[account(address = TRANSFER_CONTROL_PROGRAM_ID)]
     pub transfer_control_program: UncheckedAccount<'info>,
 
@@ -142,21 +142,21 @@ pub struct Execute<'info> {
     )]
     pub transfer_control_mode_pda: UncheckedAccount<'info>,
 
-    /// CHECK: Source whitelist marker (index 13); seeded by the source token account.
+    /// CHECK: Source control-list marker (index 13); seeded by the source token account.
     #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), source_token.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
-    pub source_whitelist_pda: UncheckedAccount<'info>,
+    pub source_control_list_pda: UncheckedAccount<'info>,
 
-    /// CHECK: Destination whitelist marker (index 14); seeded by the destination token account.
+    /// CHECK: Destination control-list marker (index 14); seeded by the destination token account.
     #[account(
-        seeds = [pda_seeds::WHITELIST, mint.key().as_ref(), destination_token.key().as_ref()],
+        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), destination_token.key().as_ref()],
         seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
         bump,
     )]
-    pub destination_whitelist_pda: UncheckedAccount<'info>,
+    pub destination_control_list_pda: UncheckedAccount<'info>,
 
     /// CHECK: freeze program (index 15); resolves the frozen PDAs in the metalist.
     #[account(address = FREEZE_PROGRAM_ID)]

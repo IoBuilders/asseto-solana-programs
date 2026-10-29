@@ -57,7 +57,7 @@ Both signatures are needed and neither is optional: `operations_authority` autho
 
 ## Instruction: `batch_burn` (Operational — controller only)
 
-Burns, in a single instruction, `amounts[i]` tokens from the `i`-th source token account. Runs the same authorization checks as `burn` (controller role, active, functionality). Unlike `batch_mint`, there is **no whitelist gate** (burning is never whitelist-restricted). Emits one `ControllerRedemption` event per source.
+Burns, in a single instruction, `amounts[i]` tokens from the `i`-th source token account. Runs the same authorization checks as `burn` (controller role, active, functionality). Unlike `batch_mint`, there is **no control-list gate** (burning is never control-list-restricted). Emits one `ControllerRedemption` event per source.
 
 ### Parameters
 
@@ -126,7 +126,7 @@ Both signer seeds are derived once before the loop and reused for every leg.
 
 Force-transfers `amount` tokens from the `from` token account to the `to` token account via the permanent delegate, without the holder's consent. Used to move tokens under legal/regulatory instruction (court order, lost-key recovery, mis-delivery). No snapshot CPIs run — like every other transfer path, it is snapshot-agnostic.
 
-> **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`. The hook recognises a permanent-delegate transfer — the authority is the `["permanent_delegate", mint]` PDA — and **returns without running any compliance check** (see [`transfer-hook.md`](transfer-hook.md#permanent-delegate-bypass)), so a controller can seize tokens from frozen or non-whitelisted accounts and into them. No pre-instruction and no holder signature are required: this is a genuine unilateral seizure path, gated only by the controller role + functionality.
+> **Transfer-hook contract.** The mint's `TransferHook` extension makes Token-2022 invoke `transfer-hook::execute` on the inner `transfer_checked`. The hook recognises a permanent-delegate transfer — the authority is the `["permanent_delegate", mint]` PDA — and **returns without running any compliance check** (see [`transfer-hook.md`](transfer-hook.md#permanent-delegate-bypass)), so a controller can seize tokens from frozen or unlisted accounts and into them. No pre-instruction and no holder signature are required: this is a genuine unilateral seizure path, gated only by the controller role + functionality.
 >
 > Token-2022 still resolves the hook's whole `ExtraAccountMetaList`, so `controller_transfer` must forward every compliance PDA even though the hook won't read them (they may be empty — expected for a seizure).
 
@@ -143,7 +143,7 @@ amount: u64  // raw token units to transfer
 - `require_functionality(OPERATIONS_CONTROLLER_TRANSFER)` — the mint's asset-class version must be finalized and enable controller transfers.
 - `require_hold_covered` — `balance >= held + amount`. See [The hold lien on these paths](#the-hold-lien-on-these-paths).
 
-Beyond the hold lien, `controller_transfer` does **not** check pause, whitelist / transfer-control mode, or frozen-account / frozen-balance markers, and neither does the hook for this path (it bypasses compliance for permanent-delegate transfers) — its remaining gates are the controller role and the asset-class functionality bit. Pause still applies: Token-2022 rejects the inner `transfer_checked` on a paused mint regardless.
+Beyond the hold lien, `controller_transfer` does **not** check pause, control list / transfer-control mode, or frozen-account / frozen-balance markers, and neither does the hook for this path (it bypasses compliance for permanent-delegate transfers) — its remaining gates are the controller role and the asset-class functionality bit. Pause still applies: Token-2022 rejects the inner `transfer_checked` on a paused mint regardless.
 
 ### Accounts
 
@@ -164,8 +164,8 @@ Beyond the hold lien, `controller_transfer` does **not** check pause, whitelist 
 | `deactivate_program` | no | no | UncheckedAccount | address constrained to `DEACTIVATE_PROGRAM_ID`; hook metalist index 9 |
 | `transfer_control_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_CONTROL_PROGRAM_ID`; hook metalist index 11 |
 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; forwarded, may be empty |
-| `source_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, from]`; forwarded, may be empty (seizure from a non-whitelisted account) |
-| `destination_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, to]`; forwarded, may be empty (seizure to a non-whitelisted account) |
+| `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, from]`; forwarded, may be empty (seizure from a unlisted account) |
+| `destination_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, to]`; forwarded, may be empty (seizure to a unlisted account) |
 | `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, from]`, `seeds::program = FREEZE_PROGRAM_ID`; forwarded, may **exist** (seizure from a frozen account) |
 | `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, from]`, `seeds::program = FREEZE_PROGRAM_ID`; forwarded, may be empty |
 | `hold_program` | no | no | UncheckedAccount | address constrained to `HOLD_PROGRAM_ID`; hook metalist index 18 |
@@ -204,7 +204,7 @@ amount: u64  // raw token units to transfer
 
 `hold_authority.key() == find_program_address(["hold_authority", mint], HOLD_PROGRAM_ID)`, else `UnauthorizedHoldAuthority`.
 
-That is the **only** check. This instruction runs no role, pause, deactivation, functionality, whitelist or freeze check — not because they don't apply, but because `hold::execute_hold` has already run them before calling. The hook cannot run them either: this goes through the permanent delegate, so it takes the compliance bypass. See [`docs/hold.md`](hold.md#why-compliance-is-re-checked-here) for the full argument, and treat this instruction as unsafe to call from anywhere that has not run those checks first.
+That is the **only** check. This instruction runs no role, pause, deactivation, functionality, control-list or freeze check — not because they don't apply, but because `hold::execute_hold` has already run them before calling. The hook cannot run them either: this goes through the permanent delegate, so it takes the compliance bypass. See [`docs/hold.md`](hold.md#why-compliance-is-re-checked-here) for the full argument, and treat this instruction as unsafe to call from anywhere that has not run those checks first.
 
 ### Accounts
 

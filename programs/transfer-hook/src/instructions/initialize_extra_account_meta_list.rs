@@ -85,7 +85,7 @@ pub fn initialize_extra_account_meta_list(
             11,
             &[
                 Seed::Literal {
-                    bytes: pda_seeds::WHITELIST.to_vec(),
+                    bytes: pda_seeds::CONTROL_LIST.to_vec(),
                 },
                 Seed::AccountKey { index: 1 },
                 Seed::AccountKey { index: 0 },
@@ -97,7 +97,7 @@ pub fn initialize_extra_account_meta_list(
             11,
             &[
                 Seed::Literal {
-                    bytes: pda_seeds::WHITELIST.to_vec(),
+                    bytes: pda_seeds::CONTROL_LIST.to_vec(),
                 },
                 Seed::AccountKey { index: 1 },
                 Seed::AccountKey { index: 2 },

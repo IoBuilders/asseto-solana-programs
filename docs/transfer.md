@@ -8,7 +8,7 @@ Nothing else lives here. There is no wrapper for the singular transfer and no
 compliance pre-check instruction — a holder submits Token-2022's own
 `transfer_checked`, and **every compliance rule runs inside
 `transfer-hook::execute`**, which Token-2022 invokes from within that
-`transfer_checked` (deactivation, transfer-mode / whitelist, frozen account,
+`transfer_checked` (deactivation, transfer-mode / control list, frozen account,
 frozen balance, plus the `TRANSFER_HOOK_EXECUTE` functionality gate). See
 [`transfer-hook.md`](transfer-hook.md) for the rules themselves.
 
@@ -77,8 +77,8 @@ must be **appended** to that list.
 | 11 | `deactivate_pda` | no | no | seeds `["deactivate", mint]`; must be empty (mint not deactivated) |
 | 12 | `transfer_control_program` | no | no | `TRANSFER_CONTROL_PROGRAM_ID` |
 | 13 | `transfer_control_mode_pda` | no | no | seeds `["transfer_control_mode", mint]`; may be empty (no mode active) |
-| 14 | `source_whitelist_pda` | no | no | seeds `["whitelist", mint, source]`; must exist in whitelist mode |
-| 15 | `destination_whitelist_pda` | no | no | seeds `["whitelist", mint, destination]`; must exist in whitelist mode |
+| 14 | `source_control_list_pda` | no | no | seeds `["control_list", mint, source]`; must exist in Whitelist mode |
+| 15 | `destination_control_list_pda` | no | no | seeds `["control_list", mint, destination]`; must exist in Whitelist mode |
 | 16 | `freeze_program` | no | no | `FREEZE_PROGRAM_ID` |
 | 17 | `source_frozen_pda` | no | no | seeds `["frozen_account", mint, source]`; must be empty |
 | 18 | `source_frozen_balance_pda` | no | no | seeds `["frozen_balance", mint, source]`; may be empty (no partial freeze) |
@@ -122,9 +122,9 @@ amounts: Vec<u64>  // raw token units per destination, in remaining-accounts ord
 ### Accounts
 
 The named accounts are the constant part of the hook block; the per-leg
-`(destination, destination_whitelist_pda)` pairs are appended as
+`(destination, destination_control_list_pda)` pairs are appended as
 `remaining_accounts` (`remaining_accounts.len() == amounts.len() * 2`). The
-destination whitelist PDA has to travel per leg because the metalist derives it
+destination control-list PDA has to travel per leg because the metalist derives it
 from the destination token account.
 
 | Idx | Account | Mut | Signer | Type | Notes |
@@ -143,20 +143,20 @@ from the destination token account.
 | 11 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
 | 12 | `transfer_control_program` | no | no | UncheckedAccount | address = `TRANSFER_CONTROL_PROGRAM_ID` |
 | 13 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`; may be empty |
-| 14 | `source_whitelist_pda` | no | no | UncheckedAccount | seeds `["whitelist", mint, source]`; constant across legs |
+| 14 | `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, source]`; constant across legs |
 | 15 | `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, source]` |
 | 16 | `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, source]` |
 | 17 | `hold_program` | no | no | UncheckedAccount | address = `HOLD_PROGRAM_ID` |
 | 18 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, source]`; may be empty |
 | 19 | `token_2022_program` | no | no | Program\<Token2022\> | |
-| 20.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_whitelist_pda` |
+| 20.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_control_list_pda` |
 
 The declaration order above is *not* the order the accounts are forwarded in —
 `freeze_program` sits at index 5 in the struct but is forwarded thirteenth, where
 the metalist expects it. The forwarding order is defined once, by the field order
 of `common::HookAccounts` (see [`common.md`](common.md#module-hook_accounts)),
 which this instruction fills in per leg with **this leg's**
-`destination_whitelist_pda` and the same constant entries for the rest. That
+`destination_control_list_pda` and the same constant entries for the rest. That
 order matches the metalist declaration in
 [`transfer-hook.md`](transfer-hook.md#metalist-contents).
 
@@ -167,7 +167,7 @@ order matches the metalist declaration in
 2. Read `decimals` from `mint` — once, before the loop.
 3. For each leg `i`: `invoke` → `transfer_checked(source, mint, destination_i,
    source_owner, amounts[i], decimals)`, with the constant hook block plus leg
-   `i`'s `destination_whitelist_pda` appended. Token-2022 fires the hook for that
+   `i`'s `destination_control_list_pda` appended. Token-2022 fires the hook for that
    leg, which runs the full compliance suite.
 
 `batch_transfer` emits no event.

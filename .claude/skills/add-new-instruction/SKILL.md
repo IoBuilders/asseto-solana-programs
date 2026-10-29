@@ -55,7 +55,7 @@ See the **Instruction Categories** table in `CLAUDE.md`. The category drives you
 | Category | Authorisation |
 |---|---|
 | **Management** | Role-gated. Start the handler with `require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_X)?`. Usually followed by `require_not_paused(&mint)?`, `require_active(&deactivate_pda)?`, and `require_functionality(ctx.accounts.asset_class_version_pda.load()?, common::functionalities::X)?`. If no role fits, check `common::roles` before adding a new one — roles are a flat, append-only `u16` list shared across the whole workspace. |
-| **Operational** | Caller is a token holder. Use program-specific gates (ownership, whitelist, etc.). |
+| **Operational** | Caller is a token holder. Use program-specific gates (ownership, control list, etc.). |
 | **Auxiliary** | Only callable via CPI from another program. Take a `calling_authority: Signer<'info>` and at runtime `require!(calling_authority.key() == <expected PDA>, ...)`. The expected PDA is derived from seeds owned by the authorised program (see `freeze` for the canonical 3-caller example). |
 
 ## 4. Preconditions idiom (Management instructions)
@@ -74,7 +74,7 @@ require_functionality(
 
 Skip `require_not_paused` if the instruction should remain callable while paused. Skip `require_active` only for instructions *about* deactivation itself. `require_functionality` needs a new `common::functionalities` constant — append it at the end of the file (never reorder/remove existing ones; a unit test enforces sequential-from-zero) and wire it into the mint's asset-class version via `factory`'s `enable_asset_class_version_functionalities` in tests.
 
-This requires three supporting accounts in the struct: `authority_roles_pda` (the caller's own `Roles` PDA, `AccountLoader<Roles>`, seeds `["roles", mint, authority]` owned by `access-control`), `asset_configuration_pda` (`Account<AssetConfiguration>`, seeds `["asset_configuration", mint]` owned by `deploy`, supplies the asset-class ids), and `asset_class_version_pda` (`AccountLoader<AssetClassVersion>`, seeds `["asset_class_version", config_id, version_id]` owned by `factory`, derived from the ids on `asset_configuration_pda`). Copy these three verbatim from any existing Management instruction (e.g. `transfer-control::add_to_whitelist`) — the seeds/bump wiring is boilerplate.
+This requires three supporting accounts in the struct: `authority_roles_pda` (the caller's own `Roles` PDA, `AccountLoader<Roles>`, seeds `["roles", mint, authority]` owned by `access-control`), `asset_configuration_pda` (`Account<AssetConfiguration>`, seeds `["asset_configuration", mint]` owned by `deploy`, supplies the asset-class ids), and `asset_class_version_pda` (`AccountLoader<AssetClassVersion>`, seeds `["asset_class_version", config_id, version_id]` owned by `factory`, derived from the ids on `asset_configuration_pda`). Copy these three verbatim from any existing Management instruction (e.g. `transfer-control::add_to_control_list`) — the seeds/bump wiring is boilerplate.
 
 ## 5. Account-struct conventions
 

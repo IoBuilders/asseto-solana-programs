@@ -69,14 +69,14 @@ pub const DEACTIVATE: &[u8] = b"deactivate";
 
 /***************************** TRANSFER-CONTROL *****************************/
 pub const TRANSFER_CONTROL_MODE: &[u8] = b"transfer_control_mode";
-pub const WHITELIST: &[u8] = b"whitelist";
+pub const CONTROL_LIST: &[u8] = b"control_list";
 
 pub fn transfer_control_mode_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![TRANSFER_CONTROL_MODE, mint.as_ref()]
 }
 
-pub fn whitelist_seeds<'info>(mint: &'info Pubkey, account: &'info Pubkey) -> Vec<&'info [u8]> {
-    vec![WHITELIST, mint.as_ref(), account.as_ref()]
+pub fn control_list_seeds<'info>(mint: &'info Pubkey, account: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![CONTROL_LIST, mint.as_ref(), account.as_ref()]
 }
 
 /********************************* TRANSFER *********************************/

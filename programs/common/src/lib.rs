@@ -38,8 +38,8 @@ pub enum CommonError {
     RoleOutOfBounds,
     #[msg("Signer does not hold the required role")]
     MissingRole,
-    #[msg("A whitelist PDA does not match the one derived for its destination")]
-    WhitelistPdaMismatch,
+    #[msg("A control-list PDA does not match the one derived for its destination")]
+    ControlListPdaMismatch,
     #[msg("Amount exceeds the balance left spendable by the account's hold liens")]
     InsufficientSpendableBalance,
     #[msg("Provided hold_position_pda does not match the derived PDA for this account")]
@@ -119,23 +119,23 @@ pub fn require_role(roles_pda: Ref<Roles>, role: u16) -> Result<()> {
     Ok(())
 }
 
-/// Validates that a `whitelist_pda` is the canonical PDA owned by `transfer-control`.
+/// Validates that a `control_list_pda` is the canonical PDA owned by `transfer-control`.
 ///
-/// Returns `Ok(())` if the whitelist PDA is correct.
-/// Returns `Err(CommonError::WhitelistPdaMismatch)` on a mismatch.
-pub fn verify_whitelist_pda(
-    whitelist_pda: &AccountInfo,
+/// Returns `Ok(())` if the control-list PDA is correct.
+/// Returns `Err(CommonError::ControlListPdaMismatch)` on a mismatch.
+pub fn verify_control_list_pda(
+    control_list_pda: &AccountInfo,
     destination: &Pubkey,
     mint: &Pubkey,
 ) -> Result<()> {
-    let (expected_whitelist_pda, _) = Pubkey::find_program_address(
-        &pda_seeds::whitelist_seeds(mint, destination),
+    let (expected_control_list_pda, _) = Pubkey::find_program_address(
+        &pda_seeds::control_list_seeds(mint, destination),
         &program_ids::TRANSFER_CONTROL_PROGRAM_ID,
     );
     require_keys_eq!(
-        whitelist_pda.key(),
-        expected_whitelist_pda,
-        CommonError::WhitelistPdaMismatch
+        control_list_pda.key(),
+        expected_control_list_pda,
+        CommonError::ControlListPdaMismatch
     );
 
     Ok(())
