@@ -16,6 +16,7 @@ import {
 import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export const TRANSFER_CONTROL_WHITELIST = { whitelist: {} };
+export const TRANSFER_CONTROL_BLACKLIST = { blacklist: {} };
 
 export function getTransferControlProgram(): Program<TransferControl> {
   return anchor.workspace.TransferControl as Program<TransferControl>;

@@ -180,7 +180,8 @@ in order.
 4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda,
    &[&source_control_list_pda, &destination_control_list_pda])` — a no-op when
    `transfer_control_mode_pda` is empty (no mode active); in Whitelist mode both
-   markers must exist, else `NotWhitelisted`.
+   markers must exist, else `NotWhitelisted`; in Blacklist mode neither may exist,
+   else `Blacklisted`.
 5. `freeze::require_unfrozen_account(&source_frozen_pda)` — the source must not be
    fully frozen, else `AccountFrozen`.
 6. Sum `freeze::frozen_balance(&source_frozen_balance_pda)?` and
@@ -266,7 +267,7 @@ pub enum TransferHookError {
 ```
 
 Compliance failures propagate from the helpers the hook calls:
-`common::CommonError::Deactivated`, `transfer_control::TransferControlError::NotWhitelisted`,
+`common::CommonError::Deactivated`, `transfer_control::TransferControlError::{NotWhitelisted, Blacklisted}`,
 `freeze::ErrorCode::{AccountFrozen, InsufficientUnfrozenBalance}`, and the
 functionality errors from `common::require_functionality`.
 

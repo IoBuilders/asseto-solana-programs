@@ -77,8 +77,8 @@ must be **appended** to that list.
 | 11 | `deactivate_pda` | no | no | seeds `["deactivate", mint]`; must be empty (mint not deactivated) |
 | 12 | `transfer_control_program` | no | no | `TRANSFER_CONTROL_PROGRAM_ID` |
 | 13 | `transfer_control_mode_pda` | no | no | seeds `["transfer_control_mode", mint]`; may be empty (no mode active) |
-| 14 | `source_control_list_pda` | no | no | seeds `["control_list", mint, source]`; must exist in Whitelist mode |
-| 15 | `destination_control_list_pda` | no | no | seeds `["control_list", mint, destination]`; must exist in Whitelist mode |
+| 14 | `source_control_list_pda` | no | no | seeds `["control_list", mint, source]`; must exist in Whitelist mode, must not in Blacklist mode |
+| 15 | `destination_control_list_pda` | no | no | seeds `["control_list", mint, destination]`; must exist in Whitelist mode, must not in Blacklist mode |
 | 16 | `freeze_program` | no | no | `FREEZE_PROGRAM_ID` |
 | 17 | `source_frozen_pda` | no | no | seeds `["frozen_account", mint, source]`; must be empty |
 | 18 | `source_frozen_balance_pda` | no | no | seeds `["frozen_balance", mint, source]`; may be empty (no partial freeze) |
@@ -200,7 +200,7 @@ pub enum TransferError {
 ```
 
 Compliance errors come from the hook and propagate from its helpers
-(`Deactivated`, `NotWhitelisted`, `AccountFrozen`, `InsufficientUnfrozenBalance`,
+(`Deactivated`, `NotWhitelisted`, `Blacklisted`, `AccountFrozen`, `InsufficientUnfrozenBalance`,
 `FunctionalityNotSupportedError`); see [`transfer-hook.md`](transfer-hook.md).
 
 ---

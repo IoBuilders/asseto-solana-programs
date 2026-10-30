@@ -1,9 +1,16 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { PublicKey, SendTransactionError } from "@solana/web3.js";
+import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
-import { createTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
+import {
+  createTokenAccount,
+  getTokenAccount,
+  mintTokensViaSurfpool,
+  setMintPaused,
+} from "./program_helpers/spl_token_helper";
+import { mintTokens } from "./program_helpers/mint/mint_instruction_helper";
+import { splTransfer } from "./program_helpers/transfer_helper";
 import {
   addToControlList,
   getAccountRemovedFromControlListEvent,
@@ -12,6 +19,7 @@ import {
   removeFromControlList,
   initializeTransferControlMode,
   TRANSFER_CONTROL_WHITELIST,
+  TRANSFER_CONTROL_BLACKLIST,
   getTransferControlProgram,
 } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { getAccountInfo } from "./program_helpers/account_helper";
@@ -21,10 +29,12 @@ import {
 } from "./program_helpers/factory/factory_pda_helper";
 import {
   DEACTIVATE_DEACTIVATE,
+  MINT_MINT,
   PAUSE_PAUSE,
   TRANSFER_CONTROL_ADD_TO_CONTROL_LIST,
   TRANSFER_CONTROL_REMOVE_FROM_CONTROL_LIST,
   TRANSFER_CONTROL_INITIALIZE,
+  TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
 import {
   getTransferControlModeByPda,
@@ -33,10 +43,12 @@ import {
   transferControlModePdaWithBump,
   controlListPda,
   controlListPdaWithBump,
+  setControlListMarker,
+  setTransferControlModeMarker,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
-import { ROLE_CONTROL_LIST } from "./utils/roles";
+import { ROLE_CONTROL_LIST, ROLE_ISSUER } from "./utils/roles";
 
 describe("transfer-control", () => {
   const provider = anchor.AnchorProvider.env();
@@ -92,6 +104,49 @@ describe("transfer-control", () => {
         "event operator should match authority"
       );
       assert.deepEqual(modeSetEvent!.mode, mode, `event mode should be ${mode}`);
+    });
+
+    // ── Happy-path: initialize with mode = Blacklist ──────────────────────────────
+    it("initialize: creates the transfer_control_mode PDA with mode = Blacklist", async () => {
+      const mode = TRANSFER_CONTROL_BLACKLIST;
+      const transferControlMode = transferControlModePda(mint);
+      const [, expectedBump] = transferControlModePdaWithBump(mint);
+
+      const { signature } = await initializeTransferControlMode({ authority, mint }, { mode });
+
+      const state = await getTransferControlModeByPda(transferControlMode);
+      const accountInfo = await getAccountInfo(transferControlMode);
+      const expectedSize = getTransferControlProgram().account.transferControlMode.size;
+
+      assert.isNotNull(state, "transfer_control_mode PDA should exist after initialize");
+      assert.deepEqual(state.mode, mode, "mode should be Blacklist");
+      assert.equal(state.bump, expectedBump, "bump should match the canonical bump");
+      // Data-less variant: same account size as Whitelist.
+      assert.equal(accountInfo.data.length, expectedSize, `PDA size should be ${expectedSize} bytes`);
+
+      const modeSetEvent = await getTransferControlModeSetEvent(signature);
+      assert.isNotNull(modeSetEvent, "TransferControlModeSet event should be emitted");
+      assert.deepEqual(modeSetEvent!.mode, mode, "event mode should be Blacklist");
+    });
+
+    // ── Error case: initialize — mode is immutable once set ───────────────────────
+    it("initialize: cannot switch an existing Blacklist mode to Whitelist", async () => {
+      await initializeTransferControlMode({ authority, mint }, { mode: TRANSFER_CONTROL_BLACKLIST });
+
+      try {
+        await initializeTransferControlMode({ authority, mint }, { mode: TRANSFER_CONTROL_WHITELIST });
+        assert.fail("Expected failure but initialize overwrote the existing mode");
+      } catch (err) {
+        assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
+        const logs = (err as SendTransactionError).logs ?? [];
+        assert.isTrue(
+          logs.some((l) => l.includes("already in use")),
+          "transaction logs should mention account already in use"
+        );
+      }
+
+      const state = await getTransferControlModeByPda(transferControlModePda(mint));
+      assert.deepEqual(state.mode, TRANSFER_CONTROL_BLACKLIST, "mode should still be Blacklist");
     });
 
     // ── Error case: initialize — PDA already exists ────────────────────────────────
@@ -454,6 +509,141 @@ describe("transfer-control", () => {
           "error code should be AssetClassVersionNotFinalized"
         );
       }
+    });
+  });
+
+  // verify_transfer_control_mode is a linked-in check, so it is exercised through its
+  // enforcement call sites: mint::mint (receive) and transfer-hook::execute (send/receive).
+  describe("verify_transfer_control_mode", async () => {
+    const MINT_AMOUNT = new anchor.BN(1_000);
+    const TRANSFER_AMOUNT = new anchor.BN(400);
+    const sourceOwnerKeypair = Keypair.generate();
+    const sourceOwner = sourceOwnerKeypair.publicKey;
+    const destinationOwner = Keypair.generate().publicKey;
+
+    beforeEach(async () => {
+      await setAssetClassVersionForMint(mint, { functionalities: [MINT_MINT, TRANSFER_HOOK_EXECUTE] });
+      await setRoles(mint, authority.publicKey, [ROLE_ISSUER]);
+    });
+
+    async function fundedSourceAndDestination(): Promise<{ source: PublicKey; destination: PublicKey }> {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const destination = await createTokenAccount({ mint, owner: destinationOwner });
+      return { source, destination };
+    }
+
+    async function transfer(source: PublicKey, destination: PublicKey): Promise<void> {
+      await splTransfer(
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { amount: TRANSFER_AMOUNT }
+      );
+    }
+
+    async function assertFailsWith(code: string, fn: () => Promise<unknown>): Promise<void> {
+      try {
+        await fn();
+        assert.fail(`Expected ${code} but instruction succeeded`);
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, code, `error code should be ${code}`);
+      }
+    }
+
+    async function balance(account: PublicKey): Promise<string> {
+      return (await getTokenAccount(account)).amount.toString();
+    }
+
+    describe("Blacklist mode", async () => {
+      beforeEach(async () => {
+        await setTransferControlModeMarker(mint, TRANSFER_CONTROL_BLACKLIST);
+      });
+
+      it("mint: succeeds to a destination that is not in the control list", async () => {
+        const destination = await createTokenAccount({ mint, owner: destinationOwner });
+
+        await mintTokens({ mint, destination, authority }, { amount: MINT_AMOUNT });
+
+        assert.equal(await balance(destination), MINT_AMOUNT.toString());
+      });
+
+      it("mint: fails with Blacklisted when the destination is in the control list", async () => {
+        const destination = await createTokenAccount({ mint, owner: destinationOwner });
+        await setControlListMarker(mint, destination);
+
+        await assertFailsWith("Blacklisted", () => mintTokens({ mint, destination, authority }));
+
+        assert.equal(await balance(destination), "0", "blocked destination must not receive tokens");
+      });
+
+      it("transfer: succeeds when neither source nor destination is in the control list", async () => {
+        const { source, destination } = await fundedSourceAndDestination();
+
+        await transfer(source, destination);
+
+        assert.equal(await balance(source), MINT_AMOUNT.sub(TRANSFER_AMOUNT).toString());
+        assert.equal(await balance(destination), TRANSFER_AMOUNT.toString());
+      });
+
+      it("transfer: fails with Blacklisted when the source is in the control list", async () => {
+        const { source, destination } = await fundedSourceAndDestination();
+        await setControlListMarker(mint, source);
+
+        await assertFailsWith("Blacklisted", () => transfer(source, destination));
+
+        assert.equal(await balance(source), MINT_AMOUNT.toString(), "source balance must be unchanged");
+        assert.equal(await balance(destination), "0", "destination balance must be unchanged");
+      });
+
+      it("transfer: fails with Blacklisted when the destination is in the control list", async () => {
+        const { source, destination } = await fundedSourceAndDestination();
+        await setControlListMarker(mint, destination);
+
+        await assertFailsWith("Blacklisted", () => transfer(source, destination));
+
+        assert.equal(await balance(source), MINT_AMOUNT.toString(), "source balance must be unchanged");
+        assert.equal(await balance(destination), "0", "destination balance must be unchanged");
+      });
+    });
+
+    describe("Whitelist mode (regression)", async () => {
+      beforeEach(async () => {
+        await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
+      });
+
+      it("mint: succeeds to a destination in the control list", async () => {
+        const destination = await createTokenAccount({ mint, owner: destinationOwner });
+        await setControlListMarker(mint, destination);
+
+        await mintTokens({ mint, destination, authority }, { amount: MINT_AMOUNT });
+
+        assert.equal(await balance(destination), MINT_AMOUNT.toString());
+      });
+
+      it("mint: fails with NotWhitelisted when the destination is not in the control list", async () => {
+        const destination = await createTokenAccount({ mint, owner: destinationOwner });
+
+        await assertFailsWith("NotWhitelisted", () => mintTokens({ mint, destination, authority }));
+      });
+
+      it("transfer: succeeds when source and destination are both in the control list", async () => {
+        const { source, destination } = await fundedSourceAndDestination();
+        await setControlListMarker(mint, source);
+        await setControlListMarker(mint, destination);
+
+        await transfer(source, destination);
+
+        assert.equal(await balance(destination), TRANSFER_AMOUNT.toString());
+      });
+
+      it("transfer: fails with NotWhitelisted when the destination is not in the control list", async () => {
+        const { source, destination } = await fundedSourceAndDestination();
+        await setControlListMarker(mint, source);
+
+        await assertFailsWith("NotWhitelisted", () => transfer(source, destination));
+
+        assert.equal(await balance(source), MINT_AMOUNT.toString(), "source balance must be unchanged");
+      });
     });
   });
 });

@@ -18,7 +18,10 @@ import {
   batchMintTokens,
   getIssuedEvents,
 } from "./program_helpers/mint/mint_instruction_helper";
-import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
+import {
+  TRANSFER_CONTROL_BLACKLIST,
+  TRANSFER_CONTROL_WHITELIST,
+} from "./program_helpers/transfer_control/transfer_control_instruction_helper";
 import { beforeEach } from "mocha";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -420,6 +423,41 @@ describe("batch_mint", () => {
     }
     const listedAccount = await getTokenAccount(listed);
     assert.equal(listedAccount.amount.toString(), "0", "the listed destination should not keep a partial mint");
+    const mintInfo = await getMint(mint);
+    assert.equal(mintInfo.supply.toString(), "0", "total supply should be unchanged after a reverted batch");
+  });
+
+  it("batch_mint: succeeds in Blacklist mode when no destination is in the control list", async () => {
+    const first = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const second = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    await setTransferControlModeMarker(mint, TRANSFER_CONTROL_BLACKLIST);
+
+    await batchMintTokens({ mint, authority, destinations: [first, second] });
+
+    assert.equal((await getTokenAccount(first)).amount.toString(), "1");
+    assert.equal((await getTokenAccount(second)).amount.toString(), "1");
+  });
+
+  it("batch_mint: fails with Blacklisted when Blacklist mode is active and a destination is in the control list", async () => {
+    const notBlocked = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const blocked = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    await setTransferControlModeMarker(mint, TRANSFER_CONTROL_BLACKLIST);
+    await setControlListMarker(mint, blocked); // only the second destination is blocked
+
+    try {
+      await batchMintTokens({ mint, authority, destinations: [notBlocked, blocked] });
+      assert.fail("Expected Blacklisted error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError);
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "Blacklisted");
+    }
+    const notBlockedAccount = await getTokenAccount(notBlocked);
+    assert.equal(
+      notBlockedAccount.amount.toString(),
+      "0",
+      "the non-blocked destination should not keep a partial mint"
+    );
     const mintInfo = await getMint(mint);
     assert.equal(mintInfo.supply.toString(), "0", "total supply should be unchanged after a reverted batch");
   });

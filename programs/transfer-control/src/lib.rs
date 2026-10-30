@@ -27,7 +27,8 @@ pub fn verify_control_list_membership(control_list_pda: &AccountInfo) -> Result<
 /// Checks that every `control_list_pda` satisfies the active transfer control mode.
 ///
 /// Returns `Ok(())` if the all the PDAs comply with the transfer control mode.
-/// Returns `Err(TransferControlError::NotWhitelisted)` if any PDA does not comply.
+/// Returns `Err(TransferControlError::NotWhitelisted)` (Whitelist) or
+/// `Err(TransferControlError::Blacklisted)` (Blacklist) if any PDA does not comply.
 pub fn verify_transfer_control_mode<'info>(
     transfer_control_mode_pda: &'info AccountInfo<'info>,
     control_list_pdas: &[&AccountInfo],
@@ -39,9 +40,19 @@ pub fn verify_transfer_control_mode<'info>(
     let transfer_control_mode =
         Account::<TransferControlMode>::try_from(transfer_control_mode_pda)?;
 
-    if transfer_control_mode.mode == TransferMode::Whitelist {
-        for control_list_pda in control_list_pdas {
-            verify_control_list_membership(control_list_pda)?;
+    match transfer_control_mode.mode {
+        TransferMode::Whitelist => {
+            for control_list_pda in control_list_pdas {
+                verify_control_list_membership(control_list_pda)?;
+            }
+        }
+        TransferMode::Blacklist => {
+            for control_list_pda in control_list_pdas {
+                require!(
+                    control_list_pda.data_is_empty(),
+                    errors::TransferControlError::Blacklisted
+                );
+            }
         }
     }
 

@@ -2,11 +2,12 @@
 
 Program ID: `3h92PdZJB7TuCzp6iPDtrJm2k8V7fn5ETYNwCYiYy9Eo`
 
-Governs who may transfer tokens for a given mint. One mode is currently supported:
+Governs who may transfer tokens for a given mint. The mode is chosen once, at `initialize`, and cannot be changed afterwards (same as EVM's `ControlList.initializeControlList`):
 
 | Mode | Effect |
 |---|---|
 | **Whitelist** | Both source and destination must be individually in the control list before a transfer is allowed |
+| **Blacklist** | Neither source nor destination may be in the control list; every other account may transfer |
 
 If no mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
 
@@ -24,7 +25,7 @@ pub struct TransferControlMode {
     pub bump: u8,
 }
 
-pub enum TransferMode { Whitelist }
+pub enum TransferMode { Whitelist, Blacklist }  // data-less: 1-byte Borsh tag, account size is the same for both
 
 // Seeds: ["transfer_control_mode", mint]
 ```
@@ -36,7 +37,7 @@ pub enum TransferMode { Whitelist }
 ```rust
 pub enum TransferControlError {
     NotWhitelisted,  // Whitelist mode is active and a control_list_pda passed to verify_transfer_control_mode is empty
-    Blacklisted,     // reserved for Blacklist mode (a control_list_pda exists); not raised yet — no Blacklist mode exists
+    Blacklisted,     // Blacklist mode is active and a control_list_pda passed to verify_transfer_control_mode exists
 }
 ```
 
@@ -68,6 +69,7 @@ pub fn verify_transfer_control_mode(
 - If `transfer_control_mode_pda` has empty data, no mode is active — returns `Ok(())` immediately.
 - Otherwise, Borsh-deserializes `TransferControlMode` from the account data (via `Account::<TransferControlMode>::try_from`, which checks the owner is `transfer-control` and the discriminator).
 - If `mode == TransferMode::Whitelist`, every account in `control_list_pdas` is checked with `data_is_empty()`; an empty account (not in the control list) errors with `TransferControlError::NotWhitelisted`.
+- If `mode == TransferMode::Blacklist`, the condition is inverted: an existing account (in the control list) errors with `TransferControlError::Blacklisted`.
 
 Called by `mint::mint` (with the single `destination_control_list_pda`), `mint::batch_mint` (with every destination's control-list PDA, after re-deriving each with `common::verify_control_list_pda`), `hold::execute_hold` (with both source and destination) and `transfer-hook::execute` (with both `source_control_list_pda` and `destination_control_list_pda`).
 
@@ -78,7 +80,7 @@ Called by `mint::mint` (with the single `destination_control_list_pda`), `mint::
 ### Parameters
 
 ```rust
-mode: TransferMode
+mode: TransferMode   // Whitelist | Blacklist
 ```
 
 Creates `transfer_control_mode_pda` (`init`, fixed space) and writes `mode` into it. Unlike a resizable/closable design, this instruction only creates the PDA — there is currently no instruction to close it or change the mode afterward.
