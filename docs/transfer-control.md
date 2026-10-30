@@ -36,8 +36,11 @@ pub enum TransferMode { Whitelist }
 ```rust
 pub enum TransferControlError {
     NotWhitelisted,  // Whitelist mode is active and a control_list_pda passed to verify_transfer_control_mode is empty
+    Blacklisted,     // reserved for Blacklist mode (a control_list_pda exists); not raised yet — no Blacklist mode exists
 }
 ```
+
+Each mode fails with its own error, because the failure condition is opposite: Whitelist rejects an account that is *missing* from the control list, Blacklist one that is *present*. `Blacklisted` is appended after `NotWhitelisted` so existing error codes stay stable.
 
 ---
 
@@ -49,7 +52,7 @@ pub enum TransferControlError {
 pub fn verify_control_list_membership(control_list_pda: &AccountInfo) -> Result<()>
 ```
 
-Returns `Ok(())` if `control_list_pda` exists (non-empty data — the account is in the control list), else `Err(TransferControlError::NotWhitelisted)`. A standalone existence check for callers that can't use `verify_transfer_control_mode` because their control-list PDAs aren't seed-constrained by Anchor — e.g. `mint::batch_mint`, which reads one control-list PDA per destination from `remaining_accounts` and must first re-derive/match its address with `common::verify_control_list_pda` before calling this.
+Returns `Ok(())` if `control_list_pda` exists (non-empty data — the account is in the control list), else `Err(TransferControlError::NotWhitelisted)`. This is the mode-blind membership primitive that `verify_transfer_control_mode` applies in Whitelist mode. Callers outside this crate should use `verify_transfer_control_mode` instead, which only treats a missing PDA as a failure when the active mode says so.
 
 ### `verify_transfer_control_mode`
 
@@ -63,10 +66,10 @@ pub fn verify_transfer_control_mode(
 `transfer_control_mode_pda` and every `control_list_pda` are raw, unchecked PDAs — their address is verified by the caller's `seeds`/`bump` constraints, but Anchor does not deserialize their contents. Behaviour:
 
 - If `transfer_control_mode_pda` has empty data, no mode is active — returns `Ok(())` immediately.
-- Otherwise, Borsh-deserializes `TransferControlMode` from the account data (via `try_deserialize`, which also checks the discriminator).
+- Otherwise, Borsh-deserializes `TransferControlMode` from the account data (via `Account::<TransferControlMode>::try_from`, which checks the owner is `transfer-control` and the discriminator).
 - If `mode == TransferMode::Whitelist`, every account in `control_list_pdas` is checked with `data_is_empty()`; an empty account (not in the control list) errors with `TransferControlError::NotWhitelisted`.
 
-Called by `mint::mint` (with the single `destination_control_list_pda`) and `transfer-hook::execute` (with both `source_control_list_pda` and `destination_control_list_pda`).
+Called by `mint::mint` (with the single `destination_control_list_pda`), `mint::batch_mint` (with every destination's control-list PDA, after re-deriving each with `common::verify_control_list_pda`), `hold::execute_hold` (with both source and destination) and `transfer-hook::execute` (with both `source_control_list_pda` and `destination_control_list_pda`).
 
 ---
 

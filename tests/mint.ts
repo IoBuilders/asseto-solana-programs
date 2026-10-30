@@ -418,6 +418,10 @@ describe("batch_mint", () => {
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "NotWhitelisted");
     }
+    const listedAccount = await getTokenAccount(listed);
+    assert.equal(listedAccount.amount.toString(), "0", "the listed destination should not keep a partial mint");
+    const mintInfo = await getMint(mint);
+    assert.equal(mintInfo.supply.toString(), "0", "total supply should be unchanged after a reverted batch");
   });
 
   it("batch_mint: fails with FunctionalityNotSupportedError when the mint functionality is not enabled", async () => {
@@ -496,8 +500,6 @@ describe("batch_mint", () => {
   it("batch_mint: fails with ControlListPdaMismatch when a remaining control-list PDA is not the derived one", async () => {
     const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const other = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
-    // The control-list PDA is only checked when Whitelist mode is active.
-    await setTransferControlModeMarker(mint, TRANSFER_CONTROL_WHITELIST);
 
     try {
       await batchMintTokens(

@@ -121,7 +121,7 @@ pub fn verify_control_list_pda(
 ) -> Result<()>
 ```
 
-Re-derives the canonical `["control_list", mint, destination]` PDA (owned by `transfer-control`) and checks it matches `control_list_pda.key()`, returning `Err(CommonError::ControlListPdaMismatch)` on a mismatch. Needed only where a control-list PDA arrives without an Anchor `seeds` constraint — e.g. `mint::batch_mint`, which reads a control-list PDA per destination from `remaining_accounts` (Anchor can't constrain seeds against a dynamic account list). Whether the PDA must *exist* (Whitelist mode active) is a separate check left to the caller — see `transfer_control::verify_control_list_membership`.
+Re-derives the canonical `["control_list", mint, destination]` PDA (owned by `transfer-control`) and checks it matches `control_list_pda.key()`, returning `Err(CommonError::ControlListPdaMismatch)` on a mismatch. Needed only where a control-list PDA arrives without an Anchor `seeds` constraint — e.g. `mint::batch_mint`, which reads a control-list PDA per destination from `remaining_accounts` (Anchor can't constrain seeds against a dynamic account list). Whether the PDA must *exist* is a separate, mode-aware check left to the caller — see `transfer_control::verify_transfer_control_mode`.
 
 ---
 

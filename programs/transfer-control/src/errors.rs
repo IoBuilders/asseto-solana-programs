@@ -4,4 +4,6 @@ use anchor_lang::prelude::*;
 pub enum TransferControlError {
     #[msg("The account is not whitelisted")]
     NotWhitelisted,
+    #[msg("The account is blacklisted")]
+    Blacklisted,
 }
