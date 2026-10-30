@@ -84,7 +84,7 @@ asseto-solana-programs/
 │   ├── operations/           — permanent-delegate operations: burn (`burn` + `batch_burn`, co-signed by the `permissioned_burn` PDA), force-transfer (`controller_transfer`) + `hold_transfer` (auxiliary, CPI-only from `hold`)
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
-│   ├── transfer-control/     — control list (`Whitelist` mode): `initialize` sets the mode, `add_to_control_list` / `remove_from_control_list` manage per-account markers
+│   ├── transfer-control/     — control list (`Whitelist` / `Blacklist` mode, fixed at `initialize`): `initialize` sets the mode, `add_to_control_list` / `remove_from_control_list` manage per-account markers
 │   ├── transfer/             — a single instruction, `batch_transfer` (one source holder → N destinations via `remaining_accounts`, 2 accounts per leg); the singular path has no instruction here at all — the client submits Token-2022's own `transfer_checked` with the hook's accounts appended. No compliance logic: it only forwards the hook block per leg
 │   ├── transfer-hook/        — SPL Transfer Hook; read-only gate holding the whole compliance suite (deactivation, transfer-mode/control list, frozen account, post-debit cover of the partial-freeze **and** hold liens) + `TRANSFER_HOOK_EXECUTE` functionality check. No introspection, no sysvar; bypasses every check when the authority is the `permanent_delegate` PDA. Writes nothing
 │   ├── snapshot/             — snapshot counter + one immutable Merkle-root PDA per snapshot (`take_snapshot(merkle_root)`)
@@ -201,7 +201,7 @@ Auxiliary instructions cannot be called by any external wallet. `take_snapshot` 
 | `["permissioned_burn", mint]` | `operations` | Token-2022 PermissionedBurn authority; co-signs every burn alongside `permanent_delegate` |
 | `["pausable_authority", mint]` | `pause` | Token-2022 Pausable authority |
 | `["deactivate", mint]` | `deactivate` | Marker: mint permanently deactivated |
-| `["transfer_control_mode", mint]` | `transfer-control` | Stores the active `TransferMode` (currently only `Whitelist`) + bump; created once by `initialize` (no close/update path) |
+| `["transfer_control_mode", mint]` | `transfer-control` | Stores the active `TransferMode` (`Whitelist` or `Blacklist`) + bump; created once by `initialize` (no close/update path) |
 | `["control_list", mint, account]` | `transfer-control` | Marker: account is in the control list |
 | `["transfer_hook_authority", mint]` | `transfer-hook` | Token-2022 TransferHook extension authority (set on the mint by `deploy_mint`); not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | `transfer-hook` | SPL ExtraAccountMetaList for the hook |
