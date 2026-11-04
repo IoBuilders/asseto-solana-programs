@@ -7,7 +7,9 @@ import { assetConfigurationPda } from "../deploy/deploy_pda_helper";
 import { BaseWriteContext, MintContext, MintWriteWithPayerContext } from "../base_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { assetClassVersionPdaForMint } from "../factory/factory_pda_helper";
-import { rolesPda } from "./access_control_pda_helper";
+import { getEvent } from "../event_helper";
+import { accessControlEventAuthorityPda, rolesPda } from "./access_control_pda_helper";
+import { ACCESS_CONTROL_PROGRAM_ID } from "../../utils/address_utils";
 
 export function getAccessControlProgram(): Program<AccessControl> {
   return anchor.workspace.AccessControl as Program<AccessControl>;
@@ -39,6 +41,8 @@ export async function initialize(callContext: InitializeContext): Promise<{ sign
       mint,
       rolesPda: rolesPda(mint, account.publicKey),
       systemProgram: SYSTEM_PROGRAM_ID,
+      eventAuthority: accessControlEventAuthorityPda(),
+      program: ACCESS_CONTROL_PROGRAM_ID,
     })
     .signers(callContext.signers ?? [tempMintAuthority, account])
     .rpc({ commitment: "confirmed" });
@@ -75,6 +79,8 @@ export async function grantRoles(callContext: GrantRolesContext, args: GrantRole
       rolesPda: rolesPda(mint, account),
       systemProgram: SYSTEM_PROGRAM_ID,
       assetClassVersionPda: await assetClassVersionPdaForMint(mint),
+      eventAuthority: accessControlEventAuthorityPda(),
+      program: ACCESS_CONTROL_PROGRAM_ID,
     })
     .signers(callContext.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
@@ -111,9 +117,28 @@ export async function revokeRoles(
       mint,
       rolesPda: rolesPda(mint, account),
       assetClassVersionPda: await assetClassVersionPdaForMint(mint),
+      eventAuthority: accessControlEventAuthorityPda(),
+      program: ACCESS_CONTROL_PROGRAM_ID,
     })
     .signers(callContext.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
 
   return { signature };
+}
+
+// ── events ───────────────────────────────────────────────────────────────────
+
+type RolesChangedEvent = {
+  mint: PublicKey;
+  account: PublicKey;
+  operator: PublicKey;
+  roles: number[];
+};
+
+export async function getRolesGrantedEvent(signature: string) {
+  return getEvent<RolesChangedEvent>(getAccessControlProgram(), signature, "rolesGranted");
+}
+
+export async function getRolesRevokedEvent(signature: string) {
+  return getEvent<RolesChangedEvent>(getAccessControlProgram(), signature, "rolesRevoked");
 }

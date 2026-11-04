@@ -81,3 +81,9 @@ function encodeRoles(bump: number, mask: Buffer): Buffer {
 
   return Buffer.concat([discriminator, header, mask]);
 }
+
+// ── __event_authority PDA ──────────────────────────────────────────────────────
+
+export function accessControlEventAuthorityPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], ACCESS_CONTROL_PROGRAM_ID)[0];
+}

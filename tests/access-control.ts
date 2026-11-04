@@ -4,6 +4,8 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import {
+  getRolesGrantedEvent,
+  getRolesRevokedEvent,
   grantRoles,
   initialize,
   revokeRoles,
@@ -75,7 +77,14 @@ describe("access-control", () => {
     it("creates the roles PDA and sets the requested role bits", async () => {
       const roles = [10, 200, 1000];
 
-      await grantRoles({ authority, mint, account }, { roles });
+      const { signature } = await grantRoles({ authority, mint, account }, { roles });
+
+      const event = await getRolesGrantedEvent(signature);
+      assert.isNotNull(event, "RolesGranted event should be emitted");
+      assert.equal(event!.mint.toBase58(), mint.toBase58());
+      assert.equal(event!.account.toBase58(), account.toBase58());
+      assert.equal(event!.operator.toBase58(), authority.publicKey.toBase58());
+      assert.deepEqual(event!.roles, roles);
 
       const [, expectedBump] = rolesPdaWithBump(mint, account);
       const rolesAccount = await getRoles(mint, account);
@@ -185,7 +194,14 @@ describe("access-control", () => {
       // Plant a pre-existing roles PDA so only revoke_roles is exercised here.
       await setRoles(mint, account, [2, 4, 6]);
 
-      await revokeRoles({ authority, mint, account }, { roles: [4] });
+      const { signature } = await revokeRoles({ authority, mint, account }, { roles: [4] });
+
+      const event = await getRolesRevokedEvent(signature);
+      assert.isNotNull(event, "RolesRevoked event should be emitted");
+      assert.equal(event!.mint.toBase58(), mint.toBase58());
+      assert.equal(event!.account.toBase58(), account.toBase58());
+      assert.equal(event!.operator.toBase58(), authority.publicKey.toBase58());
+      assert.deepEqual(event!.roles, [4]);
 
       const rolesAccount = await getRoles(mint, account);
       assert.isFalse(isRoleGranted(rolesAccount.mask, 4), "revoked role 4 should be cleared");

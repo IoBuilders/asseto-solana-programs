@@ -318,6 +318,11 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
             mint: ctx.accounts.mint.to_account_info(),
             roles_pda: ctx.accounts.roles_pda.to_account_info(),
             system_program: ctx.accounts.system_program.to_account_info(),
+            event_authority: ctx
+                .accounts
+                .access_control_event_authority
+                .to_account_info(),
+            program: ctx.accounts.access_control_program.to_account_info(),
         },
         &[temp_mint_authority_signer_seeds.as_slice()],
     ))?;
@@ -459,4 +464,7 @@ pub struct DeployMint<'info> {
     /// CHECK: Address verified by constraint.
     #[account(address = constants::ACCESS_CONTROL_PROGRAM_ID)]
     pub access_control_program: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by the access-control program.
+    pub access_control_event_authority: UncheckedAccount<'info>,
 }

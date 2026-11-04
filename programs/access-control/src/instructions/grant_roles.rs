@@ -7,6 +7,7 @@ use common::{
 };
 
 use crate::errors::AccessControlError;
+use crate::events::RolesGranted;
 use crate::state::Roles;
 
 pub fn grant_roles(ctx: Context<GrantRoles>, roles: Vec<u16>) -> Result<()> {
@@ -31,9 +32,17 @@ pub fn grant_roles(ctx: Context<GrantRoles>, roles: Vec<u16>) -> Result<()> {
     bitmask::set_bits(&mut roles_account.mask, &roles)
         .map_err(|_| error!(AccessControlError::RoleOutOfBounds))?;
 
+    emit_cpi!(RolesGranted {
+        mint: ctx.accounts.mint.key(),
+        account: ctx.accounts.account.key(),
+        operator: ctx.accounts.authority.key(),
+        roles,
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct GrantRoles<'info> {
     #[account(mut)]

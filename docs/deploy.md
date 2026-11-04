@@ -94,6 +94,7 @@ pub struct MetadataField {
 | `rent` | no | no | Sysvar<Rent> | |
 | `roles_pda` | yes | no | UncheckedAccount | seeds `["roles", mint, deployer]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; created via the CPI in step 15 |
 | `access_control_program` | no | no | UncheckedAccount | address constrained to `ACCESS_CONTROL_PROGRAM_ID`; the program invoked by the step 15 CPI |
+| `access_control_event_authority` | no | no | UncheckedAccount | `access-control`'s `#[event_cpi]` PDA (seeds `["__event_authority"]`, verified by that program); forwarded in the step 15 CPI so `RolesGranted` can be emitted |
 
 ### 15-Step Execution
 
@@ -155,6 +156,7 @@ pub struct MetadataField {
 **15 — CPI → `access_control::initialize`** (signed by `temp_mint_authority`)
 - Grants `ROLE_ADMIN` to the `deployer` on this mint by creating the `roles_pda` (`[mint, deployer]`, owned by `access-control`).
 - Passes `temp_mint_authority` as signer via `invoke_signed`; `access-control::initialize` checks the caller is exactly the deploy `["temp_mint_authority", mint]` PDA, so no external wallet can invoke it directly.
+- Emits `access-control`'s `RolesGranted` event (via the forwarded `access_control_event_authority`).
 - `payer` funds the PDA; `deployer` (the `account` grantee) and `payer` sign the outer `deploy_mint` transaction, and those signatures propagate into the CPI.
 
 ### Why `temp_mint_authority`

@@ -78,6 +78,17 @@ last-admin-lockout guard; that is intentionally out of scope for now.
 
 ---
 
+## Events
+
+| Event | Emitted by | Fields |
+|---|---|---|
+| `RolesGranted` | `initialize`, `grant_roles` | `mint`, `account`, `operator`, `roles: Vec<u16>` |
+| `RolesRevoked` | `revoke_roles` | `mint`, `account`, `operator`, `roles: Vec<u16>` |
+
+`initialize` reuses `RolesGranted` so a single event stream reconstructs every role grant for a mint; its `operator` is the deployer itself (`account`). `roles` is the list requested by the caller, not the resulting mask — granting a role already held, or revoking one not held, is still reported.
+
+---
+
 ## Error codes (`AccessControlError`)
 
 | Code | Message |
@@ -122,12 +133,14 @@ originating `deploy_mint` transaction. Fails with `Unauthorized` otherwise.
 | `mint` | no | no | UncheckedAccount | Read-only; used as a `roles_pda` seed |
 | `roles_pda` | yes | no | `AccountLoader<Roles>` | init (fails if it already exists); seeds `["roles", mint, account]` |
 | `system_program` | no | no | Program<System> | |
+| `event_authority` / `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; the self-CPI that emits the event |
 
 ### Execution
 
 1. `require!(is_caller_pda(temp_mint_authority, …, DEPLOY_PROGRAM_ID), Unauthorized)`
 2. `load_init` the `roles_pda` (always freshly created) and write `bump`
 3. `common::bitmask::set_bits(&mut roles_pda.mask, &[ROLE_ADMIN])` — turns on the admin bit
+4. Emits `RolesGranted { mint, account, operator: account, roles: [ROLE_ADMIN] }` via `emit_cpi!`
 
 ---
 
@@ -160,6 +173,7 @@ bits outside `roles` are left untouched).
 | `roles_pda` | yes | no | `AccountLoader<Roles>` | init_if_needed; seeds `["roles", mint, account]` |
 | `system_program` | no | no | Program<System> | |
 | `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`, ids from `asset_configuration_pda`; checked by `require_functionality` |
+| `event_authority` / `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; the self-CPI that emits the event |
 
 ### Execution
 
@@ -169,6 +183,7 @@ bits outside `roles` are left untouched).
 4. `require_functionality(asset_class_version_pda.load()?, ACCESS_CONTROL_GRANT_ROLES)`
 5. Load the PDA: `load_init` (fresh account → also writes `bump`) or, if it already exists, `load_mut`
 6. `common::bitmask::set_bits(&mut roles_pda.mask, &roles)` — turns on each role bit
+7. Emits `RolesGranted { mint, account, operator: authority, roles }` via `emit_cpi!`
 
 ---
 
@@ -207,6 +222,13 @@ via `mask[byte] &= !(1 << bit)` (a targeted merge — bits outside `roles` are l
 4. `require_functionality(asset_class_version_pda.load()?, ACCESS_CONTROL_REVOKE_ROLES)`
 5. `load_mut` the PDA (fails at account resolution if it does not exist)
 6. `common::bitmask::clear_bits(&mut roles_pda.mask, &roles)` — turns off each role bit
+| `event_authority` / `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; the self-CPI that emits the event |
+
+### Execution
+
+1. `require_role(authority_roles_pda.load()?, ROLE_ADMIN)`, `require_not_paused`, `require_active`, `require_functionality(ACCESS_CONTROL_REVOKE_ROLES)`
+2. `load_mut` the `roles_pda`, then `common::bitmask::clear_bits(&mut roles_pda.mask, &roles)`
+3. Emits `RolesRevoked { mint, account, operator: authority, roles }` via `emit_cpi!`
 
 ---
 
