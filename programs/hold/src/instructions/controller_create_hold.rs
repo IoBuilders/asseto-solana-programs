@@ -33,8 +33,7 @@ pub fn controller_create_hold<'info>(
         mint: ctx.accounts.mint.key(),
         token_account: ctx.accounts.token_account.key(),
         balance: ctx.accounts.token_account.amount,
-        frozen_pda: &ctx.accounts.token_account_frozen_pda,
-        frozen_balance_pda: &ctx.accounts.token_account_frozen_balance_pda,
+        freeze_state_pda: &ctx.accounts.token_account_freeze_state_pda,
     };
 
     record_new_hold(
@@ -105,21 +104,13 @@ pub struct ControllerCreateHold<'info> {
     )]
     pub token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// CHECK: seeds verified; emptiness checked by require_unfrozen_account.
+    /// CHECK: seeds verified; read by freeze::freeze_status. May be empty (nothing frozen).
     #[account(
-        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), token_account.key().as_ref()],
+        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), token_account.key().as_ref()],
         seeds::program = constants::FREEZE_PROGRAM_ID,
         bump,
     )]
-    pub token_account_frozen_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; may be empty (no partial freeze). Balance read in the handler.
-    #[account(
-        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), token_account.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub token_account_frozen_balance_pda: UncheckedAccount<'info>,
+    pub token_account_freeze_state_pda: UncheckedAccount<'info>,
 
     #[account(
         init_if_needed,

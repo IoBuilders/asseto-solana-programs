@@ -80,7 +80,7 @@ asseto-solana-programs/
 │   ├── deploy/               — deploys mints; records the asset-class config/version ids in `asset_configuration_pda` (only for an existing, `Finalized` `factory` `AssetClassVersion`); bootstraps the deployer's `ROLE_ADMIN` via a CPI to `access-control::initialize`
 │   ├── mint/                 — controls token minting; `mint` (single destination, snapshot-integrated) + `batch_mint` (multiple destinations via `remaining_accounts`, not snapshot-integrated). Both enforce the `cap` supply cap before issuing
 │   ├── metadata-update/      — controls metadata updates
-│   ├── freeze/               — management freeze/unfreeze (full + partial), expressed purely as marker PDAs; enforced read-side by `transfer-hook::execute`, no Token-2022 CPI
+│   ├── freeze/               — management freeze/unfreeze (full + partial), both sides held in one `freeze_state` PDA per `(mint, account)`; enforced read-side by `transfer-hook::execute`, no Token-2022 CPI
 │   ├── operations/           — permanent-delegate operations: burn (`burn` + `batch_burn`, co-signed by the `permissioned_burn` PDA), force-transfer (`controller_transfer`) + `hold_transfer` (auxiliary, CPI-only from `hold`)
 │   ├── pause/                — pause/unpause the mint
 │   ├── deactivate/           — permanently deactivate the mint
@@ -116,7 +116,7 @@ No program has a `constants.rs`: program IDs all come from `common::program_ids`
 **`common`**: shared library crate (no program ID, no entrypoint). All cross-program shared logic lives here:
 - `program_ids` — all program IDs as `Pubkey` constants (`DEPLOY_PROGRAM_ID`, `MINT_PROGRAM_ID`, …). Re-exported at each program's crate root via `pub use common::program_ids::*;`. Instructions reference them with `use common::program_ids as constants;`.
 - `state::AssetConfiguration` — struct for the `asset_configuration_pda` created by `deploy`; defined here so downstream programs avoid importing `deploy`. Uses `#[derive(AnchorSerialize, AnchorDeserialize)]` (not `#[account]`, which requires `declare_id!`). `deploy` defines its own `#[account] AssetConfiguration` wrapping the same fields for `Account<AssetConfiguration>` usage.
-- `hook_accounts` — `HookAccounts`, the 17 accounts every `transfer_checked` on an Asseto mint must append so Token-2022 can resolve and invoke the hook, in wire order, plus `append_metas` / `append_infos`. The field order **is** the metalist order and is load-bearing; keeping it here rather than at each call site (`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`) means growing the metalist is one edit instead of three.
+- `hook_accounts` — `HookAccounts`, the 16 accounts every `transfer_checked` on an Asseto mint must append so Token-2022 can resolve and invoke the hook, in wire order, plus `append_metas` / `append_infos`. The field order **is** the metalist order and is load-bearing; keeping it here rather than at each call site (`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`) means growing the metalist is one edit instead of three.
 - `require_active()` — checks that the `deactivate_pda` account is empty (mint not deactivated).
 - `require_not_paused()` — parses the `PausableConfig` extension of the mint and errors if paused.
 - `functionalities` — flat append-only `u16` ids, one per instruction across the whole workspace (`BOND_UPDATE_BOND_TERMS = 0` … `NOMINAL_VALUE_REPUBLISH = 29`), excluding `factory` itself. A unit test asserts ids are sequential from 0.
@@ -195,8 +195,7 @@ Auxiliary instructions cannot be called by any external wallet. `take_snapshot` 
 | `["temp_mint_authority", mint]` | `deploy` | Ephemeral signing key during `deploy_mint` only |
 | `["mint_authority", mint]` | `mint` | Token-2022 mint authority |
 | `["metadata_update_authority", mint]` | `metadata-update` | Token-2022 metadata update authority |
-| `["frozen_account", mint, account]` | `freeze` | Marker: account fully frozen |
-| `["frozen_balance", mint, account]` | `freeze` | Stores locked balance for partial freeze |
+| `["freeze_state", mint, account]` | `freeze` | `FreezeState` — both freeze sides of a token account: `fully_frozen` (full freeze) + `frozen_balance` (partial freeze; 0 = none, since a 0 partial freeze is rejected with `InvalidFreezeAmount`). Created by whichever side is set first, closed only once both are clear; absent = nothing frozen. Replaced the separate `frozen_account` / `frozen_balance` PDAs to free one transfer-hook metalist slot |
 | `["permanent_delegate", mint]` | `operations` | Token-2022 PermanentDelegate authority |
 | `["permissioned_burn", mint]` | `operations` | Token-2022 PermissionedBurn authority; co-signs every burn alongside `permanent_delegate` |
 | `["pausable_authority", mint]` | `pause` | Token-2022 Pausable authority |

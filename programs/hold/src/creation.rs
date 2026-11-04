@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use freeze::require_unfrozen_account;
 
 use crate::errors::ErrorCode;
 use crate::state::{Hold, HoldPosition, HoldStatus};
@@ -16,8 +15,7 @@ pub(crate) struct HoldTarget<'info> {
     pub mint: Pubkey,
     pub token_account: Pubkey,
     pub balance: u64,
-    pub frozen_pda: &'info AccountInfo<'info>,
-    pub frozen_balance_pda: &'info AccountInfo<'info>,
+    pub freeze_state_pda: &'info AccountInfo<'info>,
 }
 
 pub(crate) fn record_new_hold<'info>(
@@ -28,7 +26,11 @@ pub(crate) fn record_new_hold<'info>(
     hold_bump: u8,
     args: &NewHoldArgs,
 ) -> Result<()> {
-    require_unfrozen_account(target.frozen_pda)?;
+    let freeze_status = freeze::freeze_status(target.freeze_state_pda)?;
+    require!(
+        !freeze_status.fully_frozen,
+        freeze::errors::ErrorCode::AccountFrozen
+    );
 
     require!(args.amount > 0, ErrorCode::ZeroAmount);
 
@@ -45,10 +47,9 @@ pub(crate) fn record_new_hold<'info>(
         .ok_or(ErrorCode::HoldIdMismatch)?;
     require!(args.hold_id == expected_hold_id, ErrorCode::HoldIdMismatch);
 
-    let frozen_balance = freeze::frozen_balance(target.frozen_balance_pda)?;
     let available = target
         .balance
-        .saturating_sub(frozen_balance)
+        .saturating_sub(freeze_status.frozen_balance)
         .saturating_sub(position.held_amount);
     require!(
         available >= args.amount,

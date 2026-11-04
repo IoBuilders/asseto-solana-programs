@@ -7,7 +7,7 @@ import { setRoles } from "./program_helpers/access_control/access_control_pda_he
 import { ROLE_FREEZE_MANAGER } from "./utils/roles";
 import {
   clearFrozenBalancePda,
-  getFrozenBalanceByPda,
+  getFreezeStateByPda,
   setFrozenAccountPda,
 } from "./program_helpers/freeze/freeze_pda_helper";
 import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
@@ -28,6 +28,7 @@ import {
   FREEZE_FREEZE_ACCOUNT,
   FREEZE_PARTIALLY_FREEZE_ACCOUNT,
   FREEZE_REMOVE_PARTIAL_FREEZE,
+  FREEZE_UNFREEZE_ACCOUNT,
   MINT_MINT,
   OPERATIONS_BURN,
   PAUSE_PAUSE,
@@ -41,6 +42,12 @@ import {
   setControlListMarker,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import { setFrozenBalancePda } from "./program_helpers/freeze/freeze_pda_helper";
+import {
+  freezeAccount,
+  freezeAccountPartial,
+  unfreezeAccount,
+  unfreezeAccountPartial,
+} from "./program_helpers/freeze/freeze_instruction_helper";
 
 // ── Mint parameters ────────────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -69,6 +76,7 @@ describe("transfer", () => {
         FREEZE_FREEZE_ACCOUNT,
         FREEZE_PARTIALLY_FREEZE_ACCOUNT,
         FREEZE_REMOVE_PARTIAL_FREEZE,
+        FREEZE_UNFREEZE_ACCOUNT,
         MINT_MINT,
         TRANSFER_HOOK_EXECUTE,
       ],
@@ -210,7 +218,7 @@ describe("transfer", () => {
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, source);
+      const freezeStatePda = freezePdaUtils.freezeStatePda(mint, source);
 
       // ── Partially freeze 80 tokens (only 20 available) ───────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
@@ -236,9 +244,9 @@ describe("transfer", () => {
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
       await setFrozenBalancePda(mint, source, UPDATED_FROZEN_AMOUNT);
 
-      const frozenBalanceAfterUpdate = await getFrozenBalanceByPda(frozenBalancePda);
+      const frozenBalanceAfterUpdate = await getFreezeStateByPda(freezeStatePda);
       assert.equal(
-        frozenBalanceAfterUpdate.balance.toString(),
+        frozenBalanceAfterUpdate.frozenBalance.toString(),
         UPDATED_FROZEN_AMOUNT.toString(),
         "frozen balance PDA should reflect the updated frozen amount"
       );
@@ -325,7 +333,7 @@ describe("transfer", () => {
       // ── Create destination token account ──────────────────────────────────────
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, source);
+      const freezeStatePda = freezePdaUtils.freezeStatePda(mint, source);
 
       // ── Partially freeze 40 tokens (available = 60 of 100) ────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
@@ -333,22 +341,22 @@ describe("transfer", () => {
 
       // ── Burn 80 via permanent-delegate (issuer redemption) ────────────────────
       //
-      // Operations::burn doesn't read or adjust frozen_balance_pda, so afterwards
-      // we have: token_account.amount = 20, frozen_balance_pda.balance = 40.
+      // Operations::burn doesn't read or adjust freeze_state_pda, so afterwards
+      // we have: token_account.amount = 20, freeze_state_pda.frozen_balance = 40.
       // `require_unfrozen_balance` uses saturating_sub → available = 0.
       await burnTokensViaSurfpool(mint, source, BURN_AMOUNT);
 
       const sourceAfterBurn = (await getTokenAccount(source)).amount;
-      const frozenAfterBurn = await getFrozenBalanceByPda(frozenBalancePda);
+      const frozenAfterBurn = await getFreezeStateByPda(freezeStatePda);
 
       // (1) Burn succeeded — balance is now below the recorded frozen amount.
       assert.equal(sourceAfterBurn.toString(), EXPECTED_REMAINDER.toString(), "burn should leave 20 tokens (100 − 80)");
 
-      // (2) PDA is stale — burn does not adjust frozen_balance_pda by design.
+      // (2) PDA is stale — burn does not adjust freeze_state_pda by design.
       assert.equal(
-        frozenAfterBurn.balance.toString(),
+        frozenAfterBurn.frozenBalance.toString(),
         FROZEN_AMOUNT.toString(),
-        "frozen_balance_pda should still record the original 40 (stale, as documented)"
+        "freeze_state_pda should still record the original 40 (stale, as documented)"
       );
 
       // (3) Any positive outbound transfer must fail — saturating_sub clamps available to 0.
@@ -518,6 +526,107 @@ describe("transfer", () => {
         const anchorErr = err as AnchorError;
         assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
       }
+    });
+  });
+
+  // Full and partial freeze share one `freeze_state` PDA read by the hook. These run
+  // the real freeze instructions (not planted state) to prove that undoing one side
+  // leaves the other enforced on every transfer.
+  describe("compliance with the unified freeze_state PDA", async () => {
+    const PARTIAL = new anchor.BN(800 * 10 ** MINT_DECIMALS); // 200 of 1 000 spendable
+
+    async function setupFrozenSource(): Promise<{ source: PublicKey; destination: PublicKey }> {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const destination = await createTokenAccount({ mint, owner: destinationOwner });
+      await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
+      await freezeAccount({ authority, mint, account: source });
+      await freezeAccountPartial({ authority, mint, account: source }, { balance: PARTIAL });
+      return { source, destination };
+    }
+
+    async function expectTransferError(code: string, transfer: () => Promise<unknown>): Promise<void> {
+      try {
+        await transfer();
+        assert.fail(`Expected ${code} error but transfer succeeded`);
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError raised by the transfer hook");
+        assert.equal((err as AnchorError).error.errorCode.code, code, `error code should be ${code}`);
+      }
+    }
+
+    it("transfer: fails with AccountFrozen while the source is both fully and partially frozen", async () => {
+      const { source, destination } = await setupFrozenSource();
+      await expectTransferError("AccountFrozen", () =>
+        splTransfer(
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { amount: new anchor.BN(1) }
+        )
+      );
+    });
+
+    it("transfer: after unfreeze_account the partial freeze still caps what the source can send", async () => {
+      const { source, destination } = await setupFrozenSource();
+      await unfreezeAccount({ authority, mint, account: source });
+
+      // 400 > 200 spendable → still blocked by the surviving partial freeze.
+      await expectTransferError("InsufficientUnfrozenBalance", () =>
+        splTransfer(
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { amount: TRANSFER_AMOUNT }
+        )
+      );
+
+      // Exactly the spendable 200 goes through.
+      const spendable = MINT_AMOUNT.sub(PARTIAL);
+      await splTransfer(
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { amount: spendable }
+      );
+      assert.equal(
+        (await getTokenAccount(source)).amount.toString(),
+        PARTIAL.toString(),
+        "only the partially frozen amount should remain"
+      );
+    });
+
+    it("transfer: after unfreeze_account_partial the full freeze still blocks the source", async () => {
+      const { source, destination } = await setupFrozenSource();
+      await unfreezeAccountPartial({ authority, mint, account: source });
+
+      await expectTransferError("AccountFrozen", () =>
+        splTransfer(
+          { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+          { amount: new anchor.BN(1) }
+        )
+      );
+    });
+
+    it("transfer: moves the full balance once both freeze sides have been cleared", async () => {
+      const { source, destination } = await setupFrozenSource();
+      await unfreezeAccount({ authority, mint, account: source });
+      await unfreezeAccountPartial({ authority, mint, account: source });
+
+      await splTransfer(
+        { mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] },
+        { amount: MINT_AMOUNT }
+      );
+      assert.equal((await getTokenAccount(destination)).amount.toString(), MINT_AMOUNT.toString());
+    });
+
+    it("batch_transfer: after unfreeze_account the partial freeze still caps the cumulative batch", async () => {
+      const { source } = await setupFrozenSource();
+      await unfreezeAccount({ authority, mint, account: source });
+
+      const destinations = [
+        await createTokenAccount({ mint, owner: Keypair.generate().publicKey }),
+        await createTokenAccount({ mint, owner: Keypair.generate().publicKey }),
+      ];
+      // 150 + 100 = 250 > 200 spendable → the second leg crosses the lien.
+      const amounts = [new anchor.BN(150 * 10 ** MINT_DECIMALS), new anchor.BN(100 * 10 ** MINT_DECIMALS)];
+      await expectTransferError("InsufficientUnfrozenBalance", () =>
+        batchTransfer({ mint, source, sourceOwner, destinations, signers: [sourceOwnerKeypair] }, { amounts })
+      );
     });
   });
 

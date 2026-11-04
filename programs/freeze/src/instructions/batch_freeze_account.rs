@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::Discriminator;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{
     pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
@@ -8,7 +7,7 @@ use common::{
 
 use crate::errors::ErrorCode;
 use crate::events::AccountFrozen;
-use crate::state::FrozenAccountStatus;
+use crate::state::{load_freeze_state, FreezeState};
 use common::program_ids as constants;
 
 pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>>) -> Result<()> {
@@ -34,37 +33,44 @@ pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>
 
     let mint_key = ctx.accounts.mint.key();
     let authority_key = ctx.accounts.authority.key();
-    let space = FrozenAccountStatus::DISCRIMINATOR.len() + FrozenAccountStatus::INIT_SPACE;
 
     for i in 0..ctx.remaining_accounts.len() / 2 {
         let account = &ctx.remaining_accounts[i * 2];
-        let frozen_account_pda = &ctx.remaining_accounts[i * 2 + 1];
+        let freeze_state_pda = &ctx.remaining_accounts[i * 2 + 1];
         let account_key = account.key();
 
         // ── Verify the client supplied the canonical PDA for this account ────
-        let frozen_account_seeds = pda_seeds::frozen_account_seeds(&mint_key, &account_key);
+        let freeze_state_seeds = pda_seeds::freeze_state_seeds(&mint_key, &account_key);
         let (expected_pda, bump) =
-            Pubkey::find_program_address(&frozen_account_seeds, ctx.program_id);
+            Pubkey::find_program_address(&freeze_state_seeds, ctx.program_id);
         require_keys_eq!(
-            frozen_account_pda.key(),
+            freeze_state_pda.key(),
             expected_pda,
-            ErrorCode::FrozenAccountPdaMismatch
+            ErrorCode::FreezeStatePdaMismatch
         );
 
-        require!(frozen_account_pda.data_is_empty(), ErrorCode::AccountFrozen);
+        let mut freeze_state = match load_freeze_state(freeze_state_pda)? {
+            Some(existing) => existing,
+            None => {
+                let signer_seeds = pda_utils::build_pda_signer_seeds(freeze_state_seeds, &bump);
+                pda_utils::create_or_adopt_pda(
+                    &ctx.accounts.authority.to_account_info(),
+                    freeze_state_pda,
+                    &ctx.accounts.system_program.to_account_info(),
+                    ctx.program_id,
+                    FreezeState::SPACE,
+                    signer_seeds.as_slice(),
+                )?;
+                FreezeState {
+                    bump,
+                    ..Default::default()
+                }
+            }
+        };
 
-        let signer_seeds = pda_utils::build_pda_signer_seeds(frozen_account_seeds, &bump);
-
-        pda_utils::create_or_adopt_pda(
-            &ctx.accounts.authority.to_account_info(),
-            &frozen_account_pda.to_account_info(),
-            &ctx.accounts.system_program.to_account_info(),
-            ctx.program_id,
-            space,
-            signer_seeds.as_slice(),
-        )?;
-
-        pda_utils::serialize_pda(&frozen_account_pda, &FrozenAccountStatus { bump })?;
+        require!(!freeze_state.fully_frozen, ErrorCode::AccountFrozen);
+        freeze_state.fully_frozen = true;
+        pda_utils::serialize_pda(freeze_state_pda, &freeze_state)?;
 
         emit_cpi!(AccountFrozen {
             mint: mint_key,

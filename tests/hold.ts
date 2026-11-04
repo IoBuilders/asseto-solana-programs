@@ -26,7 +26,11 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
-import { setFrozenAccountPda, setFrozenBalancePda } from "./program_helpers/freeze/freeze_pda_helper";
+import {
+  setFreezeStatePda,
+  setFrozenAccountPda,
+  setFrozenBalancePda,
+} from "./program_helpers/freeze/freeze_pda_helper";
 import {
   setTransferControlModeMarker,
   setControlListMarker,
@@ -217,6 +221,29 @@ describe("hold", () => {
       await setFrozenAccountPda(mint, holderTokenAccount);
 
       await assertFails("AccountFrozen", () =>
+        createHold({ authority: holderKeypair, mint, tokenAccount: holderTokenAccount }, { amount: HOLD_AMOUNT })
+      );
+    });
+
+    it("create_hold: fails with AccountFrozen when the account is both frozen and partially frozen", async () => {
+      await setFreezeStatePda(mint, holderTokenAccount, {
+        fullyFrozen: true,
+        frozenBalance: new anchor.BN(1),
+      });
+
+      await assertFails("AccountFrozen", () =>
+        createHold({ authority: holderKeypair, mint, tokenAccount: holderTokenAccount }, { amount: HOLD_AMOUNT })
+      );
+    });
+
+    it("create_hold: the partial freeze left after a full unfreeze still limits the hold", async () => {
+      // Same account, full side cleared: only the partial lien remains.
+      await setFreezeStatePda(mint, holderTokenAccount, {
+        fullyFrozen: false,
+        frozenBalance: MINT_AMOUNT.sub(new anchor.BN(1)),
+      });
+
+      await assertFails("InsufficientAvailableBalance", () =>
         createHold({ authority: holderKeypair, mint, tokenAccount: holderTokenAccount }, { amount: HOLD_AMOUNT })
       );
     });
@@ -583,6 +610,49 @@ describe("hold", () => {
   });
 
   // ── release_hold ───────────────────────────────────────────────────────────
+
+  describe("execute_hold (freeze interplay)", () => {
+    beforeEach(async () => {
+      await createHold(
+        { authority: holderKeypair, mint, tokenAccount: holderTokenAccount },
+        { amount: HOLD_AMOUNT, escrow: escrowKeypair.publicKey }
+      );
+    });
+
+    it("execute_hold: fails with AccountFrozen when the source was frozen after the hold was created", async () => {
+      await setFrozenAccountPda(mint, holderTokenAccount);
+
+      await assertFails("AccountFrozen", () =>
+        executeHold(
+          { escrow: escrowKeypair, mint, tokenAccount: holderTokenAccount, destination: recipientTokenAccount },
+          { amount: HOLD_AMOUNT }
+        )
+      );
+    });
+
+    it("execute_hold: fails with InsufficientUnfrozenBalance when a partial freeze leaves the hold uncovered", async () => {
+      await setFrozenBalancePda(mint, holderTokenAccount, MINT_AMOUNT);
+
+      await assertFails("InsufficientUnfrozenBalance", () =>
+        executeHold(
+          { escrow: escrowKeypair, mint, tokenAccount: holderTokenAccount, destination: recipientTokenAccount },
+          { amount: HOLD_AMOUNT }
+        )
+      );
+    });
+
+    it("execute_hold: succeeds when the partial freeze plus the hold still fit in the balance", async () => {
+      await setFrozenBalancePda(mint, holderTokenAccount, MINT_AMOUNT.sub(HOLD_AMOUNT));
+
+      await executeHold(
+        { escrow: escrowKeypair, mint, tokenAccount: holderTokenAccount, destination: recipientTokenAccount },
+        { amount: HOLD_AMOUNT }
+      );
+
+      const destination = await getTokenAccount(recipientTokenAccount);
+      assert.equal(destination.amount.toString(), HOLD_AMOUNT.toString());
+    });
+  });
 
   describe("release_hold", () => {
     beforeEach(async () => {

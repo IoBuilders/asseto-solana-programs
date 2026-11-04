@@ -1,6 +1,6 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
@@ -22,7 +22,7 @@ import {
   getAccountPartialFreezeRemovedEvent,
   getAccountPartialFreezeRemovedEvents,
 } from "./program_helpers/freeze/freeze_instruction_helper";
-import { getFrozenAccountStatusByPda, getFrozenBalanceByPda } from "./program_helpers/freeze/freeze_pda_helper";
+import { getFreezeStateByPda } from "./program_helpers/freeze/freeze_pda_helper";
 import * as freezePdaUtils from "./program_helpers/freeze/freeze_pda_helper";
 import { createTokenAccount, setMintPaused } from "./program_helpers/spl_token_helper";
 import { surfnetSetAccount } from "./program_helpers/account_helper";
@@ -66,22 +66,24 @@ describe("freeze", () => {
 
   describe("freeze_account", () => {
     // ── Happy-path: freeze_account ───────────────────────────────────────────────
-    it("freeze_account: creates the frozen_account PDA for a token account", async () => {
+    it("freeze_account: creates the freeze_state PDA for a token account", async () => {
       // ── Create a token account to use as the freeze target ──────────────────
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
 
       // ── Verify the PDA does not exist before the instruction ────────────────
-      const [frozenAccountPda, expectedBump] = freezePdaUtils.frozenAccountPdaWithBump(mint, tokenAccount);
-      const statusBefore = await getFrozenAccountStatusByPda(frozenAccountPda);
+      const [freezeStatePda, expectedBump] = freezePdaUtils.freezeStatePdaWithBump(mint, tokenAccount);
+      const statusBefore = await getFreezeStateByPda(freezeStatePda);
 
       // ── Call freeze_account ──────────────────────────────────────────────────
       const { signature } = await freezeAccount({ authority, mint, account: tokenAccount });
 
-      // ── Verify the frozen_account PDA was created with the correct bump ──────
-      const statusAfter = await getFrozenAccountStatusByPda(frozenAccountPda);
-      assert.isNull(statusBefore, "frozen_account PDA should not exist before freeze_account");
-      assert.isNotNull(statusAfter, "frozen_account PDA should exist after freeze_account");
+      // ── Verify the freeze_state PDA was created with the correct bump ──────
+      const statusAfter = await getFreezeStateByPda(freezeStatePda);
+      assert.isNull(statusBefore, "freeze_state PDA should not exist before freeze_account");
+      assert.isNotNull(statusAfter, "freeze_state PDA should exist after freeze_account");
       assert.equal(statusAfter.bump, expectedBump, "bump should match the canonical bump");
+      assert.isTrue(statusAfter.fullyFrozen, "fullyFrozen should be set after freeze_account");
+      assert.equal(statusAfter.frozenBalance.toString(), "0", "frozenBalance should stay 0");
 
       const event = await getAccountFrozenEvent(signature);
 
@@ -92,29 +94,25 @@ describe("freeze", () => {
     });
 
     // ── Error case: freeze_account — already frozen ─────────────────────────────
-    it("freeze_account: fails when account is already frozen", async () => {
+    it("freeze_account: fails with AccountFrozen when account is already frozen", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
 
       // ── Freeze the account once (succeeds) ───────────────────────────────────
       await freezeAccount({ authority, mint, account: tokenAccount });
 
-      // ── Attempt to freeze again — frozen_account_pda already exists ──────────
+      // ── Attempt to freeze again — the full-freeze side is already set ────────
       try {
         await freezeAccount({ authority, mint, account: tokenAccount });
-        assert.fail("Expected already-in-use error but instruction succeeded");
+        assert.fail("Expected AccountFrozen error but instruction succeeded");
       } catch (err) {
-        assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
-        const sendErr = err as SendTransactionError;
-        const logs = sendErr.logs ?? [];
-        assert.isTrue(
-          logs.some((log) => log.includes("already in use")),
-          "transaction logs should mention the account is already in use"
-        );
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        const anchorErr = err as AnchorError;
+        assert.equal(anchorErr.error.errorCode.code, "AccountFrozen", "error code should be AccountFrozen");
       }
     });
 
     // ── Happy-path: unfreeze_account ─────────────────────────────────────────────
-    it("unfreeze_account: closes the frozen_account PDA for a token account", async () => {
+    it("unfreeze_account: closes the freeze_state PDA for a token account", async () => {
       const { mint } = await deployMint();
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
 
@@ -122,19 +120,19 @@ describe("freeze", () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
 
       // ── First: freeze the account ────────────────────────────────────────────
-      const frozenAccountPda = freezePdaUtils.frozenAccountPda(mint, tokenAccount);
+      const freezeStatePda = freezePdaUtils.freezeStatePda(mint, tokenAccount);
       await freezeAccount({ authority, mint, account: tokenAccount });
 
-      const statusAfterFreeze = await getFrozenAccountStatusByPda(frozenAccountPda);
-      assert.isNotNull(statusAfterFreeze, "frozen_account PDA should exist after freeze_account");
+      const statusAfterFreeze = await getFreezeStateByPda(freezeStatePda);
+      assert.isNotNull(statusAfterFreeze, "freeze_state PDA should exist after freeze_account");
 
       // ── Then: unfreeze the account ───────────────────────────────────────────
       const { signature } = await unfreezeAccount({ authority, mint, account: tokenAccount });
 
-      // ── Verify the frozen_account PDA has been closed ────────────────────────
-      const statusAfterUnfreeze = await getFrozenAccountStatusByPda(frozenAccountPda);
+      // ── Verify the freeze_state PDA has been closed ────────────────────────
+      const statusAfterUnfreeze = await getFreezeStateByPda(freezeStatePda);
 
-      assert.isNull(statusAfterUnfreeze, "frozen_account PDA should not exist after unfreeze_account");
+      assert.isNull(statusAfterUnfreeze, "freeze_state PDA should not exist after unfreeze_account");
 
       const event = await getAccountUnfrozenEvent(signature);
 
@@ -237,7 +235,7 @@ describe("freeze", () => {
 
   describe("batch_freeze_account", () => {
     // ── Happy-path: batch_freeze_account ─────────────────────────────────────────────────
-    it("batch_freeze_account: creates a frozen_account PDA for every account and emits one event each", async () => {
+    it("batch_freeze_account: creates a freeze_state PDA for every account and emits one event each", async () => {
       const accountA = await createTokenAccount({ mint, owner: authority.publicKey });
       const accountB = await createTokenAccount({ mint, owner: authority.publicKey });
       const accounts = [accountA, accountB];
@@ -245,8 +243,8 @@ describe("freeze", () => {
       const signature = await batchFreezeAccount({ authority, mint, accounts });
 
       for (const account of accounts) {
-        const status = await getFrozenAccountStatusByPda(freezePdaUtils.frozenAccountPda(mint, account));
-        assert.isNotNull(status, `frozen_account PDA should exist for ${account.toBase58()}`);
+        const status = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+        assert.isNotNull(status, `freeze_state PDA should exist for ${account.toBase58()}`);
       }
 
       const events = await getAccountFrozenEvents(signature);
@@ -264,9 +262,9 @@ describe("freeze", () => {
     });
 
     // ── Happy-path: batch_freeze_account — griefed PDA (create-or-adopt) ────────────────
-    it("batch_freeze_account: succeeds even if a frozen_account_pda was pre-funded by a griefer (create-or-adopt)", async () => {
+    it("batch_freeze_account: succeeds even if a freeze_state_pda was pre-funded by a griefer (create-or-adopt)", async () => {
       const account = await createTokenAccount({ mint, owner: authority.publicKey });
-      const pda = freezePdaUtils.frozenAccountPda(mint, account);
+      const pda = freezePdaUtils.freezeStatePda(mint, account);
 
       // Attacker pre-funds the predictable PDA with lamports but no data. A bare
       // `create_account` would then fail forever (AccountAlreadyInUse);
@@ -282,8 +280,8 @@ describe("freeze", () => {
       // Must still succeed thanks to create-or-adopt.
       await batchFreezeAccount({ authority, mint, accounts: [account] });
 
-      const status = await getFrozenAccountStatusByPda(pda);
-      assert.isNotNull(status, "frozen_account PDA should exist despite the pre-funding griefing attempt");
+      const status = await getFreezeStateByPda(pda);
+      assert.isNotNull(status, "freeze_state PDA should exist despite the pre-funding griefing attempt");
     });
 
     // ── Error case: batch_freeze_account — EmptyBatch ───────────────────────────────────
@@ -319,8 +317,8 @@ describe("freeze", () => {
       }
     });
 
-    // ── Error case: batch_freeze_account — FrozenAccountPdaMismatch ─────────────────────
-    it("batch_freeze_account: fails with FrozenAccountPdaMismatch when a supplied PDA does not match the derived one", async () => {
+    // ── Error case: batch_freeze_account — FreezeStatePdaMismatch ─────────────────────
+    it("batch_freeze_account: fails with FreezeStatePdaMismatch when a supplied PDA does not match the derived one", async () => {
       const account = await createTokenAccount({ mint, owner: authority.publicKey });
       const wrongPda = Keypair.generate().publicKey;
 
@@ -334,14 +332,14 @@ describe("freeze", () => {
             ],
           }
         );
-        assert.fail("Expected FrozenAccountPdaMismatch error but instruction succeeded");
+        assert.fail("Expected FreezeStatePdaMismatch error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(
           anchorErr.error.errorCode.code,
-          "FrozenAccountPdaMismatch",
-          "error code should be FrozenAccountPdaMismatch"
+          "FreezeStatePdaMismatch",
+          "error code should be FreezeStatePdaMismatch"
         );
       }
     });
@@ -544,7 +542,7 @@ describe("freeze", () => {
 
   describe("batch_unfreeze_account", () => {
     // ── Happy-path: batch_unfreeze_account ───────────────────────────────────────────────
-    it("batch_unfreeze_account: closes the frozen_account PDA for every account and emits one event each", async () => {
+    it("batch_unfreeze_account: closes the freeze_state PDA for every account and emits one event each", async () => {
       const accountA = await createTokenAccount({ mint, owner: authority.publicKey });
       const accountB = await createTokenAccount({ mint, owner: authority.publicKey });
       const accounts = [accountA, accountB];
@@ -553,8 +551,8 @@ describe("freeze", () => {
       const signature = await batchUnfreezeAccount({ authority, mint, accounts });
 
       for (const account of accounts) {
-        const status = await getFrozenAccountStatusByPda(freezePdaUtils.frozenAccountPda(mint, account));
-        assert.isNull(status, `frozen_account PDA should not exist for ${account.toBase58()}`);
+        const status = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+        assert.isNull(status, `freeze_state PDA should not exist for ${account.toBase58()}`);
       }
 
       const events = await getAccountUnfrozenEvents(signature);
@@ -605,8 +603,8 @@ describe("freeze", () => {
       }
     });
 
-    // ── Error case: batch_unfreeze_account — FrozenAccountPdaMismatch ───────────────────
-    it("batch_unfreeze_account: fails with FrozenAccountPdaMismatch when a supplied PDA does not match the derived one", async () => {
+    // ── Error case: batch_unfreeze_account — FreezeStatePdaMismatch ───────────────────
+    it("batch_unfreeze_account: fails with FreezeStatePdaMismatch when a supplied PDA does not match the derived one", async () => {
       const account = await createTokenAccount({ mint, owner: authority.publicKey });
       await batchFreezeAccount({ authority, mint, accounts: [account] });
       const wrongPda = Keypair.generate().publicKey;
@@ -621,14 +619,14 @@ describe("freeze", () => {
             ],
           }
         );
-        assert.fail("Expected FrozenAccountPdaMismatch error but instruction succeeded");
+        assert.fail("Expected FreezeStatePdaMismatch error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(
           anchorErr.error.errorCode.code,
-          "FrozenAccountPdaMismatch",
-          "error code should be FrozenAccountPdaMismatch"
+          "FreezeStatePdaMismatch",
+          "error code should be FreezeStatePdaMismatch"
         );
       }
     });
@@ -718,12 +716,12 @@ describe("freeze", () => {
 
   describe("freeze_account_partial", () => {
     // ── Happy-path: freeze_account_partial ────────────────────────────────────
-    it("freeze_account_partial: creates the frozen_balance PDA with the given balance", async () => {
+    it("freeze_account_partial: creates the freeze_state PDA with the given balance", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      const [frozenBalancePda, expectedBump] = freezePdaUtils.frozenBalancePdaWithBump(mint, tokenAccount);
+      const [freezeStatePda, expectedBump] = freezePdaUtils.freezeStatePdaWithBump(mint, tokenAccount);
 
       // ── Verify the PDA does not exist before the instruction ─────────────────
-      const statusBefore = await getFrozenBalanceByPda(frozenBalancePda);
+      const statusBefore = await getFreezeStateByPda(freezeStatePda);
 
       // ── Call freeze_account_partial ─────────────────────────────────────────
       const frozenBalance = new anchor.BN(500_000_000);
@@ -732,17 +730,18 @@ describe("freeze", () => {
         { balance: frozenBalance }
       );
 
-      // ── Verify the frozen_balance PDA was created with the correct fields ─────
-      const statusAfter = await getFrozenBalanceByPda(frozenBalancePda);
+      // ── Verify the freeze_state PDA was created with the correct fields ─────
+      const statusAfter = await getFreezeStateByPda(freezeStatePda);
 
-      assert.isNull(statusBefore, "frozen_balance PDA should not exist before freeze_account_partial");
-      assert.isNotNull(statusAfter, "frozen_balance PDA should exist after freeze_account_partial");
+      assert.isNull(statusBefore, "freeze_state PDA should not exist before freeze_account_partial");
+      assert.isNotNull(statusAfter, "freeze_state PDA should exist after freeze_account_partial");
       assert.equal(
-        statusAfter.balance.toString(),
+        statusAfter.frozenBalance.toString(),
         frozenBalance.toString(),
         "balance should match the value passed to freeze_account_partial"
       );
       assert.equal(statusAfter.bump, expectedBump, "bump should match the canonical bump");
+      assert.isFalse(statusAfter.fullyFrozen, "freeze_account_partial should not set the full-freeze side");
 
       const event = await getAccountPartiallyFrozenEvent(signature);
 
@@ -836,7 +835,7 @@ describe("freeze", () => {
 
   describe("batch_freeze_account_partial", () => {
     // ── Happy-path: batch_freeze_account_partial ──────────────────────────────────────
-    it("batch_freeze_account_partial: creates a frozen_balance PDA with the given balance for every account", async () => {
+    it("batch_freeze_account_partial: creates a freeze_state PDA with the given balance for every account", async () => {
       const accountA = await createTokenAccount({ mint, owner: authority.publicKey });
       const accountB = await createTokenAccount({ mint, owner: authority.publicKey });
       const accounts = [accountA, accountB];
@@ -845,9 +844,9 @@ describe("freeze", () => {
       const signature = await batchFreezeAccountPartial({ authority, mint, accounts }, { balances });
 
       for (let i = 0; i < accounts.length; i++) {
-        const status = await getFrozenBalanceByPda(freezePdaUtils.frozenBalancePda(mint, accounts[i]));
-        assert.isNotNull(status, `frozen_balance PDA should exist for account ${i}`);
-        assert.equal(status.balance.toString(), balances[i].toString(), `balance should match for account ${i}`);
+        const status = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, accounts[i]));
+        assert.isNotNull(status, `freeze_state PDA should exist for account ${i}`);
+        assert.equal(status.frozenBalance.toString(), balances[i].toString(), `balance should match for account ${i}`);
       }
 
       const events = await getAccountPartiallyFrozenEvents(signature);
@@ -872,27 +871,27 @@ describe("freeze", () => {
     // ── Happy-path: batch_freeze_account_partial overwrites without a prior remove ────
     it("batch_freeze_account_partial: a second call on the same accounts overwrites the balance without unfreeze_account_partial", async () => {
       const account = await createTokenAccount({ mint, owner: authority.publicKey });
-      const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, account);
+      const freezeStatePda = freezePdaUtils.freezeStatePda(mint, account);
       const FIRST_BALANCE = new anchor.BN(500_000_000);
       const SECOND_BALANCE = new anchor.BN(300_000_000);
 
       await batchFreezeAccountPartial({ authority, mint, accounts: [account] }, { balances: [FIRST_BALANCE] });
-      const stateAfterFirst = await getFrozenBalanceByPda(frozenBalancePda);
-      assert.equal(stateAfterFirst.balance.toString(), FIRST_BALANCE.toString());
+      const stateAfterFirst = await getFreezeStateByPda(freezeStatePda);
+      assert.equal(stateAfterFirst.frozenBalance.toString(), FIRST_BALANCE.toString());
 
       await batchFreezeAccountPartial({ authority, mint, accounts: [account] }, { balances: [SECOND_BALANCE] });
-      const stateAfterSecond = await getFrozenBalanceByPda(frozenBalancePda);
+      const stateAfterSecond = await getFreezeStateByPda(freezeStatePda);
       assert.equal(
-        stateAfterSecond.balance.toString(),
+        stateAfterSecond.frozenBalance.toString(),
         SECOND_BALANCE.toString(),
         "balance after second call should overwrite to SECOND_BALANCE"
       );
     });
 
     // ── Happy-path: batch_freeze_account_partial — griefed PDA (create-or-adopt) ──────
-    it("batch_freeze_account_partial: succeeds even if a frozen_balance_pda was pre-funded by a griefer (create-or-adopt)", async () => {
+    it("batch_freeze_account_partial: succeeds even if a freeze_state_pda was pre-funded by a griefer (create-or-adopt)", async () => {
       const account = await createTokenAccount({ mint, owner: authority.publicKey });
-      const pda = freezePdaUtils.frozenBalancePda(mint, account);
+      const pda = freezePdaUtils.freezeStatePda(mint, account);
 
       await surfnetSetAccount(pda, {
         lamports: 1,
@@ -905,9 +904,9 @@ describe("freeze", () => {
       const balance = new anchor.BN(500_000_000);
       await batchFreezeAccountPartial({ authority, mint, accounts: [account] }, { balances: [balance] });
 
-      const status = await getFrozenBalanceByPda(pda);
-      assert.isNotNull(status, "frozen_balance PDA should exist despite the pre-funding griefing attempt");
-      assert.equal(status.balance.toString(), balance.toString());
+      const status = await getFreezeStateByPda(pda);
+      assert.isNotNull(status, "freeze_state PDA should exist despite the pre-funding griefing attempt");
+      assert.equal(status.frozenBalance.toString(), balance.toString());
     });
 
     // ── Error case: batch_freeze_account_partial — EmptyBatch ─────────────────────────
@@ -943,8 +942,8 @@ describe("freeze", () => {
       }
     });
 
-    // ── Error case: batch_freeze_account_partial — FrozenBalancePdaMismatch ───────────
-    it("batch_freeze_account_partial: fails with FrozenBalancePdaMismatch when a supplied PDA does not match the derived one", async () => {
+    // ── Error case: batch_freeze_account_partial — FreezeStatePdaMismatch ───────────
+    it("batch_freeze_account_partial: fails with FreezeStatePdaMismatch when a supplied PDA does not match the derived one", async () => {
       const account = await createTokenAccount({ mint, owner: authority.publicKey });
       const wrongPda = Keypair.generate().publicKey;
 
@@ -958,14 +957,14 @@ describe("freeze", () => {
             ],
           }
         );
-        assert.fail("Expected FrozenBalancePdaMismatch error but instruction succeeded");
+        assert.fail("Expected FreezeStatePdaMismatch error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(
           anchorErr.error.errorCode.code,
-          "FrozenBalancePdaMismatch",
-          "error code should be FrozenBalancePdaMismatch"
+          "FreezeStatePdaMismatch",
+          "error code should be FreezeStatePdaMismatch"
         );
       }
     });
@@ -1037,7 +1036,7 @@ describe("freeze", () => {
 
   describe("batch_unfreeze_account_partial", () => {
     // ── Happy-path: batch_unfreeze_account_partial ─────────────────────────────────
-    it("batch_unfreeze_account_partial: closes the frozen_balance PDA for every account and emits one event each", async () => {
+    it("batch_unfreeze_account_partial: closes the freeze_state PDA for every account and emits one event each", async () => {
       const accountA = await createTokenAccount({ mint, owner: authority.publicKey });
       const accountB = await createTokenAccount({ mint, owner: authority.publicKey });
       const accounts = [accountA, accountB];
@@ -1046,8 +1045,8 @@ describe("freeze", () => {
       const signature = await batchUnfreezeAccountPartial({ authority, mint, accounts });
 
       for (const account of accounts) {
-        const status = await getFrozenBalanceByPda(freezePdaUtils.frozenBalancePda(mint, account));
-        assert.isNull(status, `frozen_balance PDA should not exist for ${account.toBase58()}`);
+        const status = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+        assert.isNull(status, `freeze_state PDA should not exist for ${account.toBase58()}`);
       }
 
       const events = await getAccountPartialFreezeRemovedEvents(signature);
@@ -1102,8 +1101,8 @@ describe("freeze", () => {
       }
     });
 
-    // ── Error case: batch_unfreeze_account_partial — FrozenBalancePdaMismatch ──────
-    it("batch_unfreeze_account_partial: fails with FrozenBalancePdaMismatch when a supplied PDA does not match the derived one", async () => {
+    // ── Error case: batch_unfreeze_account_partial — FreezeStatePdaMismatch ──────
+    it("batch_unfreeze_account_partial: fails with FreezeStatePdaMismatch when a supplied PDA does not match the derived one", async () => {
       const account = await createTokenAccount({ mint, owner: authority.publicKey });
       await batchFreezeAccountPartial({ authority, mint, accounts: [account] });
       const wrongPda = Keypair.generate().publicKey;
@@ -1118,14 +1117,14 @@ describe("freeze", () => {
             ],
           }
         );
-        assert.fail("Expected FrozenBalancePdaMismatch error but instruction succeeded");
+        assert.fail("Expected FreezeStatePdaMismatch error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(
           anchorErr.error.errorCode.code,
-          "FrozenBalancePdaMismatch",
-          "error code should be FrozenBalancePdaMismatch"
+          "FreezeStatePdaMismatch",
+          "error code should be FreezeStatePdaMismatch"
         );
       }
     });
@@ -1219,23 +1218,23 @@ describe("freeze", () => {
 
   describe("unfreeze_account_partial", async () => {
     // ── Happy-path: unfreeze_account_partial ───────────────────────────────────────
-    it("unfreeze_account_partial: closes the frozen_balance PDA for a token account", async () => {
+    it("unfreeze_account_partial: closes the freeze_state PDA for a token account", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      const frozenBalancePda = freezePdaUtils.frozenBalancePda(mint, tokenAccount);
+      const freezeStatePda = freezePdaUtils.freezeStatePda(mint, tokenAccount);
 
       // ── First: partially freeze the account ──────────────────────────────────
       const frozenBalance = new anchor.BN(500_000_000);
       await freezeAccountPartial({ authority, mint, account: tokenAccount }, { balance: frozenBalance });
 
-      const statusAfterFreeze = await getFrozenBalanceByPda(frozenBalancePda);
-      assert.isNotNull(statusAfterFreeze, "frozen_balance PDA should exist after freeze_account_partial");
+      const statusAfterFreeze = await getFreezeStateByPda(freezeStatePda);
+      assert.isNotNull(statusAfterFreeze, "freeze_state PDA should exist after freeze_account_partial");
 
       // ── Then: remove the partial freeze ──────────────────────────────────────
       const { signature } = await unfreezeAccountPartial({ authority, mint, account: tokenAccount });
 
-      // ── Verify the frozen_balance PDA has been closed ────────────────────────
-      const statusAfterRemove = await getFrozenBalanceByPda(frozenBalancePda);
-      assert.isNull(statusAfterRemove, "frozen_balance PDA should not exist after unfreeze_account_partial");
+      // ── Verify the freeze_state PDA has been closed ────────────────────────
+      const statusAfterRemove = await getFreezeStateByPda(freezeStatePda);
+      assert.isNull(statusAfterRemove, "freeze_state PDA should not exist after unfreeze_account_partial");
 
       const event = await getAccountPartialFreezeRemovedEvent(signature);
 
@@ -1249,7 +1248,7 @@ describe("freeze", () => {
     it("unfreeze_account_partial: fails with MissingRole when authority doesn't have required role", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
 
-      // ── Partially freeze the account so frozen_balance_pda exists ────────────
+      // ── Partially freeze the account so freeze_state_pda exists ────────────
       await freezeAccountPartial({ authority, mint, account: tokenAccount });
       await setRoles(mint, authority.publicKey, []);
 
@@ -1363,30 +1362,267 @@ describe("freeze", () => {
     // ── freeze_account_partial overwrites without prior unfreeze ──
     it("freeze_account_partial: a second call on the same account overwrites the balance without unfreeze_account_partial", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      const [frozenBalancePda, expectedBump] = freezePdaUtils.frozenBalancePdaWithBump(mint, tokenAccount);
+      const [freezeStatePda, expectedBump] = freezePdaUtils.freezeStatePdaWithBump(mint, tokenAccount);
       const FIRST_BALANCE = new anchor.BN(500_000_000);
       const SECOND_BALANCE = new anchor.BN(300_000_000);
 
       // ── First call: creates the PDA with FIRST_BALANCE ───────────────────────
       await freezeAccountPartial({ authority, mint, account: tokenAccount }, { balance: FIRST_BALANCE });
 
-      const stateAfterFirst = await getFrozenBalanceByPda(frozenBalancePda);
+      const stateAfterFirst = await getFreezeStateByPda(freezeStatePda);
       assert.equal(
-        stateAfterFirst.balance.toString(),
+        stateAfterFirst.frozenBalance.toString(),
         FIRST_BALANCE.toString(),
         "balance after first call should equal FIRST_BALANCE"
       );
 
       // ── Second call (same PDA, new value): MUST overwrite, NOT fail ──────────
       await freezeAccountPartial({ authority, mint, account: tokenAccount }, { balance: SECOND_BALANCE });
-      const stateAfterSecond = await getFrozenBalanceByPda(frozenBalancePda);
+      const stateAfterSecond = await getFreezeStateByPda(freezeStatePda);
 
       assert.equal(
-        stateAfterSecond.balance.toString(),
+        stateAfterSecond.frozenBalance.toString(),
         SECOND_BALANCE.toString(),
         "balance after second call should overwrite to SECOND_BALANCE (not add, not keep first)"
       );
       assert.equal(stateAfterSecond.bump, expectedBump, "bump should remain the canonical bump after overwrite");
+    });
+  });
+
+  // Both freeze sides live in one `freeze_state` PDA. Clearing one side must never
+  // destroy the other, and the account is only closed once both are clear.
+  describe("freeze_state: full and partial freeze share one account", () => {
+    const PARTIAL = new anchor.BN(250_000_000);
+
+    async function freezeBoth(account: PublicKey): Promise<void> {
+      await freezeAccount({ authority, mint, account });
+      await freezeAccountPartial({ authority, mint, account }, { balance: PARTIAL });
+    }
+
+    async function expectAnchorError(code: string, fn: () => Promise<unknown>): Promise<void> {
+      try {
+        await fn();
+        assert.fail(`Expected ${code} error but instruction succeeded`);
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, code, `error code should be ${code}`);
+      }
+    }
+
+    it("freeze_account then freeze_account_partial: both sides are recorded in the same PDA", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeBoth(account);
+
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.isTrue(state.fullyFrozen, "full-freeze side should be set");
+      assert.equal(state.frozenBalance.toString(), PARTIAL.toString(), "partial balance should be kept");
+    });
+
+    it("freeze_account_partial then freeze_account: the full freeze keeps the existing partial balance", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeAccountPartial({ authority, mint, account }, { balance: PARTIAL });
+      await freezeAccount({ authority, mint, account });
+
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.isTrue(state.fullyFrozen, "full-freeze side should be set");
+      assert.equal(state.frozenBalance.toString(), PARTIAL.toString(), "partial balance should be untouched");
+    });
+
+    it("unfreeze_account on a fully and partially frozen account keeps the partial freeze and the PDA", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeBoth(account);
+
+      await unfreezeAccount({ authority, mint, account });
+
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.isNotNull(state, "PDA must not be closed while the partial freeze is still active");
+      assert.isFalse(state.fullyFrozen, "full-freeze side should be cleared");
+      assert.equal(state.frozenBalance.toString(), PARTIAL.toString(), "partial balance must survive unfreeze_account");
+    });
+
+    it("unfreeze_account_partial on a fully and partially frozen account keeps the full freeze and the PDA", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeBoth(account);
+
+      await unfreezeAccountPartial({ authority, mint, account });
+
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.isNotNull(state, "PDA must not be closed while the full freeze is still active");
+      assert.isTrue(state.fullyFrozen, "full-freeze side must survive unfreeze_account_partial");
+      assert.equal(state.frozenBalance.toString(), "0", "partial balance should be reset to 0");
+    });
+
+    it("clearing both sides (in either order) closes the PDA and refunds its rent to the authority", async () => {
+      const accountA = await createTokenAccount({ mint, owner: authority.publicKey });
+      const accountB = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeBoth(accountA);
+      await freezeBoth(accountB);
+
+      await unfreezeAccount({ authority, mint, account: accountA });
+      await unfreezeAccountPartial({ authority, mint, account: accountA });
+
+      const pdaB = freezePdaUtils.freezeStatePda(mint, accountB);
+      await unfreezeAccountPartial({ authority, mint, account: accountB });
+      const rent = await provider.connection.getBalance(pdaB, "confirmed");
+      const authorityBefore = await provider.connection.getBalance(authority.publicKey, "confirmed");
+      const { signature } = await unfreezeAccount({ authority, mint, account: accountB });
+      const authorityAfter = await provider.connection.getBalance(authority.publicKey, "confirmed");
+      const tx = await provider.connection.getTransaction(signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+
+      assert.isNull(await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, accountA)), "PDA A should be closed");
+      assert.isNull(await getFreezeStateByPda(pdaB), "PDA B should be closed");
+      assert.equal(
+        authorityAfter - authorityBefore,
+        rent - (tx?.meta?.fee ?? 0),
+        "closing the PDA should refund its rent to the authority"
+      );
+    });
+
+    it("freeze_account_partial: fails with InvalidFreezeAmount when the balance is 0", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+
+      await expectAnchorError("InvalidFreezeAmount", () =>
+        freezeAccountPartial({ authority, mint, account }, { balance: new anchor.BN(0) })
+      );
+      assert.isNull(
+        await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account)),
+        "a rejected 0-balance partial freeze must not create the PDA"
+      );
+    });
+
+    it("freeze_account_partial: a 0 balance cannot be used to wipe an existing partial freeze", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeAccountPartial({ authority, mint, account }, { balance: PARTIAL });
+
+      await expectAnchorError("InvalidFreezeAmount", () =>
+        freezeAccountPartial({ authority, mint, account }, { balance: new anchor.BN(0) })
+      );
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.equal(state.frozenBalance.toString(), PARTIAL.toString(), "the existing partial freeze must be kept");
+    });
+
+    it("batch_freeze_account_partial: fails with InvalidFreezeAmount when any balance is 0, freezing nothing", async () => {
+      const accountA = await createTokenAccount({ mint, owner: authority.publicKey });
+      const accountB = await createTokenAccount({ mint, owner: authority.publicKey });
+
+      await expectAnchorError("InvalidFreezeAmount", () =>
+        batchFreezeAccountPartial(
+          { authority, mint, accounts: [accountA, accountB] },
+          { balances: [PARTIAL, new anchor.BN(0)] }
+        )
+      );
+      for (const account of [accountA, accountB]) {
+        assert.isNull(
+          await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account)),
+          "no entry of a rejected batch should be frozen"
+        );
+      }
+    });
+
+    it("unfreeze_account: fails with AccountNotFrozen when the account is only partially frozen", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeAccountPartial({ authority, mint, account }, { balance: PARTIAL });
+
+      await expectAnchorError("AccountNotFrozen", () => unfreezeAccount({ authority, mint, account }));
+
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.equal(
+        state.frozenBalance.toString(),
+        PARTIAL.toString(),
+        "the failed unfreeze must leave the partial freeze untouched"
+      );
+    });
+
+    it("unfreeze_account_partial: fails with AccountNotPartiallyFrozen when the account is only fully frozen", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeAccount({ authority, mint, account });
+
+      await expectAnchorError("AccountNotPartiallyFrozen", () => unfreezeAccountPartial({ authority, mint, account }));
+
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.isTrue(state.fullyFrozen, "the failed partial unfreeze must leave the full freeze untouched");
+    });
+
+    it("unfreeze_account_partial: fails with AccountNotInitialized when the account has no freeze at all", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await expectAnchorError("AccountNotInitialized", () => unfreezeAccountPartial({ authority, mint, account }));
+    });
+
+    it("batch_freeze_account: freezes an account that is already partially frozen, keeping its balance", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeAccountPartial({ authority, mint, account }, { balance: PARTIAL });
+
+      await batchFreezeAccount({ authority, mint, accounts: [account] });
+
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.isTrue(state.fullyFrozen, "full-freeze side should be set");
+      assert.equal(state.frozenBalance.toString(), PARTIAL.toString(), "partial balance should be untouched");
+    });
+
+    it("batch_freeze_account_partial: partially freezes an already frozen account, keeping the full freeze", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeAccount({ authority, mint, account });
+
+      await batchFreezeAccountPartial({ authority, mint, accounts: [account] }, { balances: [PARTIAL] });
+
+      const state = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, account));
+      assert.isTrue(state.fullyFrozen, "full-freeze side should survive the partial freeze");
+      assert.equal(state.frozenBalance.toString(), PARTIAL.toString(), "partial balance should be recorded");
+    });
+
+    it("batch_unfreeze_account: keeps the PDA of a partially frozen entry and closes the PDA of a full-only entry", async () => {
+      const both = await createTokenAccount({ mint, owner: authority.publicKey });
+      const fullOnly = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeBoth(both);
+      await freezeAccount({ authority, mint, account: fullOnly });
+
+      await batchUnfreezeAccount({ authority, mint, accounts: [both, fullOnly] });
+
+      const bothState = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, both));
+      assert.isNotNull(bothState, "PDA with a remaining partial freeze must not be closed");
+      assert.isFalse(bothState.fullyFrozen, "full-freeze side should be cleared");
+      assert.equal(bothState.frozenBalance.toString(), PARTIAL.toString(), "partial balance must survive");
+      assert.isNull(
+        await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, fullOnly)),
+        "PDA with nothing left should be closed"
+      );
+    });
+
+    it("batch_unfreeze_account_partial: keeps the PDA of a fully frozen entry and closes the PDA of a partial-only entry", async () => {
+      const both = await createTokenAccount({ mint, owner: authority.publicKey });
+      const partialOnly = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeBoth(both);
+      await freezeAccountPartial({ authority, mint, account: partialOnly }, { balance: PARTIAL });
+
+      await batchUnfreezeAccountPartial({ authority, mint, accounts: [both, partialOnly] });
+
+      const bothState = await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, both));
+      assert.isNotNull(bothState, "PDA with a remaining full freeze must not be closed");
+      assert.isTrue(bothState.fullyFrozen, "full-freeze side must survive");
+      assert.equal(bothState.frozenBalance.toString(), "0", "partial side should be cleared");
+      assert.isNull(
+        await getFreezeStateByPda(freezePdaUtils.freezeStatePda(mint, partialOnly)),
+        "PDA with nothing left should be closed"
+      );
+    });
+
+    it("batch_unfreeze_account: fails with AccountNotFrozen when an entry is only partially frozen", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeAccountPartial({ authority, mint, account }, { balance: PARTIAL });
+
+      await expectAnchorError("AccountNotFrozen", () => batchUnfreezeAccount({ authority, mint, accounts: [account] }));
+    });
+
+    it("batch_unfreeze_account_partial: fails with AccountNotPartiallyFrozen when an entry is only fully frozen", async () => {
+      const account = await createTokenAccount({ mint, owner: authority.publicKey });
+      await freezeAccount({ authority, mint, account });
+
+      await expectAnchorError("AccountNotPartiallyFrozen", () =>
+        batchUnfreezeAccountPartial({ authority, mint, accounts: [account] })
+      );
     });
   });
 });

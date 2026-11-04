@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 
-pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 17;
+pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 16;
 
 /// Field order is the wire order Token-2022 matches positionally against
 /// `transfer-hook`'s metalist — do not reshuffle.
@@ -19,8 +19,7 @@ pub struct HookAccounts<'a, 'info> {
     pub source_control_list_pda: &'a AccountInfo<'info>,
     pub destination_control_list_pda: &'a AccountInfo<'info>,
     pub freeze_program: &'a AccountInfo<'info>,
-    pub source_frozen_pda: &'a AccountInfo<'info>,
-    pub source_frozen_balance_pda: &'a AccountInfo<'info>,
+    pub source_freeze_state_pda: &'a AccountInfo<'info>,
     pub hold_program: &'a AccountInfo<'info>,
     pub source_hold_position_pda: &'a AccountInfo<'info>,
 }
@@ -41,8 +40,7 @@ impl<'a, 'info> HookAccounts<'a, 'info> {
             self.source_control_list_pda,
             self.destination_control_list_pda,
             self.freeze_program,
-            self.source_frozen_pda,
-            self.source_frozen_balance_pda,
+            self.source_freeze_state_pda,
             self.hold_program,
             self.source_hold_position_pda,
         ]

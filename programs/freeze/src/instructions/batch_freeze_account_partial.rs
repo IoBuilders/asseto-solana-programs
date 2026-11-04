@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::Discriminator;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 use common::{
     pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
@@ -8,7 +7,7 @@ use common::{
 
 use crate::errors::ErrorCode;
 use crate::events::AccountPartiallyFrozen;
-use crate::state::FrozenBalance;
+use crate::state::{load_freeze_state, FreezeState};
 use common::program_ids as constants;
 
 pub fn batch_freeze_account_partial<'info>(
@@ -16,6 +15,10 @@ pub fn batch_freeze_account_partial<'info>(
     balances: Vec<u64>,
 ) -> Result<()> {
     require!(!balances.is_empty(), ErrorCode::EmptyBatch);
+    require!(
+        balances.iter().all(|balance| *balance > 0),
+        ErrorCode::InvalidFreezeAmount
+    );
     require!(
         ctx.remaining_accounts.len() == balances.len() * 2,
         ErrorCode::InvalidRemainingAccounts
@@ -37,39 +40,45 @@ pub fn batch_freeze_account_partial<'info>(
 
     let mint_key = ctx.accounts.mint.key();
     let authority_key = ctx.accounts.authority.key();
-    let space = FrozenBalance::DISCRIMINATOR.len() + FrozenBalance::INIT_SPACE;
 
     for i in 0..balances.len() {
         let balance = balances[i];
         let account = &ctx.remaining_accounts[i * 2];
-        let frozen_balance_pda = &ctx.remaining_accounts[i * 2 + 1];
+        let freeze_state_pda = &ctx.remaining_accounts[i * 2 + 1];
         let account_key = account.key();
 
         // ── Verify the client supplied the canonical PDA for this account ────
-        let frozen_balance_seeds = pda_seeds::frozen_balance_seeds(&mint_key, &account_key);
+        let freeze_state_seeds = pda_seeds::freeze_state_seeds(&mint_key, &account_key);
         let (expected_pda, bump) =
-            Pubkey::find_program_address(&frozen_balance_seeds, ctx.program_id);
+            Pubkey::find_program_address(&freeze_state_seeds, ctx.program_id);
         require_keys_eq!(
-            frozen_balance_pda.key(),
+            freeze_state_pda.key(),
             expected_pda,
-            ErrorCode::FrozenBalancePdaMismatch
+            ErrorCode::FreezeStatePdaMismatch
         );
 
-        // ── Create the PDA on the first call; overwrite on subsequent calls ──
-        if frozen_balance_pda.data_is_empty() {
-            let signer_seeds = pda_utils::build_pda_signer_seeds(frozen_balance_seeds, &bump);
+        // ── Create the PDA on first use; keep the full-freeze side otherwise ──
+        let mut freeze_state = match load_freeze_state(freeze_state_pda)? {
+            Some(existing) => existing,
+            None => {
+                let signer_seeds = pda_utils::build_pda_signer_seeds(freeze_state_seeds, &bump);
+                pda_utils::create_or_adopt_pda(
+                    &ctx.accounts.authority.to_account_info(),
+                    freeze_state_pda,
+                    &ctx.accounts.system_program.to_account_info(),
+                    ctx.program_id,
+                    FreezeState::SPACE,
+                    signer_seeds.as_slice(),
+                )?;
+                FreezeState {
+                    bump,
+                    ..Default::default()
+                }
+            }
+        };
 
-            pda_utils::create_or_adopt_pda(
-                &ctx.accounts.authority.to_account_info(),
-                &frozen_balance_pda.to_account_info(),
-                &ctx.accounts.system_program.to_account_info(),
-                ctx.program_id,
-                space,
-                signer_seeds.as_slice(),
-            )?;
-        }
-
-        pda_utils::serialize_pda(&frozen_balance_pda, &FrozenBalance { balance, bump })?;
+        freeze_state.frozen_balance = balance;
+        pda_utils::serialize_pda(freeze_state_pda, &freeze_state)?;
 
         emit_cpi!(AccountPartiallyFrozen {
             mint: mint_key,

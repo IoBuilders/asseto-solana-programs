@@ -66,8 +66,7 @@ pub fn batch_transfer<'info>(
             source_control_list_pda: &ctx.accounts.source_control_list_pda,
             destination_control_list_pda,
             freeze_program: &ctx.accounts.freeze_program,
-            source_frozen_pda: &ctx.accounts.source_frozen_pda,
-            source_frozen_balance_pda: &ctx.accounts.source_frozen_balance_pda,
+            source_freeze_state_pda: &ctx.accounts.source_freeze_state_pda,
             hold_program: &ctx.accounts.hold_program,
             source_hold_position_pda: &ctx.accounts.source_hold_position_pda,
         };
@@ -182,21 +181,13 @@ pub struct BatchTransferTokens<'info> {
     )]
     pub source_control_list_pda: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; forwarded to the hook (must be empty for transfers to proceed).
+    /// CHECK: seeds verified; forwarded to the hook. May be empty (nothing frozen).
     #[account(
-        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), source.key().as_ref()],
+        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), source.key().as_ref()],
         seeds::program = constants::FREEZE_PROGRAM_ID,
         bump,
     )]
-    pub source_frozen_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; forwarded to the hook (may be empty — no partial freeze).
-    #[account(
-        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), source.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub source_frozen_balance_pda: UncheckedAccount<'info>,
+    pub source_freeze_state_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::HOLD_PROGRAM_ID)]

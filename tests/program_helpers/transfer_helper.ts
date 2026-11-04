@@ -20,7 +20,7 @@ import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, controlListPda } from "./transfer_control/transfer_control_pda_helper";
-import { frozenAccountPda, frozenBalancePda } from "./freeze/freeze_pda_helper";
+import { freezeStatePda } from "./freeze/freeze_pda_helper";
 import { assetClassVersionPda } from "./factory/factory_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
@@ -163,8 +163,7 @@ export async function buildSplTransferCheckedInstruction(
     readonly(controlListPda(callContext.mint, callContext.source)),
     readonly(controlListPda(callContext.mint, callContext.destination)),
     readonly(FREEZE_PROGRAM_ID),
-    readonly(frozenAccountPda(callContext.mint, callContext.source)),
-    readonly(frozenBalancePda(callContext.mint, callContext.source)),
+    readonly(freezeStatePda(callContext.mint, callContext.source)),
     readonly(HOLD_PROGRAM_ID),
     readonly(holdPositionPda(callContext.mint, callContext.source))
   );
@@ -235,8 +234,7 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceControlListPda: controlListPda(callContext.mint, callContext.source),
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.source),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.source),
+      sourceFreezeStatePda: freezeStatePda(callContext.mint, callContext.source),
       holdProgram: HOLD_PROGRAM_ID,
       sourceHoldPositionPda: holdPositionPda(callContext.mint, callContext.source),
       token2022Program: TOKEN_2022_PROGRAM_ID,
