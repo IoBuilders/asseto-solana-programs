@@ -4,7 +4,8 @@ use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
-use crate::state::FrozenBalance;
+use crate::errors::ErrorCode;
+use crate::state::FreezeState;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
@@ -26,9 +27,12 @@ pub fn freeze_account_partial(ctx: Context<FreezeAccountPartial>, balance: u64) 
         common::functionalities::FREEZE_PARTIALLY_FREEZE_ACCOUNT,
     )?;
 
+    require!(balance > 0, ErrorCode::InvalidFreezeAmount);
+
     // ── Set (or overwrite) the frozen balance ─────────────────────────────────
-    ctx.accounts.frozen_balance_pda.balance = balance;
-    ctx.accounts.frozen_balance_pda.bump = ctx.bumps.frozen_balance_pda;
+    let freeze_state = &mut ctx.accounts.freeze_state_pda;
+    freeze_state.frozen_balance = balance;
+    freeze_state.bump = ctx.bumps.freeze_state_pda;
 
     emit_cpi!(AccountPartiallyFrozen {
         mint: ctx.accounts.mint.key(),
@@ -63,7 +67,7 @@ pub struct FreezeAccountPartial<'info> {
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: Address used as a seed for frozen_balance_pda; not otherwise validated here.
+    /// CHECK: Address used as a seed for freeze_state_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
@@ -77,11 +81,11 @@ pub struct FreezeAccountPartial<'info> {
     #[account(
         init_if_needed,
         payer = authority,
-        space = FrozenBalance::DISCRIMINATOR.len() + FrozenBalance::INIT_SPACE,
-        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), account.key().as_ref()],
+        space = FreezeState::SPACE,
+        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), account.key().as_ref()],
         bump,
     )]
-    pub frozen_balance_pda: Account<'info, FrozenBalance>,
+    pub freeze_state_pda: Account<'info, FreezeState>,
 
     #[account(
         seeds = [

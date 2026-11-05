@@ -24,7 +24,7 @@ import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, permissionedBurnPda, operationsEventAuthorityPda } from "./operations_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
-import { frozenAccountPda, frozenBalancePda } from "../freeze/freeze_pda_helper";
+import { freezeStatePda } from "../freeze/freeze_pda_helper";
 
 export function getOperationsProgram(): Program<Operations> {
   return anchor.workspace.Operations as Program<Operations>;
@@ -214,8 +214,7 @@ export async function controllerTransfer(
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceControlListPda: controlListPda(callContext.mint, callContext.from),
       destinationControlListPda: controlListPda(callContext.mint, callContext.to),
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.from),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.from),
+      sourceFreezeStatePda: freezeStatePda(callContext.mint, callContext.from),
       holdProgram: HOLD_PROGRAM_ID,
       sourceHoldPositionPda: holdPositionPda(callContext.mint, callContext.from),
       assetClassVersionPda: assetClassVersionPda(

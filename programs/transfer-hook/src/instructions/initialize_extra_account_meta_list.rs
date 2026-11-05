@@ -18,7 +18,7 @@ use common::state::asset_configuration::{
 /// Keep in sync with the `metas` vec length in the handler, and with
 /// `common::HOOK_FORWARDED_ACCOUNT_COUNT`, which is this plus the two accounts
 /// Token-2022 requires on top (the metalist itself and the hook program).
-const EXTRA_ACCOUNT_META_COUNT: usize = 15;
+const EXTRA_ACCOUNT_META_COUNT: usize = 14;
 
 pub fn initialize_extra_account_meta_list(
     ctx: Context<InitializeExtraAccountMetaList>,
@@ -110,19 +110,7 @@ pub fn initialize_extra_account_meta_list(
             15,
             &[
                 Seed::Literal {
-                    bytes: pda_seeds::FROZEN_ACCOUNT.to_vec(),
-                },
-                Seed::AccountKey { index: 1 },
-                Seed::AccountKey { index: 0 },
-            ],
-            false,
-            false,
-        )?,
-        ExtraAccountMeta::new_external_pda_with_seeds(
-            15,
-            &[
-                Seed::Literal {
-                    bytes: pda_seeds::FROZEN_BALANCE.to_vec(),
+                    bytes: pda_seeds::FREEZE_STATE.to_vec(),
                 },
                 Seed::AccountKey { index: 1 },
                 Seed::AccountKey { index: 0 },
@@ -132,7 +120,7 @@ pub fn initialize_extra_account_meta_list(
         )?,
         ExtraAccountMeta::new_with_pubkey(&HOLD_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            18,
+            17,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::HOLD_POSITION.to_vec(),

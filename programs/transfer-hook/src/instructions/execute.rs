@@ -5,7 +5,7 @@ use common::program_ids::{
 };
 use common::state::{AssetClassVersion, AssetConfiguration};
 use common::{pda_seeds, pda_utils, require_active, require_functionality};
-use freeze::{require_locked_balance_covered, require_unfrozen_account};
+use freeze::require_locked_balance_covered;
 use spl_token_2022_interface::extension::{
     transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
 };
@@ -39,10 +39,15 @@ pub fn execute<'info>(ctx: Context<'info, Execute<'info>>, _amount: u64) -> Resu
         ],
     )?;
 
-    require_unfrozen_account(&ctx.accounts.source_frozen_pda)?;
+    let freeze_status = freeze::freeze_status(&ctx.accounts.source_freeze_state_pda)?;
+    require!(
+        !freeze_status.fully_frozen,
+        freeze::errors::ErrorCode::AccountFrozen
+    );
 
     // The hook runs post-debit, so this asserts balance_post >= frozen + held.
-    let total_locked = freeze::frozen_balance(&ctx.accounts.source_frozen_balance_pda)?
+    let total_locked = freeze_status
+        .frozen_balance
         .checked_add(common::held_amount(&ctx.accounts.source_hold_position_pda)?)
         .ok_or(error!(
             freeze::errors::ErrorCode::InsufficientUnfrozenBalance
@@ -158,31 +163,24 @@ pub struct Execute<'info> {
     )]
     pub destination_control_list_pda: UncheckedAccount<'info>,
 
-    /// CHECK: freeze program (index 15); resolves the frozen PDAs in the metalist.
+    /// CHECK: freeze program (index 15); resolves source_freeze_state_pda in the metalist.
     #[account(address = FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
-    /// CHECK: Source frozen-account marker (index 16); emptiness checked by require_unfrozen_account.
+    /// CHECK: Source freeze state (index 16); may be empty (nothing frozen). Owner and
+    /// discriminator checked by freeze::freeze_status.
     #[account(
-        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), source_token.key().as_ref()],
+        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = FREEZE_PROGRAM_ID,
         bump,
     )]
-    pub source_frozen_pda: UncheckedAccount<'info>,
+    pub source_freeze_state_pda: UncheckedAccount<'info>,
 
-    /// CHECK: Source partial-freeze balance (index 17); may be empty (no partial freeze).
-    #[account(
-        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), source_token.key().as_ref()],
-        seeds::program = FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub source_frozen_balance_pda: UncheckedAccount<'info>,
-
-    /// CHECK: hold program (index 18); resolves source_hold_position_pda in the metalist.
+    /// CHECK: hold program (index 17); resolves source_hold_position_pda in the metalist.
     #[account(address = HOLD_PROGRAM_ID)]
     pub hold_program: UncheckedAccount<'info>,
 
-    /// CHECK: Source held-balance accumulator (index 19); may be empty (no hold ever created).
+    /// CHECK: Source held-balance accumulator (index 18); may be empty (no hold ever created).
     #[account(
         seeds = [pda_seeds::HOLD_POSITION, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = HOLD_PROGRAM_ID,

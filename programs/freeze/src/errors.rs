@@ -12,12 +12,12 @@ pub enum ErrorCode {
     EmptyBatch,
     #[msg("Expected exactly two remaining accounts per entry")]
     InvalidRemainingAccounts,
-    #[msg("Provided frozen_account_pda does not match the derived PDA for this account")]
-    FrozenAccountPdaMismatch,
-    #[msg("Provided frozen_balance_pda does not match the derived PDA for this account")]
-    FrozenBalancePdaMismatch,
-    #[msg("Account is not frozen (frozen_account_pda does not exist)")]
+    #[msg("Provided freeze_state_pda does not match the derived PDA for this account")]
+    FreezeStatePdaMismatch,
+    #[msg("Account is not frozen")]
     AccountNotFrozen,
-    #[msg("Account is not partially frozen (frozen_balance_pda does not exist)")]
+    #[msg("Account is not partially frozen")]
     AccountNotPartiallyFrozen,
+    #[msg("A partial freeze must lock a non-zero amount")]
+    InvalidFreezeAmount,
 }

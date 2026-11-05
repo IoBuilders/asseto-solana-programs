@@ -4,7 +4,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration};
 use common::{pda_seeds, pda_utils, require_active, require_functionality, require_not_paused};
-use freeze::{require_locked_balance_covered, require_unfrozen_account};
+use freeze::require_locked_balance_covered;
 use operations::cpi::accounts::HoldTransfer;
 use transfer_control::verify_transfer_control_mode;
 
@@ -50,7 +50,11 @@ pub fn execute_hold<'info>(
             &ctx.accounts.destination_control_list_pda,
         ],
     )?;
-    require_unfrozen_account(&ctx.accounts.source_frozen_pda)?;
+    let freeze_status = freeze::freeze_status(&ctx.accounts.source_freeze_state_pda)?;
+    require!(
+        !freeze_status.fully_frozen,
+        freeze::errors::ErrorCode::AccountFrozen
+    );
 
     let held_after = ctx
         .accounts
@@ -60,7 +64,8 @@ pub fn execute_hold<'info>(
         .ok_or(ErrorCode::HeldAmountUnderflow)?;
 
     let source_token_info = ctx.accounts.source_token.to_account_info();
-    let total_locked = freeze::frozen_balance(&ctx.accounts.source_frozen_balance_pda)?
+    let total_locked = freeze_status
+        .frozen_balance
         .checked_add(held_after)
         .and_then(|locked| locked.checked_add(amount))
         .ok_or(ErrorCode::HeldAmountUnderflow)?;
@@ -110,8 +115,7 @@ pub fn execute_hold<'info>(
                     .destination_control_list_pda
                     .to_account_info(),
                 freeze_program: ctx.accounts.freeze_program.to_account_info(),
-                source_frozen_pda: ctx.accounts.source_frozen_pda.to_account_info(),
-                source_frozen_balance_pda: ctx.accounts.source_frozen_balance_pda.to_account_info(),
+                source_freeze_state_pda: ctx.accounts.source_freeze_state_pda.to_account_info(),
                 hold_program: ctx.accounts.hold_program.to_account_info(),
                 source_hold_position_pda: ctx.accounts.hold_position.to_account_info(),
                 token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
@@ -276,21 +280,13 @@ pub struct ExecuteHold<'info> {
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; emptiness checked by require_unfrozen_account.
+    /// CHECK: seeds verified; read by freeze::freeze_status and forwarded to operations. May be empty (nothing frozen).
     #[account(
-        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), source_token.key().as_ref()],
+        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = constants::FREEZE_PROGRAM_ID,
         bump,
     )]
-    pub source_frozen_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; balance read by require_locked_balance_covered. May be empty.
-    #[account(
-        seeds = [pda_seeds::FROZEN_BALANCE, mint.key().as_ref(), source_token.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
-        bump,
-    )]
-    pub source_frozen_balance_pda: UncheckedAccount<'info>,
+    pub source_freeze_state_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to operations for the metalist.
     #[account(address = constants::HOLD_PROGRAM_ID)]

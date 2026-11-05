@@ -28,21 +28,10 @@ pub fn metadata_update_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info
 }
 
 /********************************** FREEZE **********************************/
-pub const FROZEN_ACCOUNT: &[u8] = b"frozen_account";
-pub const FROZEN_BALANCE: &[u8] = b"frozen_balance";
+pub const FREEZE_STATE: &[u8] = b"freeze_state";
 
-pub fn frozen_account_seeds<'info>(
-    mint: &'info Pubkey,
-    account: &'info Pubkey,
-) -> Vec<&'info [u8]> {
-    vec![FROZEN_ACCOUNT, mint.as_ref(), account.as_ref()]
-}
-
-pub fn frozen_balance_seeds<'info>(
-    mint: &'info Pubkey,
-    account: &'info Pubkey,
-) -> Vec<&'info [u8]> {
-    vec![FROZEN_BALANCE, mint.as_ref(), account.as_ref()]
+pub fn freeze_state_seeds<'info>(mint: &'info Pubkey, account: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![FREEZE_STATE, mint.as_ref(), account.as_ref()]
 }
 
 /******************************** OPERATIONS ********************************/

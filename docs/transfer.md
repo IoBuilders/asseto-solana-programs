@@ -80,13 +80,12 @@ must be **appended** to that list.
 | 14 | `source_control_list_pda` | no | no | seeds `["control_list", mint, source]`; must exist in Whitelist mode, must not in Blacklist mode |
 | 15 | `destination_control_list_pda` | no | no | seeds `["control_list", mint, destination]`; must exist in Whitelist mode, must not in Blacklist mode |
 | 16 | `freeze_program` | no | no | `FREEZE_PROGRAM_ID` |
-| 17 | `source_frozen_pda` | no | no | seeds `["frozen_account", mint, source]`; must be empty |
-| 18 | `source_frozen_balance_pda` | no | no | seeds `["frozen_balance", mint, source]`; may be empty (no partial freeze) |
-| 19 | `hold_program` | no | no | `HOLD_PROGRAM_ID` |
-| 20 | `source_hold_position_pda` | no | no | seeds `["hold_position", mint, source]`; may be empty (no hold ever created on the source) |
+| 17 | `source_freeze_state_pda` | no | no | seeds `["freeze_state", mint, source]`; may be empty (nothing frozen); must not be fully frozen |
+| 18 | `hold_program` | no | no | `HOLD_PROGRAM_ID` |
+| 19 | `source_hold_position_pda` | no | no | seeds `["hold_position", mint, source]`; may be empty (no hold ever created on the source) |
 
-**Indices 4–20 are load-bearing in exactly this order** — 4 and 5 are the metalist
-PDA and hook program, and 6–20 are the metalist's own entries in declaration
+**Indices 4–19 are load-bearing in exactly this order** — 4 and 5 are the metalist
+PDA and hook program, and 6–19 are the metalist's own entries in declaration
 order. Token-2022 re-derives the seed-based entries and checks the forwarded
 accounts against them, so a wrong order (or a missing account) fails inside
 Token-2022 before the hook runs. Omitting the block entirely does not skip
@@ -144,12 +143,11 @@ from the destination token account.
 | 12 | `transfer_control_program` | no | no | UncheckedAccount | address = `TRANSFER_CONTROL_PROGRAM_ID` |
 | 13 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`; may be empty |
 | 14 | `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, source]`; constant across legs |
-| 15 | `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, source]` |
-| 16 | `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, source]` |
-| 17 | `hold_program` | no | no | UncheckedAccount | address = `HOLD_PROGRAM_ID` |
-| 18 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, source]`; may be empty |
-| 19 | `token_2022_program` | no | no | Program\<Token2022\> | |
-| 20.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_control_list_pda` |
+| 15 | `source_freeze_state_pda` | no | no | UncheckedAccount | seeds `["freeze_state", mint, source]`; may be empty |
+| 16 | `hold_program` | no | no | UncheckedAccount | address = `HOLD_PROGRAM_ID` |
+| 17 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, source]`; may be empty |
+| 18 | `token_2022_program` | no | no | Program\<Token2022\> | |
+| 19.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_control_list_pda` |
 
 The declaration order above is *not* the order the accounts are forwarded in —
 `freeze_program` sits at index 5 in the struct but is forwarded thirteenth, where

@@ -20,7 +20,7 @@ import { rolesPda } from "../access_control/access_control_pda_helper";
 import { BaseWriteContext, MintContext, PayerContext } from "../base_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
-import { frozenAccountPda, frozenBalancePda } from "../freeze/freeze_pda_helper";
+import { freezeStatePda } from "../freeze/freeze_pda_helper";
 import { permanentDelegatePda } from "../operations/operations_pda_helper";
 import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
 import { getEvent } from "../event_helper";
@@ -76,8 +76,7 @@ export async function createHold(
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
-      tokenAccountFrozenPda: frozenAccountPda(callContext.mint, callContext.tokenAccount),
-      tokenAccountFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.tokenAccount),
+      tokenAccountFreezeStatePda: freezeStatePda(callContext.mint, callContext.tokenAccount),
       holdPosition: holdPositionPda(callContext.mint, callContext.tokenAccount),
       holdRecord: holdPda(callContext.mint, callContext.tokenAccount, holdId),
       assetClassVersionPda: assetClassVersionPda(
@@ -128,8 +127,7 @@ export async function controllerCreateHold(
       deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
-      tokenAccountFrozenPda: frozenAccountPda(callContext.mint, callContext.tokenAccount),
-      tokenAccountFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.tokenAccount),
+      tokenAccountFreezeStatePda: freezeStatePda(callContext.mint, callContext.tokenAccount),
       holdPosition: holdPositionPda(callContext.mint, callContext.tokenAccount),
       holdRecord: holdPda(callContext.mint, callContext.tokenAccount, holdId),
       assetClassVersionPda: assetClassVersionPda(
@@ -204,8 +202,7 @@ export async function executeHold(
       sourceControlListPda: controlListPda(callContext.mint, callContext.tokenAccount),
       destinationControlListPda: controlListPda(callContext.mint, callContext.destination),
       freezeProgram: FREEZE_PROGRAM_ID,
-      sourceFrozenPda: frozenAccountPda(callContext.mint, callContext.tokenAccount),
-      sourceFrozenBalancePda: frozenBalancePda(callContext.mint, callContext.tokenAccount),
+      sourceFreezeStatePda: freezeStatePda(callContext.mint, callContext.tokenAccount),
       holdProgram: HOLD_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: holdEventAuthorityPda(),

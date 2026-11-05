@@ -6,7 +6,7 @@ pub mod instructions;
 pub mod state;
 
 use instructions::*;
-use state::FrozenBalance;
+use state::load_freeze_state;
 declare_id!("8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd");
 
 #[program]
@@ -55,91 +55,74 @@ pub mod freeze {
     }
 }
 
-pub fn require_unfrozen_account(frozen_account_pda: &AccountInfo) -> Result<()> {
+#[derive(Default)]
+pub struct FreezeStatus {
+    pub fully_frozen: bool,
+    pub frozen_balance: u64,
+}
+
+pub fn freeze_status<'info>(freeze_state_pda: &'info AccountInfo<'info>) -> Result<FreezeStatus> {
+    Ok(match load_freeze_state(freeze_state_pda)? {
+        Some(state) => FreezeStatus {
+            fully_frozen: state.fully_frozen,
+            frozen_balance: state.frozen_balance,
+        },
+        None => FreezeStatus::default(),
+    })
+}
+
+pub fn require_unfrozen_account<'info>(freeze_state_pda: &'info AccountInfo<'info>) -> Result<()> {
     require!(
-        frozen_account_pda.data_is_empty(),
+        !freeze_status(freeze_state_pda)?.fully_frozen,
         errors::ErrorCode::AccountFrozen
     );
     Ok(())
 }
 
+pub fn frozen_balance<'info>(freeze_state_pda: &'info AccountInfo<'info>) -> Result<u64> {
+    Ok(freeze_status(freeze_state_pda)?.frozen_balance)
+}
+
 pub fn require_unfrozen_balance<'info>(
     amount: u64,
     token_account: &AccountInfo,
-    frozen_balance_pda: &'info AccountInfo<'info>,
+    freeze_state_pda: &'info AccountInfo<'info>,
 ) -> Result<()> {
-    use crate::errors::ErrorCode;
-    use spl_token_2022_interface::extension::StateWithExtensions;
-    use spl_token_2022_interface::state::Account as TokenAccountState;
-
-    // ── Read the current token account balance ────────────────────────────────
-    let token_data = token_account.try_borrow_data()?;
-    let token_state = StateWithExtensions::<TokenAccountState>::unpack(&token_data)
-        .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?;
-    let account_balance = token_state.base.amount;
-
-    // ── Read the frozen balance from the PDA (0 if PDA does not exist) ────────
-    let frozen_balance: u64 = if frozen_balance_pda.data_is_empty() {
-        0
-    } else {
-        Account::<FrozenBalance>::try_from(frozen_balance_pda)
-            .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?
-            .balance
-    };
-
-    // ── Check available balance covers the transfer amount ────────────────────
-    // saturating_sub handles frozen_balance > account_balance without underflow.
-    let available = account_balance.saturating_sub(frozen_balance);
-    require!(available >= amount, ErrorCode::InsufficientUnfrozenBalance);
-
+    let available = token_balance(token_account)?.saturating_sub(frozen_balance(freeze_state_pda)?);
+    require!(
+        available >= amount,
+        errors::ErrorCode::InsufficientUnfrozenBalance
+    );
     Ok(())
 }
 
-/// Reads the amount locked by a partial freeze. Returns 0 if `frozen_balance_pda`
-/// does not exist (no partial freeze on this account).
-pub fn frozen_balance<'info>(frozen_balance_pda: &'info AccountInfo<'info>) -> Result<u64> {
-    if frozen_balance_pda.data_is_empty() {
-        return Ok(0);
-    }
-    use crate::errors::ErrorCode;
-    Ok(Account::<FrozenBalance>::try_from(frozen_balance_pda)
-        .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?
-        .balance)
-}
-
-/// Post-debit variant of [`require_unfrozen_balance`] for the transfer hook
-/// (Token-2022 runs it after debiting): asserts `balance_post >= frozen`, which
-/// is the pre-debit `available >= amount` restated for the post-debit balance.
-/// See docs/freeze.md.
+/// Post-debit variant of [`require_unfrozen_balance`]. See docs/freeze.md.
 pub fn require_frozen_balance_covered<'info>(
     token_account: &AccountInfo,
-    frozen_balance_pda: &'info AccountInfo<'info>,
+    freeze_state_pda: &'info AccountInfo<'info>,
 ) -> Result<()> {
-    require_locked_balance_covered(token_account, frozen_balance(frozen_balance_pda)?)
+    require_locked_balance_covered(token_account, frozen_balance(freeze_state_pda)?)
 }
 
-/// Asserts `balance >= total_locked`, where `total_locked` is the caller's own sum
-/// of every lien on the account (its partial-freeze balance plus any lien owned by
-/// another program, e.g. `hold`'s `held_amount`). This function owns no lien
-/// itself — it only compares — so it takes no `frozen_balance_pda` and needs no
-/// dependency on whichever programs own the liens being summed.
+/// Pure comparator: `total_locked` is the caller's own sum of every lien on the
+/// account, so `freeze` needs no dependency on the programs owning the others.
 pub fn require_locked_balance_covered(
     token_account: &AccountInfo,
     total_locked: u64,
 ) -> Result<()> {
-    use crate::errors::ErrorCode;
+    require!(
+        token_balance(token_account)? >= total_locked,
+        errors::ErrorCode::InsufficientUnfrozenBalance
+    );
+    Ok(())
+}
+
+fn token_balance(token_account: &AccountInfo) -> Result<u64> {
     use spl_token_2022_interface::extension::StateWithExtensions;
     use spl_token_2022_interface::state::Account as TokenAccountState;
 
     let token_data = token_account.try_borrow_data()?;
     let token_state = StateWithExtensions::<TokenAccountState>::unpack(&token_data)
-        .map_err(|_| error!(ErrorCode::InsufficientUnfrozenBalance))?;
-    let account_balance = token_state.base.amount;
-
-    require!(
-        account_balance >= total_locked,
-        ErrorCode::InsufficientUnfrozenBalance
-    );
-
-    Ok(())
+        .map_err(|_| error!(errors::ErrorCode::InsufficientUnfrozenBalance))?;
+    Ok(token_state.base.amount)
 }

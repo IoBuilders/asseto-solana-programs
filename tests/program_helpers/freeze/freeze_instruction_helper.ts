@@ -8,7 +8,7 @@ import { Program } from "@anchor-lang/core";
 import { Freeze } from "../../../target/types/freeze";
 import { getEvent, getEvents } from "../event_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
-import { frozenAccountPda, frozenBalancePda, freezeEventAuthorityPda } from "./freeze_pda_helper";
+import { freezeStatePda, freezeEventAuthorityPda } from "./freeze_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export function getFreezeProgram(): Program<Freeze> {
@@ -37,7 +37,7 @@ export async function freezeAccount(callContext: FreezeAccountContext): Promise<
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
-      frozenAccountPda: frozenAccountPda(callContext.mint, callContext.account),
+      freezeStatePda: freezeStatePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
@@ -74,7 +74,7 @@ export type BatchFreezeAccountContext = MintWriteContext & {
 };
 
 type BatchFreezeAccountArgs = {
-  // Overrides the remaining accounts. Defaults to `[account, frozenAccountPda]` per
+  // Overrides the remaining accounts. Defaults to `[account, freezeStatePda]` per
   // account, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
@@ -84,13 +84,13 @@ export async function batchFreezeAccount(
   args?: BatchFreezeAccountArgs
 ): Promise<string> {
   // Two remaining accounts per entry: the account to freeze (read-only) and its
-  // not-yet-created frozen_account_pda (writable) — the handler creates the
-  // latter manually since Anchor's `init` can't target a variable-length list.
+  // freeze_state_pda (writable) — created manually on first use since Anchor's
+  // `init_if_needed` can't target a variable-length list.
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
     callContext.accounts.flatMap((account) => [
       { pubkey: account, isWritable: false, isSigner: false },
-      { pubkey: frozenAccountPda(callContext.mint, account), isWritable: true, isSigner: false },
+      { pubkey: freezeStatePda(callContext.mint, account), isWritable: true, isSigner: false },
     ]);
 
   const program = getFreezeProgram();
@@ -146,7 +146,7 @@ export async function unfreezeAccount(callContext: UnfreezeAccountContext): Prom
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
-      frozenAccountPda: frozenAccountPda(callContext.mint, callContext.account),
+      freezeStatePda: freezeStatePda(callContext.mint, callContext.account),
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(
@@ -182,7 +182,7 @@ export type BatchUnfreezeAccountContext = MintWriteContext & {
 };
 
 type BatchUnfreezeAccountArgs = {
-  // Overrides the remaining accounts. Defaults to `[account, frozenAccountPda]` per
+  // Overrides the remaining accounts. Defaults to `[account, freezeStatePda]` per
   // account, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
@@ -192,13 +192,13 @@ export async function batchUnfreezeAccount(
   args?: BatchUnfreezeAccountArgs
 ): Promise<string> {
   // Two remaining accounts per entry: the account being unfrozen (read-only) and
-  // its existing frozen_account_pda (writable) — closed manually since Anchor's
-  // `close` constraint can't target a variable-length list.
+  // its existing freeze_state_pda (writable) — updated, or closed once both freeze
+  // sides are clear.
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
     callContext.accounts.flatMap((account) => [
       { pubkey: account, isWritable: false, isSigner: false },
-      { pubkey: frozenAccountPda(callContext.mint, account), isWritable: true, isSigner: false },
+      { pubkey: freezeStatePda(callContext.mint, account), isWritable: true, isSigner: false },
     ]);
 
   const program = getFreezeProgram();
@@ -271,7 +271,7 @@ export async function freezeAccountPartial(
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
-      frozenBalancePda: frozenBalancePda(callContext.mint, callContext.account),
+      freezeStatePda: freezeStatePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
@@ -311,7 +311,7 @@ export type BatchFreezeAccountPartialContext = MintWriteContext & {
 type BatchFreezeAccountPartialArgs = {
   // The `balances` instruction argument. Defaults to `1` per account.
   balances?: anchor.BN[];
-  // Overrides the remaining accounts. Defaults to `[account, frozenBalancePda]` per
+  // Overrides the remaining accounts. Defaults to `[account, freezeStatePda]` per
   // account, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
@@ -323,13 +323,12 @@ export async function batchFreezeAccountPartial(
   const balances = args?.balances ?? callContext.accounts.map(() => new anchor.BN(1));
 
   // Two remaining accounts per entry: the account being frozen (read-only) and
-  // its frozen_balance_pda — created on first call, overwritten thereafter,
-  // manually since Anchor's `init_if_needed` can't target a variable-length list.
+  // its freeze_state_pda — created on first use, partial side overwritten thereafter.
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
     callContext.accounts.flatMap((account) => [
       { pubkey: account, isWritable: false, isSigner: false },
-      { pubkey: frozenBalancePda(callContext.mint, account), isWritable: true, isSigner: false },
+      { pubkey: freezeStatePda(callContext.mint, account), isWritable: true, isSigner: false },
     ]);
 
   const program = getFreezeProgram();
@@ -387,7 +386,7 @@ export async function unfreezeAccountPartial(
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
-      frozenBalancePda: frozenBalancePda(callContext.mint, callContext.account),
+      freezeStatePda: freezeStatePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
@@ -424,7 +423,7 @@ export type BatchUnfreezeAccountPartialContext = MintWriteContext & {
 };
 
 type BatchUnfreezeAccountPartialArgs = {
-  // Overrides the remaining accounts. Defaults to `[account, frozenBalancePda]` per
+  // Overrides the remaining accounts. Defaults to `[account, freezeStatePda]` per
   // account, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
@@ -434,13 +433,13 @@ export async function batchUnfreezeAccountPartial(
   args?: BatchUnfreezeAccountPartialArgs
 ): Promise<string> {
   // Two remaining accounts per entry: the account whose partial freeze is being
-  // removed (read-only) and its existing frozen_balance_pda (writable) — closed
-  // manually since Anchor's `close` constraint can't target a variable-length list.
+  // removed (read-only) and its existing freeze_state_pda (writable) — updated, or
+  // closed once both freeze sides are clear.
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
     callContext.accounts.flatMap((account) => [
       { pubkey: account, isWritable: false, isSigner: false },
-      { pubkey: frozenBalancePda(callContext.mint, account), isWritable: true, isSigner: false },
+      { pubkey: freezeStatePda(callContext.mint, account), isWritable: true, isSigner: false },
     ]);
 
   const program = getFreezeProgram();

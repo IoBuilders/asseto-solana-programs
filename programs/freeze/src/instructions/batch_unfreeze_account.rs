@@ -7,6 +7,7 @@ use common::{
 
 use crate::errors::ErrorCode;
 use crate::events::AccountUnfrozen;
+use crate::state::load_freeze_state;
 use common::program_ids as constants;
 
 pub fn batch_unfreeze_account<'info>(
@@ -38,26 +39,30 @@ pub fn batch_unfreeze_account<'info>(
 
     for i in 0..ctx.remaining_accounts.len() / 2 {
         let account = &ctx.remaining_accounts[i * 2];
-        let frozen_account_pda = &ctx.remaining_accounts[i * 2 + 1];
+        let freeze_state_pda = &ctx.remaining_accounts[i * 2 + 1];
         let account_key = account.key();
 
         // ── Verify the client supplied the canonical PDA for this account ────
         let (expected_pda, _bump) = Pubkey::find_program_address(
-            &pda_seeds::frozen_account_seeds(&mint_key, &account_key),
+            &pda_seeds::freeze_state_seeds(&mint_key, &account_key),
             ctx.program_id,
         );
         require_keys_eq!(
-            frozen_account_pda.key(),
+            freeze_state_pda.key(),
             expected_pda,
-            ErrorCode::FrozenAccountPdaMismatch
+            ErrorCode::FreezeStatePdaMismatch
         );
 
-        require!(
-            !frozen_account_pda.data_is_empty(),
-            ErrorCode::AccountNotFrozen
-        );
+        let mut freeze_state =
+            load_freeze_state(freeze_state_pda)?.ok_or(ErrorCode::AccountNotFrozen)?;
+        require!(freeze_state.fully_frozen, ErrorCode::AccountNotFrozen);
+        freeze_state.fully_frozen = false;
 
-        pda_utils::close_pda(frozen_account_pda, &authority_info)?;
+        if freeze_state.is_empty() {
+            pda_utils::close_pda(freeze_state_pda, &authority_info)?;
+        } else {
+            pda_utils::serialize_pda(freeze_state_pda, &freeze_state)?;
+        }
 
         emit_cpi!(AccountUnfrozen {
             mint: mint_key,

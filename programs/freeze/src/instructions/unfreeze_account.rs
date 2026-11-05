@@ -4,7 +4,8 @@ use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
-use crate::state::FrozenAccountStatus;
+use crate::errors::ErrorCode;
+use crate::state::FreezeState;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles};
 
@@ -25,6 +26,13 @@ pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
         ctx.accounts.asset_class_version_pda.load()?,
         common::functionalities::FREEZE_UNFREEZE_ACCOUNT,
     )?;
+
+    let freeze_state = &mut ctx.accounts.freeze_state_pda;
+    require!(freeze_state.fully_frozen, ErrorCode::AccountNotFrozen);
+    freeze_state.fully_frozen = false;
+    if freeze_state.is_empty() {
+        freeze_state.close(ctx.accounts.authority.to_account_info())?;
+    }
 
     emit_cpi!(AccountUnfrozen {
         mint: ctx.accounts.mint.key(),
@@ -58,7 +66,7 @@ pub struct UnfreezeAccount<'info> {
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: Address used as a seed for frozen_account_pda; not otherwise validated here.
+    /// CHECK: Address used as a seed for freeze_state_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
@@ -71,11 +79,10 @@ pub struct UnfreezeAccount<'info> {
 
     #[account(
         mut,
-        close = authority,
-        seeds = [pda_seeds::FROZEN_ACCOUNT, mint.key().as_ref(), account.key().as_ref()],
-        bump = frozen_account_pda.bump,
+        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), account.key().as_ref()],
+        bump = freeze_state_pda.bump,
     )]
-    pub frozen_account_pda: Account<'info, FrozenAccountStatus>,
+    pub freeze_state_pda: Account<'info, FreezeState>,
 
     #[account(
         seeds = [

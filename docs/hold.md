@@ -79,7 +79,7 @@ pub struct HoldPosition {
 | Field | Type | Meaning |
 |---|---|---|
 | `mint` | `Pubkey` | The mint this position belongs to. Stored first (immediately after the 8-byte discriminator) so `getProgramAccounts` + `memcmp(offset = 8, mint)` can enumerate every position for a mint. |
-| `token_account` | `Pubkey` | The token account the lien applies to. Liens are keyed by *token account*, not by owner, because the compliance layer (`control_list`, `frozen_account`, `frozen_balance`) and the hook's balance check are keyed that way too. |
+| `token_account` | `Pubkey` | The token account the lien applies to. Liens are keyed by *token account*, not by owner, because the compliance layer (`control_list`, `freeze_state`) and the hook's balance check are keyed that way too. |
 | `held_amount` | `u64` | Sum of `current_amount` across the account's active holds. This is the number the transfer hook subtracts. |
 | `hold_count` | `u64` | Monotonic counter of holds created against this position, never reset. The id assigned to the next hold is `hold_count + 1`, so the first hold on an account gets `hold_id == 1` — matching `coupon`'s `count + 1` numbering rather than starting at 0. |
 | `bump` | `u8` | Bump for the position PDA. |
@@ -175,7 +175,7 @@ destination: Option<Pubkey>
 - `require_not_paused` — the mint must not be paused.
 - `require_active` — the mint must not have been deactivated.
 - `require_functionality(HOLD_CREATE_HOLD)`.
-- `require_unfrozen_account` — `token_account` must not be fully frozen.
+- `freeze::freeze_status` — `token_account` must not be fully frozen (`AccountFrozen`).
 - `amount > 0` (`ZeroAmount`), `expiration > now` (`ExpirationInThePast`), `hold_id == hold_count + 1` (`HoldIdMismatch`).
 - `balance − frozen_balance − held_amount >= amount` (`InsufficientAvailableBalance`).
 
@@ -191,8 +191,7 @@ No control-list check. Compliance is only meaningful when tokens move, and creat
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; read by `require_active`. |
 | `mint` | no | no | InterfaceAccount\<Mint\> | Pause state read by `require_not_paused`. |
 | `token_account` | no | no | InterfaceAccount\<TokenAccount\> | The holder's token account; `token::mint = mint`, `token::authority = authority`. Its `amount` is the balance the available-balance check starts from. |
-| `token_account_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, token_account]`, `seeds::program = FREEZE_PROGRAM_ID`; must be empty. |
-| `token_account_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, token_account]`, `seeds::program = FREEZE_PROGRAM_ID`; may be empty. Its balance is subtracted from what is available to hold. |
+| `token_account_freeze_state_pda` | no | no | UncheckedAccount | seeds `["freeze_state", mint, token_account]`, `seeds::program = FREEZE_PROGRAM_ID`; may be empty. Must not be fully frozen; its partially frozen balance is subtracted from what is available to hold. |
 | `hold_position` | yes | no | Account\<HoldPosition\> | seeds `["hold_position", mint, token_account]`; `init_if_needed`. |
 | `hold_record` | yes | no | Account\<Hold\> | seeds `["hold", mint, token_account, hold_id]`; `init`. |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`. |
@@ -273,12 +272,12 @@ amount: u64
 - `status == Active` (`HoldNotActive`), `now < expiration` (`HoldExpired`).
 - `0 < amount <= current_amount` (`ZeroAmount` / `AmountExceedsHold`).
 - `destination_token` matches `hold_record.destination` when pinned (`DestinationMismatch`).
-- `verify_transfer_control_mode` over source and destination; `require_unfrozen_account` on the source.
-- `require_locked_balance_covered(source_token, frozen_balance(source_frozen_balance_pda) + held_after + amount)`.
+- `verify_transfer_control_mode` over source and destination; the source must not be fully frozen (`freeze::freeze_status`, `AccountFrozen`).
+- `require_locked_balance_covered(source_token, frozen_balance + held_after + amount)`, with `frozen_balance` from the same `freeze_status` read.
 
 ### Why compliance is re-checked here
 
-`transfer-hook::execute` returns `Ok(())` immediately when the transfer authority is the `permanent_delegate` PDA, so `operations::controller_transfer` can seize tokens regardless of compliance. An execution routed through the same delegate inherits that exemption, which would let a hold deliver tokens to a unlisted account. `execute_hold` therefore calls the *same* linked-in functions the hook calls (`transfer_control::verify_transfer_control_mode`, `freeze::require_unfrozen_account`, `freeze::require_locked_balance_covered`, `common::require_active`, `common::require_not_paused`) — a second call site, not a second copy of the logic.
+`transfer-hook::execute` returns `Ok(())` immediately when the transfer authority is the `permanent_delegate` PDA, so `operations::controller_transfer` can seize tokens regardless of compliance. An execution routed through the same delegate inherits that exemption, which would let a hold deliver tokens to a unlisted account. `execute_hold` therefore calls the *same* linked-in functions the hook calls (`transfer_control::verify_transfer_control_mode`, `freeze::freeze_status`, `freeze::require_locked_balance_covered`, `common::require_active`, `common::require_not_paused`) — a second call site, not a second copy of the logic.
 
 `require_functionality(TRANSFER_HOOK_EXECUTE)` is the one hook check *not* mirrored: `execute_hold` gates on `HOLD_CREATE_HOLD`, so a hold stays resolvable on an asset class that permits holds but not ordinary transfers.
 
@@ -305,8 +304,7 @@ Both source and destination are re-validated on every execution, so a destinatio
 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`; may be empty. |
 | `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, source_token]`. |
 | `destination_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, destination_token]`. Not optional here — the destination is always known. |
-| `source_frozen_pda` | no | no | UncheckedAccount | seeds `["frozen_account", mint, source_token]`. |
-| `source_frozen_balance_pda` | no | no | UncheckedAccount | seeds `["frozen_balance", mint, source_token]`; may be empty. |
+| `source_freeze_state_pda` | no | no | UncheckedAccount | seeds `["freeze_state", mint, source_token]`; may be empty. |
 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; forwarded to `operations`. |
 | `transfer_hook_program`, `deploy_program`, `factory_program`, `deactivate_program`, `transfer_control_program`, `freeze_program`, `hold_program` | no | no | UncheckedAccount | Address-constrained program ids; forwarded to `operations` for the hook metalist. |
 | `token_2022_program` | no | no | Program\<Token2022\> | |
@@ -317,7 +315,7 @@ Token-2022 resolves the full `ExtraAccountMetaList` even though the hook then by
 ### Execution
 
 1. Run the preconditions above.
-2. Compute `held_after = held_amount − amount`, read the current partial-freeze balance via `freeze::frozen_balance`, and assert `balance >= frozen + held_after + amount`. This is the pre-debit restatement of the hook's post-debit cover check, re-checked here because a partial freeze landing after the hold was created can shrink what the balance covers.
+2. Compute `held_after = held_amount − amount`, read the current partial-freeze balance via `freeze::freeze_status`, and assert `balance >= frozen + held_after + amount`. This is the pre-debit restatement of the hook's post-debit cover check, re-checked here because a partial freeze landing after the hold was created can shrink what the balance covers.
 3. Write `held_after` and decrement `current_amount`; set `Closed` if it reaches zero. The state writes happen before the CPI so the accounting is correct for anything downstream that reads it.
 4. CPI `operations::hold_transfer`, signed by `hold_authority`.
 5. Emit `HoldExecuted` via `emit_cpi!`.
@@ -421,7 +419,7 @@ Two reader functions, each living in the program that owns the lien it reads, ar
 
 ```rust
 common::held_amount(hold_position_pda: &AccountInfo) -> Result<u64>
-freeze::frozen_balance(frozen_balance_pda: &AccountInfo) -> Result<u64>
+freeze::frozen_balance(freeze_state_pda: &AccountInfo) -> Result<u64>
 ```
 
 `common::held_amount` is the lien reader `transfer-hook::execute` and `execute_hold` both call. It returns `hold_position.held_amount` through `common::state::HoldPosition` — the field-for-field mirror of this program's own struct — or **0 when the PDA does not exist**, an account that has never had a hold created against it. Returning 0 rather than erroring is what lets a caller pass the account unconditionally, and lets mints that never use holds keep working. It lives in `common` rather than here because `hold` already depends on `operations`, so `operations` (or anything importing it) depending back on `hold` would be circular.
@@ -434,10 +432,10 @@ Both readers go through `Account::<T>::try_from` rather than `try_deserialize`, 
 
 ## Interaction with the rest of the workspace
 
-**`transfer-hook`.** Its `ExtraAccountMetaList` carries 15 entries, the last two being the `hold` program id (index 18) and the source `hold_position` PDA (index 19). `execute` sums `freeze::frozen_balance(source_frozen_balance_pda)` and `common::held_amount(source_hold_position_pda)` and passes the total to `freeze::require_locked_balance_covered(source_token, total_locked)`, asserting `balance_post >= frozen + held`. Because `initialize_extra_account_meta_list` allocates the account with `init` at a fixed size and there is no update path, a mint's metalist cannot grow after deployment — a mint whose metalist predates these two entries cannot support holds.
+**`transfer-hook`.** Its `ExtraAccountMetaList` carries 14 entries, the last two being the `hold` program id (index 17) and the source `hold_position` PDA (index 18). `execute` sums the partially frozen balance from `freeze::freeze_status(source_freeze_state_pda)` and `common::held_amount(source_hold_position_pda)` and passes the total to `freeze::require_locked_balance_covered(source_token, total_locked)`, asserting `balance_post >= frozen + held`. Because `initialize_extra_account_meta_list` allocates the account with `init` at a fixed size and there is no update path, a mint's metalist cannot grow after deployment — a mint whose metalist predates these two entries cannot support holds.
 
 **`operations`.** Owns the Auxiliary instruction `hold_transfer`, callable only by the `["hold_authority", mint]` PDA — see [`operations.md`](operations.md).
 
-**Every caller that forwards the hook block** (`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`, and clients sending a bare `transfer_checked`) appends the 17 accounts of `common::HookAccounts` — see [`common.md`](common.md#module-hook_accounts).
+**Every caller that forwards the hook block** (`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`, and clients sending a bare `transfer_checked`) appends the 16 accounts of `common::HookAccounts` — see [`common.md`](common.md#module-hook_accounts).
 
 **The paths the hook does not cover enforce the lien themselves.** `operations::controller_transfer` signs as the permanent delegate, which the hook exempts, and `operations::burn` / `batch_burn` fire no hook at all. All three call `common::require_hold_covered` (`balance >= held + amount`) before moving or destroying tokens, so none of them can push `held` above the balance and leave holds unexecutable. A partial freeze is deliberately *not* part of that check — see [`operations.md`](operations.md#the-hold-lien-on-these-paths).

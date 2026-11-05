@@ -276,9 +276,9 @@ The block of accounts every `transfer_checked` on an Asseto mint must append so 
 resolve and invoke `transfer-hook::execute`.
 
 ```rust
-pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 17;
+pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 16;
 
-pub struct HookAccounts<'a, 'info> { /* 17 &AccountInfo fields, in wire order */ }
+pub struct HookAccounts<'a, 'info> { /* 16 &AccountInfo fields, in wire order */ }
 
 impl<'a, 'info> HookAccounts<'a, 'info> {
     pub fn ordered(&self) -> [&'a AccountInfo<'info>; HOOK_FORWARDED_ACCOUNT_COUNT]
@@ -289,7 +289,7 @@ impl<'a, 'info> HookAccounts<'a, 'info> {
 
 The field order **is** the wire order: Token-2022 matches forwarded accounts positionally against
 the list `transfer-hook::initialize_extra_account_meta_list` built, so a wrong order fails inside
-Token-2022 before the hook even runs. The 17 are the metalist's own 15 entries plus the two
+Token-2022 before the hook even runs. The 16 are the metalist's own 14 entries plus the two
 Token-2022 requires on top (`extra_account_meta_list` and `transfer_hook_program`) — keep
 `HOOK_FORWARDED_ACCOUNT_COUNT` and the hook's `EXTRA_ACCOUNT_META_COUNT` in step.
 

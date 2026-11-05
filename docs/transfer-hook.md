@@ -65,7 +65,7 @@ None.
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds rent |
 | `asset_configuration_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 15) |
+| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 14) |
 | `mint` | no | no | UncheckedAccount | Seed component and PDA-precompute input |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
@@ -91,11 +91,10 @@ interface (`source_token`, `mint`, `destination_token`, `owner`,
 | 12 | `transfer_control_mode_pda` | external PDA via @11 — seeds `["transfer_control_mode", mint@1]` |
 | 13 | `source_control_list_pda` | external PDA via @11 — seeds `["control_list", mint@1, source_token@0]` |
 | 14 | `destination_control_list_pda` | external PDA via @11 — seeds `["control_list", mint@1, destination_token@2]` |
-| 15 | `freeze` program | literal pubkey — resolves @16..=17 |
-| 16 | `source_frozen_pda` | external PDA via @15 — seeds `["frozen_account", mint@1, source_token@0]` |
-| 17 | `source_frozen_balance_pda` | external PDA via @15 — seeds `["frozen_balance", mint@1, source_token@0]` |
-| 18 | `hold` program | literal pubkey — resolves @19 |
-| 19 | `source_hold_position_pda` | external PDA via @18 — seeds `["hold_position", mint@1, source_token@0]` |
+| 15 | `freeze` program | literal pubkey — resolves @16 |
+| 16 | `source_freeze_state_pda` | external PDA via @15 — seeds `["freeze_state", mint@1, source_token@0]` |
+| 17 | `hold` program | literal pubkey — resolves @18 |
+| 18 | `source_hold_position_pda` | external PDA via @17 — seeds `["hold_position", mint@1, source_token@0]` |
 
 Every entry is read-only; the hook never writes. Because Token-2022 derives the
 seed-based entries and verifies the caller-supplied accounts against them before
@@ -111,6 +110,12 @@ invoking the hook, each forwarded PDA is guaranteed canonical by the time
 > the runtime maps the larger region, but the allocator was compiled believing it
 > has 32 KiB and never looks past that boundary. Only the SPL maintainers can
 > change that, so the list is the only lever we have.
+>
+> The full freeze and the partial freeze used to be two entries
+> (`["frozen_account", …]` and `["frozen_balance", …]`); merging them into the
+> single `freeze_state` PDA (see [`freeze.md`](freeze.md#state)) freed one slot,
+> leaving 14 entries, so External Eligibility can take the 15th — the size this
+> list is known to resolve at.
 >
 > A 16-entry list once exceeded it, and the failure mode is unmistakable and
 > unhelpful: `Error: memory allocation failed, out of memory` logged by
@@ -140,7 +145,7 @@ discriminator when invoking the hook during `transfer_checked`.
 
 ### Accounts
 
-Indices 0–4 are fixed by the SPL interface; 5–19 are the metalist entries above,
+Indices 0–4 are fixed by the SPL interface; 5–18 are the metalist entries above,
 in order.
 
 | Index | Account |
@@ -161,10 +166,9 @@ in order.
 | 13 | `source_control_list_pda` |
 | 14 | `destination_control_list_pda` |
 | 15 | `freeze_program` |
-| 16 | `source_frozen_pda` |
-| 17 | `source_frozen_balance_pda` |
-| 18 | `hold_program` |
-| 19 | `source_hold_position_pda` |
+| 16 | `source_freeze_state_pda` |
+| 17 | `hold_program` |
+| 18 | `source_hold_position_pda` |
 
 ### Execution
 
@@ -182,9 +186,10 @@ in order.
    `transfer_control_mode_pda` is empty (no mode active); in Whitelist mode both
    markers must exist, else `NotWhitelisted`; in Blacklist mode neither may exist,
    else `Blacklisted`.
-5. `freeze::require_unfrozen_account(&source_frozen_pda)` — the source must not be
-   fully frozen, else `AccountFrozen`.
-6. Sum `freeze::frozen_balance(&source_frozen_balance_pda)?` and
+5. `freeze::freeze_status(&source_freeze_state_pda)` — reads both freeze sides from
+   the one PDA (absent = nothing frozen). The source must not be fully frozen, else
+   `AccountFrozen`.
+6. Sum the status's partially frozen balance and
    `common::held_amount(&source_hold_position_pda)?`, then
    `freeze::require_locked_balance_covered(&source_token, total_locked)` — every
    lien on the account must still be covered. The hook runs **post-debit**, so this
