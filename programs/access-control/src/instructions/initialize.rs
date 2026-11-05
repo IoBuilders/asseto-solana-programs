@@ -4,6 +4,7 @@ use common::roles::ROLE_ADMIN;
 use common::{bitmask, pda_seeds, pda_utils};
 
 use crate::errors::AccessControlError;
+use crate::events::RolesGranted;
 use crate::state::Roles;
 
 pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
@@ -25,9 +26,17 @@ pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
     bitmask::set_bits(&mut roles_account.mask, &[ROLE_ADMIN])
         .map_err(|_| error!(AccessControlError::RoleOutOfBounds))?;
 
+    emit_cpi!(RolesGranted {
+        mint: mint_key,
+        account: ctx.accounts.account.key(),
+        operator: ctx.accounts.account.key(),
+        roles: vec![ROLE_ADMIN],
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(mut)]

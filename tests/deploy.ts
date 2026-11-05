@@ -16,6 +16,7 @@ import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
 import { mintAuthorityPda } from "./program_helpers/mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "./program_helpers/metadata_update/metadata_update_pda_helper";
 import { getMint, getTokenMetadata } from "./program_helpers/spl_token_helper";
+import { getRolesGrantedEvent } from "./program_helpers/access_control/access_control_instruction_helper";
 import { getRoles, isRoleGranted, rolesPdaWithBump } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN } from "./utils/roles";
 import {
@@ -151,6 +152,12 @@ describe("deploy", () => {
     for (const r of roles) {
       assert.isTrue(isRoleGranted(rolesAccount.mask, r), `role ${r} should be granted`);
     }
+
+    const rolesEvent = await getRolesGrantedEvent(signature);
+    assert.isNotNull(rolesEvent, "RolesGranted event should be emitted by the access-control CPI");
+    assert.equal(rolesEvent!.mint.toBase58(), mint.toBase58());
+    assert.equal(rolesEvent!.account.toBase58(), deployer.publicKey.toBase58());
+    assert.deepEqual(rolesEvent!.roles, roles);
 
     // ── Assertions: MintDeployed event ─────────────────────────────────────────
     const event = await getMintDeployedEvent(signature);

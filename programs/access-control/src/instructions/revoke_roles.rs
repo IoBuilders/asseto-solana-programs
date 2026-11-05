@@ -8,6 +8,7 @@ use common::{
 };
 
 use crate::errors::AccessControlError;
+use crate::events::RolesRevoked;
 
 pub fn revoke_roles(ctx: Context<RevokeRoles>, roles: Vec<u16>) -> Result<()> {
     require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_ADMIN)?;
@@ -23,9 +24,17 @@ pub fn revoke_roles(ctx: Context<RevokeRoles>, roles: Vec<u16>) -> Result<()> {
     bitmask::clear_bits(&mut roles_account.mask, &roles)
         .map_err(|_| error!(AccessControlError::RoleOutOfBounds))?;
 
+    emit_cpi!(RolesRevoked {
+        mint: ctx.accounts.mint.key(),
+        account: ctx.accounts.account.key(),
+        operator: ctx.accounts.authority.key(),
+        roles,
+    });
+
     Ok(())
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct RevokeRoles<'info> {
     pub authority: Signer<'info>,

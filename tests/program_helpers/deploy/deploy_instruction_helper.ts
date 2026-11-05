@@ -17,7 +17,7 @@ import { permanentDelegatePda, permissionedBurnPda } from "../operations/operati
 import { pausableAuthorityPda } from "../pause/pause_pda_helper";
 import { mintAuthorityPda } from "../mint/mint_pda_helper";
 import { metadataUpdateAuthorityPda } from "../metadata_update/metadata_update_pda_helper";
-import { rolesPda } from "../access_control/access_control_pda_helper";
+import { accessControlEventAuthorityPda, rolesPda } from "../access_control/access_control_pda_helper";
 import { assetClassVersionPda, ensureAssetClassVersionFinalized } from "../factory/factory_pda_helper";
 
 export function getDeployProgram(): Program<Deploy> {
@@ -108,6 +108,7 @@ export async function deployMint(
       program: DEPLOY_PROGRAM_ID,
       rolesPda: rolesPda(mint.publicKey, deployer.publicKey),
       accessControlProgram: ACCESS_CONTROL_PROGRAM_ID,
+      accessControlEventAuthority: accessControlEventAuthorityPda(),
     })
     .signers(signers)
     .rpc({ commitment: "confirmed" });
