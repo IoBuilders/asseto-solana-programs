@@ -101,11 +101,9 @@ pub fn execute_hold<'info>(
                 operations_authority: ctx.accounts.operations_authority.to_account_info(),
                 extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
                 transfer_hook_program: ctx.accounts.transfer_hook_program.to_account_info(),
-                deploy_program: ctx.accounts.deploy_program.to_account_info(),
                 asset_configuration_pda: ctx.accounts.asset_configuration_pda.to_account_info(),
                 factory_program: ctx.accounts.factory_program.to_account_info(),
                 asset_class_version_pda: ctx.accounts.asset_class_version_pda.to_account_info(),
-                deactivate_program: ctx.accounts.deactivate_program.to_account_info(),
                 deactivate_pda: ctx.accounts.deactivate_pda.to_account_info(),
                 transfer_control_program: ctx.accounts.transfer_control_program.to_account_info(),
                 transfer_control_mode_pda: ctx.accounts.transfer_control_mode_pda.to_account_info(),
@@ -226,10 +224,6 @@ pub struct ExecuteHold<'info> {
     pub transfer_hook_program: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to operations.
-    #[account(address = constants::DEPLOY_PROGRAM_ID)]
-    pub deploy_program: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint; forwarded to operations.
     #[account(address = constants::FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
 
@@ -243,10 +237,6 @@ pub struct ExecuteHold<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
-
-    /// CHECK: Address verified by constraint; forwarded to operations.
-    #[account(address = constants::DEACTIVATE_PROGRAM_ID)]
-    pub deactivate_program: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to operations.
     #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]

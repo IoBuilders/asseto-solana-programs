@@ -4,8 +4,6 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { Hold } from "../../../target/types/hold";
 import {
-  DEACTIVATE_PROGRAM_ID,
-  DEPLOY_PROGRAM_ID,
   FACTORY_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
   HOLD_PROGRAM_ID,
@@ -190,13 +188,11 @@ export async function executeHold(
       operationsProgram: OPERATIONS_PROGRAM_ID,
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-      deployProgram: DEPLOY_PROGRAM_ID,
       factoryProgram: FACTORY_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
-      deactivateProgram: DEACTIVATE_PROGRAM_ID,
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceControlListPda: controlListPda(callContext.mint, callContext.tokenAccount),

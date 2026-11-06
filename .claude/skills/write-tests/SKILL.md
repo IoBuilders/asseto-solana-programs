@@ -203,7 +203,7 @@ it("pause: fails with MissingRole when authority doesn't have required role", as
 ### Using `splTransfer()` from `transfer_helper.ts`
 
 A transfer is a single instruction — Token-2022's own `transfer_checked` with the
-transfer hook's 16 accounts appended. The helper builds and sends it, and raises the
+transfer hook's 14 accounts appended. The helper builds and sends it, and raises the
 compute budget:
 
 ```ts
