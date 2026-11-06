@@ -65,7 +65,7 @@ None.
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds rent |
 | `asset_configuration_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 14) |
+| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 12) |
 | `mint` | no | no | UncheckedAccount | Seed component and PDA-precompute input |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
@@ -81,20 +81,28 @@ interface (`source_token`, `mint`, `destination_token`, `owner`,
 
 | Hook idx | Entry | Kind |
 |---|---|---|
-| 5 | `deploy` program | literal pubkey — resolves @6 |
-| 6 | `asset_configuration_pda` | external PDA via @5 — seeds `["asset_configuration", mint@1]` |
-| 7 | `factory` program | literal pubkey — resolves @8 |
-| 8 | `asset_class_version_pda` | external PDA via @7 — seeds `["asset_class_version", @6.asset_class_config_id, @6.asset_class_version_id]` |
-| 9 | `deactivate` program | literal pubkey — resolves @10 |
-| 10 | `deactivate_pda` | external PDA via @9 — seeds `["deactivate", mint@1]` |
-| 11 | `transfer-control` program | literal pubkey — resolves @12..=14 |
-| 12 | `transfer_control_mode_pda` | external PDA via @11 — seeds `["transfer_control_mode", mint@1]` |
-| 13 | `source_control_list_pda` | external PDA via @11 — seeds `["control_list", mint@1, source_token@0]` |
-| 14 | `destination_control_list_pda` | external PDA via @11 — seeds `["control_list", mint@1, destination_token@2]` |
-| 15 | `freeze` program | literal pubkey — resolves @16 |
-| 16 | `source_freeze_state_pda` | external PDA via @15 — seeds `["freeze_state", mint@1, source_token@0]` |
-| 17 | `hold` program | literal pubkey — resolves @18 |
-| 18 | `source_hold_position_pda` | external PDA via @17 — seeds `["hold_position", mint@1, source_token@0]` |
+| 5 | `asset_configuration_pda` | literal pubkey — `["asset_configuration", mint]` of `deploy`, taken from the signer of the init call |
+| 6 | `factory` program | literal pubkey — resolves @7 |
+| 7 | `asset_class_version_pda` | external PDA via @6 — seeds `["asset_class_version", @5.asset_class_config_id, @5.asset_class_version_id]` |
+| 8 | `deactivate_pda` | literal pubkey — `["deactivate", mint]` of `deactivate`, derived at init |
+| 9 | `transfer-control` program | literal pubkey — resolves @11, @12 |
+| 10 | `transfer_control_mode_pda` | literal pubkey — `["transfer_control_mode", mint]` of `transfer-control`, derived at init |
+| 11 | `source_control_list_pda` | external PDA via @9 — seeds `["control_list", mint@1, source_token@0]` |
+| 12 | `destination_control_list_pda` | external PDA via @9 — seeds `["control_list", mint@1, destination_token@2]` |
+| 13 | `freeze` program | literal pubkey — resolves @14 |
+| 14 | `source_freeze_state_pda` | external PDA via @13 — seeds `["freeze_state", mint@1, source_token@0]` |
+| 15 | `hold` program | literal pubkey — resolves @16 |
+| 16 | `source_hold_position_pda` | external PDA via @15 — seeds `["hold_position", mint@1, source_token@0]` |
+
+**Mint-only PDAs are literals.** Each mint has its own metalist, written once by
+`deploy_mint`, so a PDA whose seeds depend only on the mint has a fixed address for
+the metalist's whole life. Storing that address as a literal instead of an external
+PDA means its owning program does not need an entry of its own to resolve it — which
+is why `deploy` and `deactivate` are not in the list at all. Only PDAs seeded by a
+token account (`control_list`, `freeze_state`, `hold_position`) or by another
+account's data (`asset_class_version`) still need their program listed. The hook's
+own `seeds` constraints re-check every one of these addresses, so a wrong literal
+would fail transfers, not admit them.
 
 Every entry is read-only; the hook never writes. Because Token-2022 derives the
 seed-based entries and verifies the caller-supplied accounts against them before
@@ -113,9 +121,12 @@ invoking the hook, each forwarded PDA is guaranteed canonical by the time
 >
 > The full freeze and the partial freeze used to be two entries
 > (`["frozen_account", …]` and `["frozen_balance", …]`); merging them into the
-> single `freeze_state` PDA (see [`freeze.md`](freeze.md#state)) freed one slot,
-> leaving 14 entries, so External Eligibility can take the 15th — the size this
-> list is known to resolve at.
+> single `freeze_state` PDA (see [`freeze.md`](freeze.md#state)) freed one slot.
+> Storing the mint-only PDAs as literals then dropped the `deploy` and `deactivate`
+> program entries, leaving 12 entries with 6 PDA derivations — three slots below
+> the 15 this list is known to resolve at. Literals are also the cheapest entry for
+> the heap: they derive nothing, and Token-2022's bump allocator never frees what a
+> derivation allocates.
 >
 > A 16-entry list once exceeded it, and the failure mode is unmistakable and
 > unhelpful: `Error: memory allocation failed, out of memory` logged by
@@ -145,7 +156,7 @@ discriminator when invoking the hook during `transfer_checked`.
 
 ### Accounts
 
-Indices 0–4 are fixed by the SPL interface; 5–18 are the metalist entries above,
+Indices 0–4 are fixed by the SPL interface; 5–16 are the metalist entries above,
 in order.
 
 | Index | Account |
@@ -155,20 +166,18 @@ in order.
 | 2 | `destination_token` |
 | 3 | `owner` (transfer authority) |
 | 4 | `extra_account_meta_list` |
-| 5 | `deploy_program` |
-| 6 | `asset_configuration_pda` |
-| 7 | `factory_program` |
-| 8 | `asset_class_version_pda` |
-| 9 | `deactivate_program` |
-| 10 | `deactivate_pda` |
-| 11 | `transfer_control_program` |
-| 12 | `transfer_control_mode_pda` |
-| 13 | `source_control_list_pda` |
-| 14 | `destination_control_list_pda` |
-| 15 | `freeze_program` |
-| 16 | `source_freeze_state_pda` |
-| 17 | `hold_program` |
-| 18 | `source_hold_position_pda` |
+| 5 | `asset_configuration_pda` |
+| 6 | `factory_program` |
+| 7 | `asset_class_version_pda` |
+| 8 | `deactivate_pda` |
+| 9 | `transfer_control_program` |
+| 10 | `transfer_control_mode_pda` |
+| 11 | `source_control_list_pda` |
+| 12 | `destination_control_list_pda` |
+| 13 | `freeze_program` |
+| 14 | `source_freeze_state_pda` |
+| 15 | `hold_program` |
+| 16 | `source_hold_position_pda` |
 
 ### Execution
 

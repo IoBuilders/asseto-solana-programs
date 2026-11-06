@@ -8,9 +8,7 @@ import { AnchorError, AnchorProvider } from "@anchor-lang/core";
 import { getMint } from "./spl_token_helper";
 import {
   TRANSFER_HOOK_PROGRAM_ID,
-  DEPLOY_PROGRAM_ID,
   FACTORY_PROGRAM_ID,
-  DEACTIVATE_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
   HOLD_PROGRAM_ID,
@@ -152,11 +150,9 @@ export async function buildSplTransferCheckedInstruction(
   instruction.keys.push(
     readonly(extraAccountMetaListPda(callContext.mint)),
     readonly(TRANSFER_HOOK_PROGRAM_ID),
-    readonly(DEPLOY_PROGRAM_ID),
     readonly(assetConfigurationPda(callContext.mint)),
     readonly(FACTORY_PROGRAM_ID),
     readonly(assetClassVersionPda(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId)),
-    readonly(DEACTIVATE_PROGRAM_ID),
     readonly(deactivatePda(callContext.mint)),
     readonly(TRANSFER_CONTROL_PROGRAM_ID),
     readonly(transferControlModePda(callContext.mint)),
@@ -222,14 +218,12 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       freezeProgram: FREEZE_PROGRAM_ID,
-      deployProgram: DEPLOY_PROGRAM_ID,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       factoryProgram: FACTORY_PROGRAM_ID,
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
-      deactivateProgram: DEACTIVATE_PROGRAM_ID,
       deactivatePda: deactivatePda(callContext.mint),
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),

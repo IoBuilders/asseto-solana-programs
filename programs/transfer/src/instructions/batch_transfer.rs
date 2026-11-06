@@ -55,11 +55,9 @@ pub fn batch_transfer<'info>(
         let hook_accounts = HookAccounts {
             extra_account_meta_list: &ctx.accounts.extra_account_meta_list,
             transfer_hook_program: &ctx.accounts.transfer_hook_program,
-            deploy_program: &ctx.accounts.deploy_program,
             asset_configuration_pda: &asset_configuration_info,
             factory_program: &ctx.accounts.factory_program,
             asset_class_version_pda: &asset_class_version_info,
-            deactivate_program: &ctx.accounts.deactivate_program,
             deactivate_pda: &ctx.accounts.deactivate_pda,
             transfer_control_program: &ctx.accounts.transfer_control_program,
             transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
@@ -123,10 +121,6 @@ pub struct BatchTransferTokens<'info> {
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by constraint; forwarded to the hook.
-    #[account(address = constants::DEPLOY_PROGRAM_ID)]
-    pub deploy_program: UncheckedAccount<'info>,
-
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = constants::DEPLOY_PROGRAM_ID,
@@ -148,10 +142,6 @@ pub struct BatchTransferTokens<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
-
-    /// CHECK: Address verified by constraint; forwarded to the hook.
-    #[account(address = constants::DEACTIVATE_PROGRAM_ID)]
-    pub deactivate_program: UncheckedAccount<'info>,
 
     /// CHECK: seeds verified; forwarded to the hook (require_active reads it).
     #[account(

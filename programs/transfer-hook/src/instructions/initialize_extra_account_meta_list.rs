@@ -18,38 +18,41 @@ use common::state::asset_configuration::{
 /// Keep in sync with the `metas` vec length in the handler, and with
 /// `common::HOOK_FORWARDED_ACCOUNT_COUNT`, which is this plus the two accounts
 /// Token-2022 requires on top (the metalist itself and the hook program).
-const EXTRA_ACCOUNT_META_COUNT: usize = 14;
+const EXTRA_ACCOUNT_META_COUNT: usize = 12;
 
 pub fn initialize_extra_account_meta_list(
     ctx: Context<InitializeExtraAccountMetaList>,
 ) -> Result<()> {
+    let mint = ctx.accounts.mint.key();
+    let (deactivate_pda, _) = Pubkey::find_program_address(
+        &[pda_seeds::DEACTIVATE, mint.as_ref()],
+        &DEACTIVATE_PROGRAM_ID,
+    );
+    let (transfer_control_mode_pda, _) = Pubkey::find_program_address(
+        &pda_seeds::transfer_control_mode_seeds(&mint),
+        &TRANSFER_CONTROL_PROGRAM_ID,
+    );
+
     let metas = vec![
-        ExtraAccountMeta::new_with_pubkey(&DEPLOY_PROGRAM_ID, false, false)?,
-        ExtraAccountMeta::new_external_pda_with_seeds(
-            5,
-            &[
-                Seed::Literal {
-                    bytes: pda_seeds::ASSET_CONFIGURATION.to_vec(),
-                },
-                Seed::AccountKey { index: 1 },
-            ],
+        ExtraAccountMeta::new_with_pubkey(
+            &ctx.accounts.asset_configuration_pda.key(),
             false,
             false,
         )?,
         ExtraAccountMeta::new_with_pubkey(&FACTORY_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            7,
+            6,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::ASSET_CLASS_VERSION.to_vec(),
                 },
                 Seed::AccountData {
-                    account_index: 6,
+                    account_index: 5,
                     data_index: ASSET_CLASS_CONFIG_ID_OFFSET,
                     length: 8,
                 },
                 Seed::AccountData {
-                    account_index: 6,
+                    account_index: 5,
                     data_index: ASSET_CLASS_VERSION_ID_OFFSET,
                     length: 8,
                 },
@@ -57,32 +60,11 @@ pub fn initialize_extra_account_meta_list(
             false,
             false,
         )?,
-        ExtraAccountMeta::new_with_pubkey(&DEACTIVATE_PROGRAM_ID, false, false)?,
+        ExtraAccountMeta::new_with_pubkey(&deactivate_pda, false, false)?,
+        ExtraAccountMeta::new_with_pubkey(&TRANSFER_CONTROL_PROGRAM_ID, false, false)?,
+        ExtraAccountMeta::new_with_pubkey(&transfer_control_mode_pda, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
             9,
-            &[
-                Seed::Literal {
-                    bytes: pda_seeds::DEACTIVATE.to_vec(),
-                },
-                Seed::AccountKey { index: 1 },
-            ],
-            false,
-            false,
-        )?,
-        ExtraAccountMeta::new_with_pubkey(&TRANSFER_CONTROL_PROGRAM_ID, false, false)?,
-        ExtraAccountMeta::new_external_pda_with_seeds(
-            11,
-            &[
-                Seed::Literal {
-                    bytes: pda_seeds::TRANSFER_CONTROL_MODE.to_vec(),
-                },
-                Seed::AccountKey { index: 1 },
-            ],
-            false,
-            false,
-        )?,
-        ExtraAccountMeta::new_external_pda_with_seeds(
-            11,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::CONTROL_LIST.to_vec(),
@@ -94,7 +76,7 @@ pub fn initialize_extra_account_meta_list(
             false,
         )?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            11,
+            9,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::CONTROL_LIST.to_vec(),
@@ -107,7 +89,7 @@ pub fn initialize_extra_account_meta_list(
         )?,
         ExtraAccountMeta::new_with_pubkey(&FREEZE_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            15,
+            13,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::FREEZE_STATE.to_vec(),
@@ -120,7 +102,7 @@ pub fn initialize_extra_account_meta_list(
         )?,
         ExtraAccountMeta::new_with_pubkey(&HOLD_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            17,
+            15,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::HOLD_POSITION.to_vec(),

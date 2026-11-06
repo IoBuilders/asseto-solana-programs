@@ -306,7 +306,7 @@ Both source and destination are re-validated on every execution, so a destinatio
 | `destination_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, destination_token]`. Not optional here — the destination is always known. |
 | `source_freeze_state_pda` | no | no | UncheckedAccount | seeds `["freeze_state", mint, source_token]`; may be empty. |
 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; forwarded to `operations`. |
-| `transfer_hook_program`, `deploy_program`, `factory_program`, `deactivate_program`, `transfer_control_program`, `freeze_program`, `hold_program` | no | no | UncheckedAccount | Address-constrained program ids; forwarded to `operations` for the hook metalist. |
+| `transfer_hook_program`, `factory_program`, `transfer_control_program`, `freeze_program`, `hold_program` | no | no | UncheckedAccount | Address-constrained program ids; forwarded to `operations` for the hook metalist. |
 | `token_2022_program` | no | no | Program\<Token2022\> | |
 | `event_authority`, `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`. |
 
@@ -432,10 +432,10 @@ Both readers go through `Account::<T>::try_from` rather than `try_deserialize`, 
 
 ## Interaction with the rest of the workspace
 
-**`transfer-hook`.** Its `ExtraAccountMetaList` carries 14 entries, the last two being the `hold` program id (index 17) and the source `hold_position` PDA (index 18). `execute` sums the partially frozen balance from `freeze::freeze_status(source_freeze_state_pda)` and `common::held_amount(source_hold_position_pda)` and passes the total to `freeze::require_locked_balance_covered(source_token, total_locked)`, asserting `balance_post >= frozen + held`. Because `initialize_extra_account_meta_list` allocates the account with `init` at a fixed size and there is no update path, a mint's metalist cannot grow after deployment — a mint whose metalist predates these two entries cannot support holds.
+**`transfer-hook`.** Its `ExtraAccountMetaList` carries 12 entries, the last two being the `hold` program id (index 15) and the source `hold_position` PDA (index 16). `execute` sums the partially frozen balance from `freeze::freeze_status(source_freeze_state_pda)` and `common::held_amount(source_hold_position_pda)` and passes the total to `freeze::require_locked_balance_covered(source_token, total_locked)`, asserting `balance_post >= frozen + held`. Because `initialize_extra_account_meta_list` allocates the account with `init` at a fixed size and there is no update path, a mint's metalist cannot grow after deployment — a mint whose metalist predates these two entries cannot support holds.
 
 **`operations`.** Owns the Auxiliary instruction `hold_transfer`, callable only by the `["hold_authority", mint]` PDA — see [`operations.md`](operations.md).
 
-**Every caller that forwards the hook block** (`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`, and clients sending a bare `transfer_checked`) appends the 16 accounts of `common::HookAccounts` — see [`common.md`](common.md#module-hook_accounts).
+**Every caller that forwards the hook block** (`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`, and clients sending a bare `transfer_checked`) appends the 14 accounts of `common::HookAccounts` — see [`common.md`](common.md#module-hook_accounts).
 
 **The paths the hook does not cover enforce the lien themselves.** `operations::controller_transfer` signs as the permanent delegate, which the hook exempts, and `operations::burn` / `batch_burn` fire no hook at all. All three call `common::require_hold_covered` (`balance >= held + amount`) before moving or destroying tokens, so none of them can push `held` above the balance and leave holds unexecutable. A partial freeze is deliberately *not* part of that check — see [`operations.md`](operations.md#the-hold-lien-on-these-paths).

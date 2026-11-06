@@ -70,11 +70,9 @@ pub fn controller_transfer<'info>(
     let hook_accounts = HookAccounts {
         extra_account_meta_list: &ctx.accounts.extra_account_meta_list,
         transfer_hook_program: &ctx.accounts.transfer_hook_program,
-        deploy_program: &ctx.accounts.deploy_program,
         asset_configuration_pda: &asset_configuration_info,
         factory_program: &ctx.accounts.factory_program,
         asset_class_version_pda: &asset_class_version_info,
-        deactivate_program: &ctx.accounts.deactivate_program,
         deactivate_pda: &ctx.accounts.deactivate_pda,
         transfer_control_program: &ctx.accounts.transfer_control_program,
         transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
@@ -168,18 +166,9 @@ pub struct ControllerTransfer<'info> {
     pub freeze_program: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook so its
-    /// metalist can resolve `asset_configuration_pda` as an external PDA.
-    #[account(address = constants::DEPLOY_PROGRAM_ID)]
-    pub deploy_program: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint; forwarded to the hook so its
     /// metalist can resolve `asset_class_version_pda` as an external PDA.
     #[account(address = constants::FACTORY_PROGRAM_ID)]
     pub factory_program: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint; forwarded to the hook.
-    #[account(address = constants::DEACTIVATE_PROGRAM_ID)]
-    pub deactivate_program: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]
