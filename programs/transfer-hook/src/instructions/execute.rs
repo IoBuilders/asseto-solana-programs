@@ -97,10 +97,6 @@ pub struct Execute<'info> {
     /// CHECK: the mint's ExtraAccountMetaList; canonicity enforced by Token-2022.
     pub extra_account_meta_list: UncheckedAccount<'info>,
 
-    /// CHECK: address verified by constraint; resolves asset_configuration_pda in the metalist.
-    #[account(address = DEPLOY_PROGRAM_ID)]
-    pub deploy_program: UncheckedAccount<'info>,
-
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
         seeds::program = DEPLOY_PROGRAM_ID,
@@ -123,11 +119,7 @@ pub struct Execute<'info> {
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
-    /// CHECK: deactivate program (index 9); resolves deactivate_pda in the metalist.
-    #[account(address = DEACTIVATE_PROGRAM_ID)]
-    pub deactivate_program: UncheckedAccount<'info>,
-
-    /// CHECK: Deactivation marker (index 10); seeds verified, emptiness checked by require_active.
+    /// CHECK: Deactivation marker (index 8); seeds verified, emptiness checked by require_active.
     #[account(
         seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
         seeds::program = DEACTIVATE_PROGRAM_ID,
@@ -135,11 +127,11 @@ pub struct Execute<'info> {
     )]
     pub deactivate_pda: UncheckedAccount<'info>,
 
-    /// CHECK: transfer-control program (index 11); resolves the mode + control-list PDAs.
+    /// CHECK: transfer-control program (index 9); resolves the mode + control-list PDAs.
     #[account(address = TRANSFER_CONTROL_PROGRAM_ID)]
     pub transfer_control_program: UncheckedAccount<'info>,
 
-    /// CHECK: Transfer-control mode (index 12); may be empty (no mode active).
+    /// CHECK: Transfer-control mode (index 10); may be empty (no mode active).
     #[account(
         seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
         seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
@@ -147,7 +139,7 @@ pub struct Execute<'info> {
     )]
     pub transfer_control_mode_pda: UncheckedAccount<'info>,
 
-    /// CHECK: Source control-list marker (index 13); seeded by the source token account.
+    /// CHECK: Source control-list marker (index 11); seeded by the source token account.
     #[account(
         seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
@@ -155,7 +147,7 @@ pub struct Execute<'info> {
     )]
     pub source_control_list_pda: UncheckedAccount<'info>,
 
-    /// CHECK: Destination control-list marker (index 14); seeded by the destination token account.
+    /// CHECK: Destination control-list marker (index 12); seeded by the destination token account.
     #[account(
         seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), destination_token.key().as_ref()],
         seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
@@ -163,11 +155,11 @@ pub struct Execute<'info> {
     )]
     pub destination_control_list_pda: UncheckedAccount<'info>,
 
-    /// CHECK: freeze program (index 15); resolves source_freeze_state_pda in the metalist.
+    /// CHECK: freeze program (index 13); resolves source_freeze_state_pda in the metalist.
     #[account(address = FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
-    /// CHECK: Source freeze state (index 16); may be empty (nothing frozen). Owner and
+    /// CHECK: Source freeze state (index 14); may be empty (nothing frozen). Owner and
     /// discriminator checked by freeze::freeze_status.
     #[account(
         seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), source_token.key().as_ref()],
@@ -176,11 +168,11 @@ pub struct Execute<'info> {
     )]
     pub source_freeze_state_pda: UncheckedAccount<'info>,
 
-    /// CHECK: hold program (index 17); resolves source_hold_position_pda in the metalist.
+    /// CHECK: hold program (index 15); resolves source_hold_position_pda in the metalist.
     #[account(address = HOLD_PROGRAM_ID)]
     pub hold_program: UncheckedAccount<'info>,
 
-    /// CHECK: Source held-balance accumulator (index 18); may be empty (no hold ever created).
+    /// CHECK: Source held-balance accumulator (index 16); may be empty (no hold ever created).
     #[account(
         seeds = [pda_seeds::HOLD_POSITION, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = HOLD_PROGRAM_ID,
