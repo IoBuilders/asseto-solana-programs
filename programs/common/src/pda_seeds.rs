@@ -106,6 +106,7 @@ pub fn coupon_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
 pub const TREASURY_CONFIG: &[u8] = b"treasury_config";
 pub const TREASURY_AUTHORITY: &[u8] = b"treasury_authority";
 pub const COUPON_PAID: &[u8] = b"coupon_paid";
+pub const COUPON_DISTRIBUTION: &[u8] = b"coupon_distribution";
 
 pub fn treasury_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![TREASURY_AUTHORITY, mint.as_ref()]

@@ -92,7 +92,7 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 
 `interest_rate_override` / `interest_rate_override_decimals` are optional. Pass `None` for both to inherit the asset-level rate from `bond_terms` (default). Pass `Some` for both to pin a coupon-specific rate — `treasury::pay_coupon` will use it instead of `bond_terms`. Passing `Some` for one and `None` for the other is rejected with `InconsistentRateOverride`. The rate can also be set or updated after creation via `set_coupon_rate`.
 
-`merkle_root` is the 32-byte root of the off-chain Sorted-pair Merkle tree of `(account, balance)` pairs for the snapshot this coupon triggers. It is forwarded verbatim to `snapshot::take_snapshot`, which stores it in a new immutable `snapshot_merkle_root` PDA keyed by the allocated snapshot id.
+`merkle_root` is the 32-byte root of the off-chain Sorted-pair Merkle tree of `(holder_wallet, balance)` pairs for the snapshot this coupon triggers — one leaf per wallet, with the balance summed over all of that wallet's bond token accounts at the record date (`treasury::pay_coupon` pays that wallet and requires the destination to be owned by it). It is forwarded verbatim to `snapshot::take_snapshot`, which stores it in a new immutable `snapshot_merkle_root` PDA keyed by the allocated snapshot id.
 
 ### Preconditions
 
@@ -146,6 +146,8 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 Overrides — or clears — the interest rate for a single already-issued coupon. By default every coupon inherits the asset-level rate from `bond_terms` when `treasury::pay_coupon` runs. Calling this instruction stores a coupon-specific rate that `pay_coupon` will use instead.
 
 Calling the instruction again replaces the previous values. Passing `None` for both `interest_rate` and `interest_rate_decimals` clears the override, reverting the coupon to the asset-level rate — no re-issue required.
+
+The override only matters until the coupon's distribution starts: `treasury::pay_coupon` pins the effective rate in its `coupon_distribution` PDA on the coupon's first payment, and every later payment uses that pinned value. A `set_coupon_rate` after the first payment still succeeds and updates the `Coupon` account, but does not change what the remaining holders are paid (see [`treasury.md`](treasury.md#coupondistribution)).
 
 ### Parameters
 

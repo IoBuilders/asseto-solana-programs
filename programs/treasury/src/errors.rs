@@ -8,6 +8,8 @@ pub enum ErrorCode {
     AmountOverflow,
     #[msg("Coupon payment_date has not been reached yet")]
     CouponNotMature,
-    #[msg("Payment token cannot be changed while claims are in progress for the current coupon")]
-    ClaimsInProgress,
+    #[msg("holder_payment_account is not owned by the holder proven in the Merkle leaf")]
+    PaymentDestinationMismatch,
+    #[msg("payment_mint differs from the payment mint pinned for this coupon's distribution")]
+    PaymentMintMismatch,
 }

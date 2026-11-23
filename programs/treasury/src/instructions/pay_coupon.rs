@@ -10,14 +10,14 @@ use snapshot::state::SnapshotMerkleRoot;
 
 use crate::errors::ErrorCode;
 use crate::events::CouponPaid;
-use crate::state::{CouponPaidMarker, TreasuryConfig};
+use crate::state::{CouponDistribution, CouponPaidMarker, TreasuryConfig};
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
 
 pub fn pay_coupon(
-    ctx: Context<PayCoupon>,
+    mut ctx: Context<PayCoupon>,
     coupon_id: u64,
-    account: Pubkey,
+    holder: Pubkey,
     balance: u64,
     merkle_proof: Vec<[u8; 32]>,
 ) -> Result<()> {
@@ -33,75 +33,60 @@ pub fn pay_coupon(
         common::functionalities::TREASURY_PAY_COUPON,
     )?;
 
-    let coupon = &ctx.accounts.coupon;
     let now = Clock::get()?.unix_timestamp;
-    require!(now >= coupon.payment_date, ErrorCode::CouponNotMature);
+    require!(
+        now >= ctx.accounts.coupon.payment_date,
+        ErrorCode::CouponNotMature
+    );
 
     require_balance_proof(
         &merkle_proof,
         ctx.accounts.snapshot_merkle_root.merkle_root,
-        account,
+        holder,
         balance,
     )?;
 
-    // ── Compute payout amount ────────────────────────────────────────────────
-    let bond = &ctx.accounts.bond_terms;
-    let elapsed_seconds: i64 = coupon
-        .period_end_date
-        .checked_sub(coupon.period_start_date)
-        .ok_or(ErrorCode::NegativeElapsedTime)?;
-    require!(elapsed_seconds > 0, ErrorCode::NegativeElapsedTime);
-    let elapsed_seconds: u64 = elapsed_seconds as u64;
-
-    let day_count_days: u64 = match bond.day_count_convention {
-        DayCountConvention::Actual360 => 360,
-        DayCountConvention::Actual365 => 365,
-    };
-    const SECONDS_PER_DAY: u64 = 86_400;
-
-    let (effective_interest_rate, effective_interest_rate_decimals) = match (
-        coupon.interest_rate_override,
-        coupon.interest_rate_override_decimals,
-    ) {
-        (Some(rate), Some(dec)) => (rate, dec),
-        _ => (bond.interest_rate, bond.interest_rate_decimals),
-    };
-
-    // i32 is wide enough: each input is u8, so the sum is bounded by 4·255 = 1020.
-    let bond_mint_dec = ctx.accounts.mint.decimals;
-    let payment_mint_dec = ctx.accounts.treasury_config.payment_mint_decimals;
-    let positive_decs: i32 = effective_interest_rate_decimals as i32
-        + bond_mint_dec as i32
-        + bond.par_value_decimals as i32;
-    let net_power: i32 = payment_mint_dec as i32 - positive_decs;
-
-    let mut num: u128 = (effective_interest_rate as u128)
-        .checked_mul(balance as u128)
-        .and_then(|v| v.checked_mul(bond.par_value as u128))
-        .and_then(|v| v.checked_mul(elapsed_seconds as u128))
-        .ok_or(ErrorCode::AmountOverflow)?;
-
-    let mut den: u128 = (day_count_days as u128)
-        .checked_mul(SECONDS_PER_DAY as u128)
-        .ok_or(ErrorCode::AmountOverflow)?;
-
-    if net_power >= 0 {
-        let mul: u128 = 10u128
-            .checked_pow(net_power as u32)
-            .ok_or(ErrorCode::AmountOverflow)?;
-        num = num.checked_mul(mul).ok_or(ErrorCode::AmountOverflow)?;
-    } else {
-        let div: u128 = 10u128
-            .checked_pow((-net_power) as u32)
-            .ok_or(ErrorCode::AmountOverflow)?;
-        den = den.checked_mul(div).ok_or(ErrorCode::AmountOverflow)?;
+    // ── Pin the distribution terms on the coupon's first payment ─────────────
+    {
+        let accounts = &mut ctx.accounts;
+        let dist = &mut accounts.coupon_distribution;
+        if !dist.is_open() {
+            let cfg = &accounts.treasury_config;
+            let bond = &accounts.bond_terms;
+            let coupon = &accounts.coupon;
+            let (interest_rate, interest_rate_decimals) = match (
+                coupon.interest_rate_override,
+                coupon.interest_rate_override_decimals,
+            ) {
+                (Some(rate), Some(dec)) => (rate, dec),
+                _ => (bond.interest_rate, bond.interest_rate_decimals),
+            };
+            dist.bump = ctx.bumps.coupon_distribution;
+            dist.payment_mint = cfg.payment_mint;
+            dist.payment_mint_decimals = cfg.payment_mint_decimals;
+            dist.interest_rate = interest_rate;
+            dist.interest_rate_decimals = interest_rate_decimals;
+            dist.par_value = bond.par_value;
+            dist.par_value_decimals = bond.par_value_decimals;
+            dist.day_count_days = match bond.day_count_convention {
+                DayCountConvention::Actual360 => 360,
+                DayCountConvention::Actual365 => 365,
+            };
+        }
     }
+    require_keys_eq!(
+        ctx.accounts.payment_mint.key(),
+        ctx.accounts.coupon_distribution.payment_mint,
+        ErrorCode::PaymentMintMismatch
+    );
 
-    let amount: u64 = (num / den)
-        .try_into()
-        .map_err(|_| ErrorCode::AmountOverflow)?;
+    let amount = compute_coupon_amount(
+        &ctx.accounts.coupon_distribution,
+        &ctx.accounts.coupon,
+        ctx.accounts.mint.decimals,
+        balance,
+    )?;
 
-    let cfg = &ctx.accounts.treasury_config;
     let mint_key = ctx.accounts.mint.key();
     let treasury_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::treasury_authority_seeds(&mint_key),
@@ -120,21 +105,29 @@ pub fn pay_coupon(
             &[treasury_authority_signer_seeds.as_slice()],
         ),
         amount,
-        cfg.payment_mint_decimals,
+        ctx.accounts.coupon_distribution.payment_mint_decimals,
     )?;
 
-    // ── Lock the treasury config for this coupon ─────────────────────────────
-    ctx.accounts.treasury_config.locked_for_coupon_id = coupon_id;
+    let dist = &mut ctx.accounts.coupon_distribution;
+    dist.paid_count = dist
+        .paid_count
+        .checked_add(1)
+        .ok_or(ErrorCode::AmountOverflow)?;
+    dist.total_paid = dist
+        .total_paid
+        .checked_add(amount)
+        .ok_or(ErrorCode::AmountOverflow)?;
 
     let marker = &mut ctx.accounts.coupon_paid;
     marker.bump = ctx.bumps.coupon_paid;
     marker.amount = amount;
 
-    // ── Emit CouponPaid ──────────────────────────────────────────────────────
     emit_cpi!(CouponPaid {
         mint: mint_key,
         coupon_id,
-        holder_token_account: account,
+        holder,
+        destination: ctx.accounts.holder_payment_account.key(),
+        balance,
         payment_mint: ctx.accounts.payment_mint.key(),
         amount,
         payer: ctx.accounts.payer.key(),
@@ -143,9 +136,57 @@ pub fn pay_coupon(
     Ok(())
 }
 
+fn compute_coupon_amount(
+    dist: &CouponDistribution,
+    coupon: &Coupon,
+    bond_mint_decimals: u8,
+    balance: u64,
+) -> Result<u64> {
+    const SECONDS_PER_DAY: u64 = 86_400;
+
+    let elapsed_seconds: i64 = coupon
+        .period_end_date
+        .checked_sub(coupon.period_start_date)
+        .ok_or(ErrorCode::NegativeElapsedTime)?;
+    require!(elapsed_seconds > 0, ErrorCode::NegativeElapsedTime);
+    let elapsed_seconds: u64 = elapsed_seconds as u64;
+
+    // i32 is wide enough: each input is u8, so the sum is bounded by 4·255 = 1020.
+    let positive_decs: i32 = dist.interest_rate_decimals as i32
+        + bond_mint_decimals as i32
+        + dist.par_value_decimals as i32;
+    let net_power: i32 = dist.payment_mint_decimals as i32 - positive_decs;
+
+    let mut num: u128 = (dist.interest_rate as u128)
+        .checked_mul(balance as u128)
+        .and_then(|v| v.checked_mul(dist.par_value as u128))
+        .and_then(|v| v.checked_mul(elapsed_seconds as u128))
+        .ok_or(ErrorCode::AmountOverflow)?;
+
+    let mut den: u128 = (dist.day_count_days as u128)
+        .checked_mul(SECONDS_PER_DAY as u128)
+        .ok_or(ErrorCode::AmountOverflow)?;
+
+    if net_power >= 0 {
+        let mul: u128 = 10u128
+            .checked_pow(net_power as u32)
+            .ok_or(ErrorCode::AmountOverflow)?;
+        num = num.checked_mul(mul).ok_or(ErrorCode::AmountOverflow)?;
+    } else {
+        let div: u128 = 10u128
+            .checked_pow((-net_power) as u32)
+            .ok_or(ErrorCode::AmountOverflow)?;
+        den = den.checked_mul(div).ok_or(ErrorCode::AmountOverflow)?;
+    }
+
+    Ok((num / den)
+        .try_into()
+        .map_err(|_| ErrorCode::AmountOverflow)?)
+}
+
 #[event_cpi]
 #[derive(Accounts)]
-#[instruction(coupon_id: u64, account: Pubkey)]
+#[instruction(coupon_id: u64, holder: Pubkey)]
 pub struct PayCoupon<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -170,7 +211,6 @@ pub struct PayCoupon<'info> {
     pub mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
-        mut,
         seeds = [pda_seeds::TREASURY_CONFIG, mint.key().as_ref()],
         bump = treasury_config.bump,
     )]
@@ -183,10 +223,7 @@ pub struct PayCoupon<'info> {
     )]
     pub treasury_authority: UncheckedAccount<'info>,
 
-    #[account(
-        address = treasury_config.payment_mint,
-        mint::token_program = token_program,
-    )]
+    #[account(mint::token_program = token_program)]
     pub payment_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
@@ -201,6 +238,7 @@ pub struct PayCoupon<'info> {
         mut,
         token::mint = payment_mint,
         token::token_program = token_program,
+        constraint = holder_payment_account.owner == holder @ ErrorCode::PaymentDestinationMismatch,
     )]
     pub holder_payment_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -233,11 +271,20 @@ pub struct PayCoupon<'info> {
             pda_seeds::COUPON_PAID,
             mint.key().as_ref(),
             &coupon_id.to_le_bytes(),
-            account.as_ref(),
+            holder.as_ref(),
         ],
         bump,
     )]
     pub coupon_paid: Box<Account<'info, CouponPaidMarker>>,
+
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = CouponDistribution::DISCRIMINATOR.len() + CouponDistribution::INIT_SPACE,
+        seeds = [pda_seeds::COUPON_DISTRIBUTION, mint.key().as_ref(), &coupon_id.to_le_bytes()],
+        bump,
+    )]
+    pub coupon_distribution: Box<Account<'info, CouponDistribution>>,
 
     #[account(
         seeds = [

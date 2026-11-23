@@ -21,16 +21,29 @@ export function treasuryAuthorityPda(mint: PublicKey): PublicKey {
 
 // ── coupon_paid PDA ────────────────────────────────────────────────────────────
 
-export function couponPaidPda(mint: PublicKey, couponId: BN, holderTokenAccount: PublicKey): PublicKey {
+export function couponPaidPda(mint: PublicKey, couponId: BN, holder: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("coupon_paid"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8), holderTokenAccount.toBuffer()],
+    [Buffer.from("coupon_paid"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8), holder.toBuffer()],
     TREASURY_PROGRAM_ID
   )[0];
 }
 
-export async function getCouponPaidMarker(mint: PublicKey, couponId: BN, holderTokenAccount: PublicKey) {
-  const pda = couponPaidPda(mint, couponId, holderTokenAccount);
+export async function getCouponPaidMarker(mint: PublicKey, couponId: BN, holder: PublicKey) {
+  const pda = couponPaidPda(mint, couponId, holder);
   return getTreasuryProgram().account.couponPaidMarker.fetchNullable(pda);
+}
+
+// ── coupon_distribution PDA ────────────────────────────────────────────────────
+
+export function couponDistributionPda(mint: PublicKey, couponId: BN): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("coupon_distribution"), mint.toBuffer(), couponId.toArrayLike(Buffer, "le", 8)],
+    TREASURY_PROGRAM_ID
+  )[0];
+}
+
+export async function getCouponDistribution(mint: PublicKey, couponId: BN) {
+  return getTreasuryProgram().account.couponDistribution.fetchNullable(couponDistributionPda(mint, couponId));
 }
 
 // ── __event_authority PDA ──────────────────────────────────────────────────────

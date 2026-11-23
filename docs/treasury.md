@@ -20,15 +20,40 @@ pub struct TreasuryConfig {
     pub bump: u8,
     pub payment_mint: Pubkey,
     pub payment_mint_decimals: u8,
-    pub locked_for_coupon_id: u64,
 }
-// LEN = 8 + 1 + 32 + 1 + 8 = 50 bytes
+// LEN = 8 + 1 + 32 + 1 = 42 bytes
 // Seeds: ["treasury_config", mint]
 ```
 
 Per-mint treasury config. Stores the payment-mint pubkey and a cached copy of its decimals (avoids re-parsing the mint on every `pay_coupon`). Mint decimals are immutable on both classic SPL Token and Token-2022, so the cache stays correct for as long as `payment_mint` is unchanged. If the treasurer points the treasury at a different payment mint via another `set_payment_token` call, `payment_mint` / `payment_mint_decimals` are overwritten.
 
-`locked_for_coupon_id` is `0` while no claims have been made. The first `pay_coupon` for a coupon sets it to that coupon's id, which locks the payment mint against change: `set_payment_token` then fails with `ClaimsInProgress` until a **new** coupon is created and `coupon_counter.count` advances past `locked_for_coupon_id`. This prevents swapping the payment mint mid-distribution of a coupon.
+`treasury_config` only says which mint the **next** coupon distribution will use. A coupon whose distribution has already started keeps the mint it was opened with (see `CouponDistribution` below), so `set_payment_token` needs no lock and can run at any time.
+
+### `CouponDistribution`
+
+```rust
+#[account]
+pub struct CouponDistribution {
+    pub bump: u8,
+    pub payment_mint: Pubkey,
+    pub payment_mint_decimals: u8,
+    pub interest_rate: u64,
+    pub interest_rate_decimals: u8,
+    pub par_value: u64,
+    pub par_value_decimals: u8,
+    pub day_count_days: u16,
+    pub paid_count: u64,
+    pub total_paid: u64,
+}
+// LEN = 8 + 1 + 32 + 1 + 8 + 1 + 8 + 1 + 2 + 8 + 8 = 78 bytes
+// Seeds: ["coupon_distribution", mint, coupon_id.to_le_bytes()]
+```
+
+The economic terms of one coupon's distribution, frozen on its first payment. A distribution is many `pay_coupon` transactions spread over time, and every input to the payout other than the holder's balance and the coupon period is mutable elsewhere (`set_payment_token`, `coupon::set_coupon_rate`, `bond::update_bond_terms`). Without this pin, holders of the same coupon could be paid in different currencies or at different rates depending on when their transaction landed.
+
+- Created by `pay_coupon` via `init_if_needed` (rent paid by `payer`). On the call that creates it, the handler copies `payment_mint` / `payment_mint_decimals` from `treasury_config`, the effective rate (coupon override if both fields are `Some`, else `bond_terms`), `par_value` / `par_value_decimals` and the day-count (360 or 365) from `bond_terms`. A default `payment_mint` marks the account as not yet opened.
+- Every later payment of the same coupon computes the amount **only** from these fields plus the coupon's period, and must pass the pinned `payment_mint` (`PaymentMintMismatch` otherwise). Changes to `treasury_config`, the coupon's override or `bond_terms` apply to coupons whose first payment happens afterwards.
+- `paid_count` / `total_paid` are incremented on every payment, giving an on-chain reconciliation of the distribution.
 
 ### `CouponPaidMarker`
 
@@ -39,10 +64,10 @@ pub struct CouponPaidMarker {
     pub amount: u64,
 }
 // LEN = 8 + 1 + 8 = 17 bytes
-// Seeds: ["coupon_paid", mint, coupon_id.to_le_bytes(), account]
+// Seeds: ["coupon_paid", mint, coupon_id.to_le_bytes(), holder]
 ```
 
-One marker per `(mint, coupon_id, account)` triple, where `account` is the pubkey the Merkle proof commits to (in practice the holder's bond-mint token account). Created via `init` inside `pay_coupon` — the second attempt to pay the same coupon to the same holder fails because the PDA already exists. Stores `amount` for off-chain auditing.
+One marker per `(mint, coupon_id, holder)` triple, where `holder` is the wallet the Merkle leaf commits to. Created via `init` inside `pay_coupon` — the second attempt to pay the same coupon to the same holder fails because the PDA already exists. Stores `amount` for off-chain auditing.
 
 ### `treasury_authority` PDA (no on-chain account data)
 
@@ -62,7 +87,8 @@ pub enum ErrorCode {
     NegativeElapsedTime,                // coupon.period_end_date <= coupon.period_start_date
     AmountOverflow,                     // u128 overflow during interest calculation
     CouponNotMature,                    // cluster clock < coupon.payment_date
-    ClaimsInProgress,                   // set_payment_token while a coupon is mid-distribution
+    PaymentDestinationMismatch,         // holder_payment_account.owner != holder
+    PaymentMintMismatch,                // payment_mint != coupon_distribution.payment_mint
 }
 ```
 
@@ -76,7 +102,6 @@ Account-shape mismatches (wrong mint, wrong owner, wrong token program, wrong pa
 
 | Anchor error | Triggered by |
 |---|---|
-| `ConstraintAddress` | `payment_mint` arg differs from `treasury_config.payment_mint` |
 | `ConstraintTokenMint` | a token account's `mint` field doesn't match `payment_mint` |
 | `ConstraintTokenOwner` | `treasury_token_account` is not owned by the `treasury_authority` PDA |
 | `ConstraintTokenTokenProgram` | a token account or the mint is owned by a different token program than `token_program` |
@@ -89,10 +114,10 @@ Account-shape mismatches (wrong mint, wrong owner, wrong token program, wrong pa
 
 Sets (or replaces) the mint used to settle coupon payments for this bond mint.
 
-- Creates `treasury_config` on the first call (`init_if_needed`); overwrites `payment_mint` / `payment_mint_decimals` on subsequent calls (`locked_for_coupon_id` is left untouched).
+- Creates `treasury_config` on the first call (`init_if_needed`); overwrites `payment_mint` / `payment_mint_decimals` on subsequent calls.
 - Reads `payment_mint`'s decimals from its account data and caches them in `treasury_config`.
 - The payment mint is **not** the bond mint — it's the mint used to pay interest (e.g. USDC, classic SPL or Token-2022).
-- **Claims guard:** if `treasury_config.locked_for_coupon_id != 0` and `coupon_counter.count` has not advanced past it (a coupon is mid-distribution), the call fails with `ClaimsInProgress`. The `coupon_counter` account may be uninitialized (no coupon created yet); in that case the guard is skipped.
+- Can be called at any time, including while a coupon is being distributed: coupons already opened keep their pinned mint (`CouponDistribution`), so the new mint applies from the next coupon's first payment.
 
 **Preconditions:** `require_role(ROLE_TREASURER)` → `require_not_paused` → `require_active` → `require_functionality(TREASURY_SET_PAYMENT_TOKEN)`.
 
@@ -106,32 +131,35 @@ Sets (or replaces) the mint used to settle coupon payments for this bond mint.
 | 3 | `deactivate_pda` | Owned by `deactivate`. Seeds `["deactivate", mint]`. Must not exist (verified by `require_active`). |
 | 4 | `mint` | Bond's Token-2022 mint. Pause state checked by `require_not_paused`. |
 | 5 | `treasury_config` | Owned by `treasury`. `init_if_needed`. Seeds `["treasury_config", mint]`. |
-| 6 | `coupon_counter` | Owned by `coupon`. Seeds `["coupon_counter", mint]`. Read manually for the claims guard; may be uninitialized. |
-| 7 | `payment_mint` | `InterfaceAccount<Mint>` — classic SPL or Token-2022. Decimals read here. |
-| 8 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>`, owned by `factory`. Seeds `["asset_class_version", config_id, version_id]`. Functionality gate. |
-| 9 | `system_program` | — |
-| 10 | `authority_roles_pda` | `AccountLoader<Roles>`, owned by `access-control`. Seeds `["roles", mint, authority]`. Read to verify `authority` holds `ROLE_TREASURER`. |
-| 11 | `event_authority` | `#[event_cpi]`-injected PDA `["__event_authority"]`; signs the `PaymentTokenSet` self-CPI. |
-| 12 | `program` | `#[event_cpi]`-injected; this program's own ID, target of the self-CPI. |
+| 6 | `payment_mint` | `InterfaceAccount<Mint>` — classic SPL or Token-2022. Decimals read here. |
+| 7 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>`, owned by `factory`. Seeds `["asset_class_version", config_id, version_id]`. Functionality gate. |
+| 8 | `system_program` | — |
+| 9 | `authority_roles_pda` | `AccountLoader<Roles>`, owned by `access-control`. Seeds `["roles", mint, authority]`. Read to verify `authority` holds `ROLE_TREASURER`. |
+| 10 | `event_authority` | `#[event_cpi]`-injected PDA `["__event_authority"]`; signs the `PaymentTokenSet` self-CPI. |
+| 11 | `program` | `#[event_cpi]`-injected; this program's own ID, target of the self-CPI. |
 
 ---
 
-### `pay_coupon(coupon_id: u64, account: Pubkey, balance: u64, merkle_proof: Vec<[u8; 32]>)`
+### `pay_coupon(coupon_id: u64, holder: Pubkey, balance: u64, merkle_proof: Vec<[u8; 32]>)`
 
-Computes and pays the coupon to a single holder.
+Computes and pays the coupon to a single holder, into a payment-mint token account that holder owns.
 
 **Arguments**
 
 | Arg | Meaning |
 |---|---|
-| `coupon_id` | Which coupon is being paid. Seeds the `coupon` and `coupon_paid` PDAs. |
-| `account` | The pubkey the balance is claimed for — the holder's bond-mint token account. Seeds the `coupon_paid` marker and is the first half of the Merkle leaf preimage. |
-| `balance` | The holder's bond-mint balance at `coupon.snapshot_id`, in raw mint units. **Caller-supplied but not trusted** — see the verification step below. |
+| `coupon_id` | Which coupon is being paid. Seeds the `coupon`, `coupon_distribution` and `coupon_paid` PDAs. |
+| `holder` | The **wallet** the balance is claimed for — the owner of the bond position at the record date. Seeds the `coupon_paid` marker, is the first half of the Merkle leaf preimage, and must own `holder_payment_account`. |
+| `balance` | The holder's bond-mint balance at `coupon.snapshot_id`, in raw mint units, **summed over all of that wallet's bond token accounts**. **Caller-supplied but not trusted** — see the verification step below. |
 | `merkle_proof` | Sibling hashes, leaf → root, proving `(account, balance)` belongs to the snapshot tree. Empty for a single-leaf tree. |
 
-`account` is an argument, not an account: the program never loads it and never checks that it is a real token account of `mint`. Its only binding to reality is the Merkle proof — a pubkey that isn't a leaf of the snapshot tree cannot produce a valid proof, so it cannot be paid. This is what lets `pay_coupon` drop the per-holder snapshot PDA and the snapshot CPI entirely.
+`holder` is an argument, not an account: the program never loads the holder's bond token account(s). Its binding to reality is the Merkle proof (a wallet that isn't a leaf of the snapshot tree cannot be paid) plus the owner check on the destination.
 
-**Order of operations:** `require_role(ROLE_TREASURER)` → `require_not_paused` → `require_active` → `require_functionality(TREASURY_PAY_COUPON)` → maturity gate → Merkle verification → payout math → `transfer_checked` → config lock → marker write → `emit_cpi!`.
+**Why the leaf is keyed by wallet, not by bond token account.** The leaf is what ties the payment to a person, so it must carry the identity the money goes to. Reading the owner of the bond token account at payment time would not work: the account may have been closed after the record date (the holder sold and reclaimed rent), and a non-ATA account may have changed owner via `SetAuthority`, so the live owner is not necessarily the record-date owner. Committing the wallet in the leaf freezes that identity at the snapshot. The off-chain tree builder therefore emits **one leaf per wallet**, with `balance` = the sum of that wallet's bond token accounts at the record date.
+
+**Destination binding.** `holder_payment_account.owner` must equal `holder` (`PaymentDestinationMismatch` otherwise). Together with the proof, this means a `ROLE_TREASURER` signer decides only *when* a holder is paid — not to whom, how much, or in which mint. Any payment-mint token account owned by the holder is accepted (ATA or not); holders owned by a PDA (custodians, vaults) are paid into an account of that PDA.
+
+**Order of operations:** account validation (incl. destination owner check) → `require_role(ROLE_TREASURER)` → `require_not_paused` → `require_active` → `require_functionality(TREASURY_PAY_COUPON)` → maturity gate → Merkle verification → pin `coupon_distribution` (first payment only) → payment-mint check against the pin → payout math → `transfer_checked` → distribution counters → marker write → `emit_cpi!`.
 
 **Maturity gate**
 
@@ -149,8 +177,8 @@ that calls the pure `merkle::verify_balance_proof` primitive and raises
 host-testable `bool` while matching the `require_*` convention.
 
 - The root comes from the `snapshot_merkle_root` PDA of `coupon.snapshot_id` (seeds `["snapshot_merkle_root", mint, coupon.snapshot_id]`, owned by `snapshot`, written once and immutable by `take_snapshot`). Anchor derives that PDA from `coupon.snapshot_id` itself, so the caller cannot point the instruction at a different snapshot's root.
-- The leaf is `keccak(account || balance.to_le_bytes())` — 40 bytes. Internal nodes hash two 32-byte children (64 bytes). The differing preimage lengths are what stops an internal node from being replayed as a leaf; see the `// SECURITY:` note in `common::merkle`.
-- The tree is **sorted-pair (commutative)**: each step hashes `min(computed, sibling) || max(computed, sibling)`, so no direction bits travel with the proof. The consequence is that only *leaf existence* is proven, never leaf position. That is sufficient here because the double-payment guard is the `coupon_paid` PDA, keyed by `(coupon_id, account)` — position in the tree is irrelevant.
+- The leaf is `keccak(holder || balance.to_le_bytes())` — 40 bytes. Internal nodes hash two 32-byte children (64 bytes). The differing preimage lengths are what stops an internal node from being replayed as a leaf; see the `// SECURITY:` note in `common::merkle`.
+- The tree is **sorted-pair (commutative)**: each step hashes `min(computed, sibling) || max(computed, sibling)`, so no direction bits travel with the proof. The consequence is that only *leaf existence* is proven, never leaf position. That is sufficient here because the double-payment guard is the `coupon_paid` PDA, keyed by `(coupon_id, holder)` — position in the tree is irrelevant.
 - Verification is pure computation on `Vec<[u8; 32]>`; proof length grows as `log2(holders)`, so a 1M-holder snapshot costs ~20 keccak syscalls.
 - Off-chain, tests build leaves and roots with `tests/program_helpers/snapshot/merkle_helper.ts` (`leafHash` mirrors `common::merkle::leaf_hash` exactly); production callers must use the same encoding.
 
@@ -162,11 +190,10 @@ amount  =  ───────────────────────
               10^interest_dec × 10^bond_mint_dec × 10^par_value_dec × day_count × 86_400
 ```
 
-- `interest_rate` and `interest_dec` are resolved as follows: if the coupon carries `interest_rate_override` and `interest_rate_override_decimals` (both `Some`), those values are used; otherwise the handler falls back to `bond_terms.interest_rate` / `bond_terms.interest_rate_decimals`. `par_value`, `par_value_dec`, `issuance_date`, and `day_count_convention` always come from `bond_terms` (bond, seeds `["bond_terms", mint]`).
+- `interest_rate`, `interest_dec`, `par_value`, `par_value_dec`, `day_count` and `payment_mint_dec` are read from `coupon_distribution`, i.e. the values pinned on the coupon's first payment. At pin time the rate is resolved as: the coupon's `interest_rate_override` / `interest_rate_override_decimals` if both are `Some`, otherwise `bond_terms.interest_rate` / `interest_rate_decimals`; `par_value`, `par_value_dec` and the day-count come from `bond_terms`, `payment_mint_dec` from `treasury_config`.
 - `bond_mint_dec` is read directly from the bond `mint` (`InterfaceAccount<Mint>`).
-- `payment_mint_dec` is the cached value in `treasury_config` set by `set_payment_token`.
 - `coupon.snapshot_id`, `coupon.period_start_date`, `coupon.period_end_date`, and `coupon.payment_date` come from `coupon` (coupon, seeds `["coupon", mint, coupon_id]`).
-- `balance` is supplied by the caller and **verified** against the snapshot's Merkle root via `common::require_balance_proof(&merkle_proof, snapshot_merkle_root.merkle_root, account, balance)?`, which raises `CommonError::InvalidMerkleProof` if the proof does not fold to the root. The root is read from the `snapshot_merkle_root` PDA of `coupon.snapshot_id` (seeds `["snapshot_merkle_root", mint, coupon.snapshot_id]`, owned by `snapshot`). The leaf is `keccak(account || balance.to_le_bytes())` in a sorted-pair tree — see `common::merkle`.
+- `balance` is supplied by the caller and **verified** against the snapshot's Merkle root via `common::require_balance_proof(&merkle_proof, snapshot_merkle_root.merkle_root, holder, balance)?` (see "Balance verification" above).
 - `elapsed_seconds = coupon.period_end_date − coupon.period_start_date` — the accrual window of *this* coupon, not the time since bond issuance. Each coupon accrues independently. The non-positive case can't normally happen because `coupon::create_coupon` enforces strict `>`, but defence-in-depth: `NegativeElapsedTime` if it ever does.
 - `day_count` is `360` or `365` per `bond_terms.day_count_convention` (Actual360 / Actual365).
 
@@ -182,15 +209,15 @@ applied to one side of the fraction (multiply numerator if `net_power ≥ 0`, mu
 
 **Transfer**
 
-`transfer_checked` via the **token interface** (`anchor_spl::token_interface::transfer_checked`) — dispatches through whichever token program owns the mint (classic SPL or Token-2022). Source: `treasury_token_account`. Destination: `holder_payment_account`. Signed by `treasury_authority` PDA via `invoke_signed`. The decimals argument comes from the cached `payment_mint_decimals` in `treasury_config`.
+`transfer_checked` via the **token interface** (`anchor_spl::token_interface::transfer_checked`) — dispatches through whichever token program owns the mint (classic SPL or Token-2022). Source: `treasury_token_account`. Destination: `holder_payment_account`. Signed by `treasury_authority` PDA via `invoke_signed`. The decimals argument is `coupon_distribution.payment_mint_decimals`.
 
-**Config lock**
+**Distribution pin**
 
-On success the handler sets `treasury_config.locked_for_coupon_id = coupon_id` (idempotent across holders of the same coupon). This blocks `set_payment_token` from swapping the payment mint while this coupon is still being distributed — see `ClaimsInProgress` above. `treasury_config` is therefore `mut` in this instruction (it was read-only before).
+On the coupon's first payment `coupon_distribution` is created and filled (see the state section). On every payment the handler then requires `payment_mint == coupon_distribution.payment_mint` (`PaymentMintMismatch`), so late payers of an open coupon must be paid from the treasury account of the mint that coupon started with, even if `set_payment_token` has since pointed `treasury_config` elsewhere. After the transfer, `paid_count` is incremented and `amount` is added to `total_paid`.
 
 **Double-payment guard**
 
-The `coupon_paid` marker PDA is created via `init` (not `init_if_needed`) and keyed by `(coupon_id, account)` — **not** `snapshot_id`, so the same snapshot can back several corporate actions independently. The second `pay_coupon` for the same `(coupon_id, account)` fails to create the account and reverts the whole transaction — so the holder receives the coupon at most once.
+The `coupon_paid` marker PDA is created via `init` (not `init_if_needed`) and keyed by `(coupon_id, holder)` — **not** `snapshot_id`, so the same snapshot can back several corporate actions independently. The second `pay_coupon` for the same `(coupon_id, holder)` fails to create the account and reverts the whole transaction — so the holder receives the coupon at most once.
 
 **Accounts**
 
@@ -201,21 +228,22 @@ The `coupon_paid` marker PDA is created via `init` (not `init_if_needed`) and ke
 | 2 | `asset_configuration_pda` | `Account<AssetConfiguration>`. Seeds `["asset_configuration", mint]`. Used to derive `asset_class_version_pda`. |
 | 3 | `deactivate_pda` | Seeds `["deactivate", mint]`. Must not exist. |
 | 4 | `mint` | Bond's Token-2022 mint, loaded as `InterfaceAccount<Mint>` so `decimals` is available for the payout math. Pause state checked by `require_not_paused` from the same account data. |
-| 5 | `treasury_config` | **mut** (locked to `coupon_id` on success). Seeds `["treasury_config", mint]`. |
+| 5 | `treasury_config` | Read-only. Seeds `["treasury_config", mint]`. Source of the payment mint pinned on a coupon's first payment. |
 | 6 | `treasury_authority` | Empty PDA. Seeds `["treasury_authority", mint]`. Owner of `treasury_token_account`; signs the transfer via `invoke_signed`. |
-| 7 | `payment_mint` | `InterfaceAccount<Mint>`. Anchor enforces `address = treasury_config.payment_mint` and `mint::token_program = token_program`. |
+| 7 | `payment_mint` | `InterfaceAccount<Mint>`. Anchor enforces `mint::token_program = token_program`; the handler requires it to equal `coupon_distribution.payment_mint` (`PaymentMintMismatch`). |
 | 8 | `treasury_token_account` | **Source** of the transfer. `InterfaceAccount<TokenAccount>`, mut. Anchor enforces `token::mint = payment_mint`, `token::authority = treasury_authority`, `token::token_program = token_program`. |
-| 9 | `holder_payment_account` | **Destination** of the transfer. `InterfaceAccount<TokenAccount>`, mut. Anchor enforces `token::mint = payment_mint` and `token::token_program = token_program`. **Owner intentionally NOT enforced** — the treasurer chooses where the payment lands. |
+| 9 | `holder_payment_account` | **Destination** of the transfer. `InterfaceAccount<TokenAccount>`, mut. Anchor enforces `token::mint = payment_mint`, `token::token_program = token_program`, and `owner == holder` (`PaymentDestinationMismatch`). |
 | 10 | `bond_terms` | Read-only. Read for `interest_rate` / `interest_rate_decimals` (fallback), `par_value` / `par_value_decimals`, `day_count_convention`. Seeds `["bond_terms", mint]`, owned by `bond`. |
 | 11 | `coupon` | Read-only. Read for `snapshot_id`, `payment_date`, `period_start_date` / `period_end_date`, and the optional `interest_rate_override`. Seeds `["coupon", mint, coupon_id]`, owned by `coupon`. |
 | 12 | `snapshot_merkle_root` | `Account<SnapshotMerkleRoot>`, read-only, owned by `snapshot`. Seeds `["snapshot_merkle_root", mint, coupon.snapshot_id]`. Its `merkle_root` is the commitment the `(account, balance)` proof is checked against. |
-| 13 | `coupon_paid` | `init`. Seeds `["coupon_paid", mint, coupon_id, account]`. **The double-payment guard.** |
-| 14 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>`, owned by `factory`. Seeds `["asset_class_version", config_id, version_id]`. Functionality gate. |
-| 15 | `token_program` | `Interface<TokenInterface>` — classic SPL or Token-2022. The mint and both token accounts must all be owned by this program. |
-| 16 | `system_program` | — |
-| 17 | `authority_roles_pda` | `AccountLoader<Roles>`, owned by `access-control`. Seeds `["roles", mint, authority]`. Read to verify `authority` holds `ROLE_TREASURER`. |
-| 18 | `event_authority` | `#[event_cpi]`-injected PDA `["__event_authority"]`; signs the `CouponPaid` self-CPI. |
-| 19 | `program` | `#[event_cpi]`-injected; this program's own ID, target of the self-CPI. |
+| 13 | `coupon_paid` | `init`. Seeds `["coupon_paid", mint, coupon_id, holder]`. **The double-payment guard.** |
+| 14 | `coupon_distribution` | `init_if_needed`, mut. Seeds `["coupon_distribution", mint, coupon_id]`. Pinned terms + counters for this coupon. |
+| 15 | `asset_class_version_pda` | `AccountLoader<AssetClassVersion>`, owned by `factory`. Seeds `["asset_class_version", config_id, version_id]`. Functionality gate. |
+| 16 | `token_program` | `Interface<TokenInterface>` — classic SPL or Token-2022. The mint and both token accounts must all be owned by this program. |
+| 17 | `system_program` | — |
+| 18 | `authority_roles_pda` | `AccountLoader<Roles>`, owned by `access-control`. Seeds `["roles", mint, authority]`. Read to verify `authority` holds `ROLE_TREASURER`. |
+| 19 | `event_authority` | `#[event_cpi]`-injected PDA `["__event_authority"]`; signs the `CouponPaid` self-CPI. |
+| 20 | `program` | `#[event_cpi]`-injected; this program's own ID, target of the self-CPI. |
 
 Note there is **no** `holder_token_account` and **no** `snapshot_program` account — both existed while the balance was fetched by CPI and were dropped when the Merkle proof replaced it. Clients using `.accountsStrict()` must not pass them.
 
@@ -223,7 +251,7 @@ Note there is **no** `holder_token_account` and **no** `snapshot_program` accoun
 
 In the Rust source, every `InterfaceAccount<…>` and `Account<…>` field above is wrapped in `Box<…>` (e.g. `Box<InterfaceAccount<'info, Mint>>`), with the sole exception of `asset_configuration_pda`. This is *not* a behavioural change — it's a fix for the BPF runtime's 4 KB per-call-frame stack limit.
 
-By default Anchor materialises the deserialised struct **on the stack**. Two `Mint` + two `TokenAccount` + five `Account<…>` fields (`treasury_config`, `bond_terms`, `coupon`, `snapshot_merkle_root`, `coupon_paid`) stacked together push us past 4 KB → "access violation in stack frame" at validation time, before any handler logic runs. Boxing moves each deserialised payload to the heap and leaves only an 8-byte pointer on the stack. `Box<T>` auto-dereferences, so the handler reads `mint.decimals`, `cfg.payment_mint`, etc. exactly as if the fields weren't boxed.
+By default Anchor materialises the deserialised struct **on the stack**. Two `Mint` + two `TokenAccount` + six `Account<…>` fields (`treasury_config`, `bond_terms`, `coupon`, `snapshot_merkle_root`, `coupon_paid`, `coupon_distribution`) stacked together push us past 4 KB → "access violation in stack frame" at validation time, before any handler logic runs. Boxing moves each deserialised payload to the heap and leaves only an 8-byte pointer on the stack. `Box<T>` auto-dereferences, so the handler reads `mint.decimals`, `cfg.payment_mint`, etc. exactly as if the fields weren't boxed.
 
 If you ever add another deserialised account here, box it too. If you remove enough fields that the stack budget no longer matters, the boxes can be dropped — but with the current set they're load-bearing.
 
@@ -247,14 +275,16 @@ been created.
 pub struct CouponPaid {
     pub mint: Pubkey,
     pub coupon_id: u64,
-    pub holder_token_account: Pubkey,
+    pub holder: Pubkey,       // wallet proven in the Merkle leaf
+    pub destination: Pubkey,  // holder_payment_account that was credited
+    pub balance: u64,         // proven record-date balance
     pub payment_mint: Pubkey,
-    pub amount: u64,  // raw payment-mint units transferred
+    pub amount: u64,          // raw payment-mint units transferred
     pub payer: Pubkey,
 }
 ```
 
-`holder_token_account` carries the `account` argument — the pubkey the Merkle proof committed to. The field name is kept for wire compatibility with existing consumers; it is no longer sourced from an account in the instruction.
+`destination` is included so the event alone shows where each payment landed, without decoding the inner `transfer_checked`.
 
 ### `PaymentTokenSet`
 

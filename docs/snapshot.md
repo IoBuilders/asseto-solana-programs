@@ -38,7 +38,7 @@ pub struct SnapshotMerkleRoot {
 // Seeds: ["snapshot_merkle_root", mint, snapshot_id.to_le_bytes()]
 ```
 
-One **immutable** commitment per snapshot. Created by `take_snapshot` with the caller-supplied 32-byte root of the off-chain Sorted-pair Merkle tree whose leaves are `(account, balance)` pairs at that snapshot. Created via Anchor's `#[account(init)]` keyed by the snapshot id, so it can be created only once per id — the root can never be rewritten — and Anchor transparently handles an attacker having pre-funded the (predictable) PDA address.
+One **immutable** commitment per snapshot. Created by `take_snapshot` with the caller-supplied 32-byte root of the off-chain Sorted-pair Merkle tree whose leaves are `(holder_wallet, balance)` pairs at that snapshot — one leaf per wallet, balance summed over its bond token accounts (see [`treasury.md`](treasury.md) for why the leaf is keyed by wallet). Created via Anchor's `#[account(init)]` keyed by the snapshot id, so it can be created only once per id — the root can never be rewritten — and Anchor transparently handles an attacker having pre-funded the (predictable) PDA address.
 
 ---
 

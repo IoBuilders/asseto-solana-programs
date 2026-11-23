@@ -20,10 +20,10 @@ pub mod treasury {
     pub fn pay_coupon(
         ctx: Context<PayCoupon>,
         coupon_id: u64,
-        account: Pubkey,
+        holder: Pubkey,
         balance: u64,
         merkle_proof: Vec<[u8; 32]>,
     ) -> Result<()> {
-        pay_coupon::pay_coupon(ctx, coupon_id, account, balance, merkle_proof)
+        pay_coupon::pay_coupon(ctx, coupon_id, holder, balance, merkle_proof)
     }
 }

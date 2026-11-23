@@ -4,7 +4,6 @@ use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
-use crate::errors::ErrorCode;
 use crate::events::PaymentTokenSet;
 use crate::state::TreasuryConfig;
 use common::program_ids as constants;
@@ -22,19 +21,6 @@ pub fn set_payment_token(ctx: Context<SetPaymentToken>) -> Result<()> {
         ctx.accounts.asset_class_version_pda.load()?,
         common::functionalities::TREASURY_SET_PAYMENT_TOKEN,
     )?;
-
-    // ── Per-coupon claims guard ──────────────────────────────────────────────
-    // CouponCounter layout: 8-byte discriminator | 1-byte bump | 8-byte count.
-    // If the account doesn't exist yet (len < 17), no coupons have been
-    // created and no claims are possible — skip the check.
-    let locked_id = ctx.accounts.treasury_config.locked_for_coupon_id;
-    if locked_id != 0 {
-        let counter_data = ctx.accounts.coupon_counter.data.borrow();
-        if counter_data.len() >= 17 {
-            let current_count = u64::from_le_bytes(counter_data[9..17].try_into().unwrap());
-            require!(locked_id < current_count, ErrorCode::ClaimsInProgress);
-        }
-    }
 
     // ── Write treasury_config (overwrite all fields) ─────────────────────────
     let cfg = &mut ctx.accounts.treasury_config;
@@ -85,14 +71,6 @@ pub struct SetPaymentToken<'info> {
         bump,
     )]
     pub treasury_config: Account<'info, TreasuryConfig>,
-
-    /// CHECK: Address verified by seeds/bump; contents parsed manually in handler.
-    #[account(
-        seeds = [pda_seeds::COUPON_COUNTER, mint.key().as_ref()],
-        seeds::program = constants::COUPON_PROGRAM_ID,
-        bump,
-    )]
-    pub coupon_counter: UncheckedAccount<'info>,
 
     pub payment_mint: InterfaceAccount<'info, Mint>,
 
