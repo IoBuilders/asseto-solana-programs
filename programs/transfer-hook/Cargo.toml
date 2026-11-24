@@ -30,6 +30,7 @@ freeze = { path = "../freeze", features = ["cpi"] }
 transfer-control = { path = "../transfer-control", features = ["cpi"] }
 hold = { path = "../hold", features = ["cpi"] }
 spl-token-2022-interface = "=3.0.1"
+bytemuck = { version = "1.17", features = ["derive", "min_const_generics"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }
