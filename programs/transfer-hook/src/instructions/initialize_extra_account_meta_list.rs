@@ -5,25 +5,33 @@ use spl_tlv_account_resolution::{
 use spl_transfer_hook_interface::instruction::ExecuteInstruction;
 
 use crate::errors::TransferHookError;
+use crate::state::MintCompliance;
 use common::pda_seeds;
 use common::program_ids::{
-    DEACTIVATE_PROGRAM_ID, DEPLOY_PROGRAM_ID, FACTORY_PROGRAM_ID, FREEZE_PROGRAM_ID,
-    HOLD_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID,
+    DEACTIVATE_PROGRAM_ID, DEPLOY_PROGRAM_ID, FREEZE_PROGRAM_ID, HOLD_PROGRAM_ID,
+    TRANSFER_CONTROL_PROGRAM_ID,
 };
-use common::state::asset_configuration::{
-    ASSET_CLASS_CONFIG_ID_OFFSET, ASSET_CLASS_VERSION_ID_OFFSET,
-};
+use common::state::COMPLIANCE_LAYOUT_VERSION;
 
 /// Number of extra account metas produced by `initialize_extra_account_meta_list`.
 /// Keep in sync with the `metas` vec length in the handler, and with
 /// `common::HOOK_FORWARDED_ACCOUNT_COUNT`, which is this plus the two accounts
 /// Token-2022 requires on top (the metalist itself and the hook program).
-const EXTRA_ACCOUNT_META_COUNT: usize = 12;
+const EXTRA_ACCOUNT_META_COUNT: usize = 10;
 
 pub fn initialize_extra_account_meta_list(
     ctx: Context<InitializeExtraAccountMetaList>,
+    transfer_hook_execute_enabled: bool,
 ) -> Result<()> {
     let mint = ctx.accounts.mint.key();
+    {
+        let mut record = ctx.accounts.mint_compliance_pda.load_init()?;
+        record.mint = mint;
+        record.version = COMPLIANCE_LAYOUT_VERSION;
+        record.bump = ctx.bumps.mint_compliance_pda;
+        record.transfer_hook_execute_enabled = transfer_hook_execute_enabled as u8;
+    }
+    let mint_compliance_pda = ctx.accounts.mint_compliance_pda.key();
     let (deactivate_pda, _) = Pubkey::find_program_address(
         &[pda_seeds::DEACTIVATE, mint.as_ref()],
         &DEACTIVATE_PROGRAM_ID,
@@ -34,37 +42,12 @@ pub fn initialize_extra_account_meta_list(
     );
 
     let metas = vec![
-        ExtraAccountMeta::new_with_pubkey(
-            &ctx.accounts.asset_configuration_pda.key(),
-            false,
-            false,
-        )?,
-        ExtraAccountMeta::new_with_pubkey(&FACTORY_PROGRAM_ID, false, false)?,
-        ExtraAccountMeta::new_external_pda_with_seeds(
-            6,
-            &[
-                Seed::Literal {
-                    bytes: pda_seeds::ASSET_CLASS_VERSION.to_vec(),
-                },
-                Seed::AccountData {
-                    account_index: 5,
-                    data_index: ASSET_CLASS_CONFIG_ID_OFFSET,
-                    length: 8,
-                },
-                Seed::AccountData {
-                    account_index: 5,
-                    data_index: ASSET_CLASS_VERSION_ID_OFFSET,
-                    length: 8,
-                },
-            ],
-            false,
-            false,
-        )?,
+        ExtraAccountMeta::new_with_pubkey(&mint_compliance_pda, false, false)?,
         ExtraAccountMeta::new_with_pubkey(&deactivate_pda, false, false)?,
         ExtraAccountMeta::new_with_pubkey(&TRANSFER_CONTROL_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_with_pubkey(&transfer_control_mode_pda, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            9,
+            7,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::CONTROL_LIST.to_vec(),
@@ -76,7 +59,7 @@ pub fn initialize_extra_account_meta_list(
             false,
         )?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            9,
+            7,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::CONTROL_LIST.to_vec(),
@@ -89,7 +72,7 @@ pub fn initialize_extra_account_meta_list(
         )?,
         ExtraAccountMeta::new_with_pubkey(&FREEZE_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            13,
+            11,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::FREEZE_STATE.to_vec(),
@@ -102,7 +85,7 @@ pub fn initialize_extra_account_meta_list(
         )?,
         ExtraAccountMeta::new_with_pubkey(&HOLD_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            15,
+            13,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::HOLD_POSITION.to_vec(),
@@ -144,6 +127,15 @@ pub struct InitializeExtraAccountMetaList<'info> {
         payer = payer
     )]
     pub extra_account_meta_list: AccountInfo<'info>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = MintCompliance::SPACE,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        bump,
+    )]
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     /// CHECK: Address only — used as a seed component.
     pub mint: UncheckedAccount<'info>,

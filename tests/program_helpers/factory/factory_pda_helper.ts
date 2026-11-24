@@ -5,6 +5,8 @@ import { getFactoryProgram } from "./factory_instruction_helper";
 import * as anchor from "@anchor-lang/core";
 import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
 import { getAssetConfiguration } from "../deploy/deploy_pda_helper";
+import { setMintComplianceTransferHookExecute } from "../transfer_hook/transfer_hook_pda_helper";
+import { TRANSFER_HOOK_EXECUTE } from "../../utils/functionalities";
 
 // ── factory PDA ───────────────────────────────────────────────────────────────────
 
@@ -220,7 +222,10 @@ export async function setAssetClassVersionForMint(
   args: { state?: number; functionalities?: number[] } = {}
 ): Promise<void> {
   const assetConfiguration = await getAssetConfiguration(mint);
-  return setAssetClassVersion(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId, args);
+  await setAssetClassVersion(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId, args);
+  // The hook reads deploy_mint's copy of this bit, not the version itself, so keep
+  // the copy in step to simulate a mint deployed against this version.
+  await setMintComplianceTransferHookExecute(mint, (args.functionalities ?? []).includes(TRANSFER_HOOK_EXECUTE));
 }
 
 export async function setAssetClassVersion(

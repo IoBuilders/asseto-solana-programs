@@ -101,9 +101,7 @@ pub fn execute_hold<'info>(
                 operations_authority: ctx.accounts.operations_authority.to_account_info(),
                 extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
                 transfer_hook_program: ctx.accounts.transfer_hook_program.to_account_info(),
-                asset_configuration_pda: ctx.accounts.asset_configuration_pda.to_account_info(),
-                factory_program: ctx.accounts.factory_program.to_account_info(),
-                asset_class_version_pda: ctx.accounts.asset_class_version_pda.to_account_info(),
+                mint_compliance_pda: ctx.accounts.mint_compliance_pda.to_account_info(),
                 deactivate_pda: ctx.accounts.deactivate_pda.to_account_info(),
                 transfer_control_program: ctx.accounts.transfer_control_program.to_account_info(),
                 transfer_control_mode_pda: ctx.accounts.transfer_control_mode_pda.to_account_info(),
@@ -223,9 +221,13 @@ pub struct ExecuteHold<'info> {
     #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by constraint; forwarded to operations.
-    #[account(address = constants::FACTORY_PROGRAM_ID)]
-    pub factory_program: UncheckedAccount<'info>,
+    /// CHECK: seeds verified; forwarded to the hook.
+    #[account(
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump,
+    )]
+    pub mint_compliance_pda: UncheckedAccount<'info>,
 
     #[account(
         seeds = [

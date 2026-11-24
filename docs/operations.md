@@ -150,7 +150,7 @@ Beyond the hold lien, `controller_transfer` does **not** check pause, control li
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_CONTROLLER` on this mint |
-| `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids and is forwarded to the hook |
+| `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
 | `mint` | no | no | UncheckedAccount | Token-2022 mint; decimals read in the handler for `transfer_checked` |
 | `from` | yes | no | UncheckedAccount | Source token account; debited |
@@ -158,16 +158,16 @@ Beyond the hold lien, `controller_transfer` does **not** check pause, control li
 | `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]` (owned by this program); signs the transfer CPI |
 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; forwarded to Token-2022 for hook resolution |
 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
-| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID`; hook metalist index 13 |
-| `factory_program` | no | no | UncheckedAccount | address constrained to `FACTORY_PROGRAM_ID`; hook metalist index 6 |
-| `transfer_control_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_CONTROL_PROGRAM_ID`; hook metalist index 9 |
+| `freeze_program` | no | no | UncheckedAccount | address constrained to `FREEZE_PROGRAM_ID`; hook metalist index 11 |
+| `mint_compliance_pda` | no | no | UncheckedAccount | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; hook metalist index 5, forwarded |
+| `transfer_control_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_CONTROL_PROGRAM_ID`; hook metalist index 7 |
 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; forwarded, may be empty |
 | `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, from]`; forwarded, may be empty (seizure from a unlisted account) |
 | `destination_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, to]`; forwarded, may be empty (seizure to a unlisted account) |
 | `source_freeze_state_pda` | no | no | UncheckedAccount | seeds `["freeze_state", mint, from]`, `seeds::program = FREEZE_PROGRAM_ID`; forwarded, may record a freeze (seizure from a frozen account) |
-| `hold_program` | no | no | UncheckedAccount | address constrained to `HOLD_PROGRAM_ID`; hook metalist index 15 |
+| `hold_program` | no | no | UncheckedAccount | address constrained to `HOLD_PROGRAM_ID`; hook metalist index 13 |
 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, from]`, `seeds::program = HOLD_PROGRAM_ID`; forwarded, may be empty (no hold ever created on the source) |
-| `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` and forwarded to the hook |
+| `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` |
@@ -214,10 +214,8 @@ Same shape as `controller_transfer` minus the role, event, and functionality acc
 | `from` | yes | no | UncheckedAccount | Source token account; debited |
 | `to` | yes | no | UncheckedAccount | Destination token account; credited |
 | `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]`; signs the transfer CPI |
-| *hook block* | no | no | — | The 14 accounts of `common::HookAccounts`, forwarded verbatim |
+| *hook block* | no | no | — | The 12 accounts of `common::HookAccounts`, forwarded verbatim |
 | `token_2022_program` | no | no | Program<Token2022> | |
-
-`asset_configuration_pda` and `asset_class_version_pda` are typed (`Account` / `AccountLoader`) rather than unchecked purely so their seeds can be validated — nothing here reads their contents.
 
 ### Execution
 

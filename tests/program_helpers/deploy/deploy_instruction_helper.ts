@@ -12,7 +12,11 @@ import { Deploy } from "../../../target/types/deploy";
 import { BaseWriteContext, PayerContext } from "../base_helper";
 import { getEvent } from "../event_helper";
 import { assetConfigurationPda, deployEventAuthorityPda, tempMintAuthorityPda } from "./deploy_pda_helper";
-import { extraAccountMetaListPda, transferHookAuthorityPda } from "../transfer_hook/transfer_hook_pda_helper";
+import {
+  extraAccountMetaListPda,
+  mintCompliancePda,
+  transferHookAuthorityPda,
+} from "../transfer_hook/transfer_hook_pda_helper";
 import { permanentDelegatePda, permissionedBurnPda } from "../operations/operations_pda_helper";
 import { pausableAuthorityPda } from "../pause/pause_pda_helper";
 import { mintAuthorityPda } from "../mint/mint_pda_helper";
@@ -100,6 +104,7 @@ export async function deployMint(
       pausableAuthority: pausableAuthorityPda(mint.publicKey),
       transferHookAuthority: transferHookAuthorityPda(mint.publicKey),
       extraAccountMetaList: extraAccountMetaListPda(mint.publicKey),
+      mintCompliancePda: mintCompliancePda(mint.publicKey),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,

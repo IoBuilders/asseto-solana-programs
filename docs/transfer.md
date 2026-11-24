@@ -69,21 +69,19 @@ must be **appended** to that list.
 | 3 | `source_owner` | no | yes | Token-2022 enforces `source.owner == source_owner` natively |
 | 4 | `extra_account_meta_list` | no | no | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
 | 5 | `transfer_hook_program` | no | no | `TRANSFER_HOOK_PROGRAM_ID` |
-| 6 | `asset_configuration_pda` | no | no | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; a literal address in the metalist; the hook reads the asset-class ids off it |
-| 7 | `factory_program` | no | no | `FACTORY_PROGRAM_ID`; the metalist resolves `asset_class_version_pda` against it |
-| 8 | `asset_class_version_pda` | no | no | The hook's functionality gate reads it |
-| 9 | `deactivate_pda` | no | no | seeds `["deactivate", mint]`; a literal address in the metalist; must be empty (mint not deactivated) |
-| 10 | `transfer_control_program` | no | no | `TRANSFER_CONTROL_PROGRAM_ID` |
-| 11 | `transfer_control_mode_pda` | no | no | seeds `["transfer_control_mode", mint]`; a literal address in the metalist; may be empty (no mode active) |
-| 12 | `source_control_list_pda` | no | no | seeds `["control_list", mint, source]`; must exist in Whitelist mode, must not in Blacklist mode |
-| 13 | `destination_control_list_pda` | no | no | seeds `["control_list", mint, destination]`; must exist in Whitelist mode, must not in Blacklist mode |
-| 14 | `freeze_program` | no | no | `FREEZE_PROGRAM_ID` |
-| 15 | `source_freeze_state_pda` | no | no | seeds `["freeze_state", mint, source]`; may be empty (nothing frozen); must not be fully frozen |
-| 16 | `hold_program` | no | no | `HOLD_PROGRAM_ID` |
-| 17 | `source_hold_position_pda` | no | no | seeds `["hold_position", mint, source]`; may be empty (no hold ever created on the source) |
+| 6 | `mint_compliance_pda` | no | no | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; a literal address in the metalist; the hook's functionality gate reads it |
+| 7 | `deactivate_pda` | no | no | seeds `["deactivate", mint]`; a literal address in the metalist; must be empty (mint not deactivated) |
+| 8 | `transfer_control_program` | no | no | `TRANSFER_CONTROL_PROGRAM_ID` |
+| 9 | `transfer_control_mode_pda` | no | no | seeds `["transfer_control_mode", mint]`; a literal address in the metalist; may be empty (no mode active) |
+| 10 | `source_control_list_pda` | no | no | seeds `["control_list", mint, source]`; must exist in Whitelist mode, must not in Blacklist mode |
+| 11 | `destination_control_list_pda` | no | no | seeds `["control_list", mint, destination]`; must exist in Whitelist mode, must not in Blacklist mode |
+| 12 | `freeze_program` | no | no | `FREEZE_PROGRAM_ID` |
+| 13 | `source_freeze_state_pda` | no | no | seeds `["freeze_state", mint, source]`; may be empty (nothing frozen); must not be fully frozen |
+| 14 | `hold_program` | no | no | `HOLD_PROGRAM_ID` |
+| 15 | `source_hold_position_pda` | no | no | seeds `["hold_position", mint, source]`; may be empty (no hold ever created on the source) |
 
-**Indices 4–17 are load-bearing in exactly this order** — 4 and 5 are the metalist
-PDA and hook program, and 6–17 are the metalist's own entries in declaration
+**Indices 4–15 are load-bearing in exactly this order** — 4 and 5 are the metalist
+PDA and hook program, and 6–15 are the metalist's own entries in declaration
 order. Token-2022 re-derives the seed-based entries and checks the forwarded
 accounts against them, so a wrong order (or a missing account) fails inside
 Token-2022 before the hook runs. Omitting the block entirely does not skip
@@ -132,21 +130,19 @@ from the destination token account.
 | 3 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
 | 4 | `transfer_hook_program` | no | no | UncheckedAccount | address = `TRANSFER_HOOK_PROGRAM_ID` |
 | 5 | `freeze_program` | no | no | UncheckedAccount | address = `FREEZE_PROGRAM_ID` |
-| 6 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| 7 | `factory_program` | no | no | UncheckedAccount | address = `FACTORY_PROGRAM_ID` |
-| 8 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID` |
-| 9 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
-| 10 | `transfer_control_program` | no | no | UncheckedAccount | address = `TRANSFER_CONTROL_PROGRAM_ID` |
-| 11 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`; may be empty |
-| 12 | `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, source]`; constant across legs |
-| 13 | `source_freeze_state_pda` | no | no | UncheckedAccount | seeds `["freeze_state", mint, source]`; may be empty |
-| 14 | `hold_program` | no | no | UncheckedAccount | address = `HOLD_PROGRAM_ID` |
-| 15 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, source]`; may be empty |
-| 16 | `token_2022_program` | no | no | Program\<Token2022\> | |
-| 17.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_control_list_pda` |
+| 6 | `mint_compliance_pda` | no | no | UncheckedAccount | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
+| 7 | `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
+| 8 | `transfer_control_program` | no | no | UncheckedAccount | address = `TRANSFER_CONTROL_PROGRAM_ID` |
+| 9 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`; may be empty |
+| 10 | `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, source]`; constant across legs |
+| 11 | `source_freeze_state_pda` | no | no | UncheckedAccount | seeds `["freeze_state", mint, source]`; may be empty |
+| 12 | `hold_program` | no | no | UncheckedAccount | address = `HOLD_PROGRAM_ID` |
+| 13 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, source]`; may be empty |
+| 14 | `token_2022_program` | no | no | Program\<Token2022\> | |
+| 15.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_control_list_pda` |
 
 The declaration order above is *not* the order the accounts are forwarded in —
-`freeze_program` sits at index 5 in the struct but is forwarded eleventh, where
+`freeze_program` sits at index 5 in the struct but is forwarded ninth, where
 the metalist expects it. The forwarding order is defined once, by the field order
 of `common::HookAccounts` (see [`common.md`](common.md#module-hook_accounts)),
 which this instruction fills in per leg with **this leg's**

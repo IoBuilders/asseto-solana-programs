@@ -1,6 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { extraAccountMetaListPda } from "../transfer_hook/transfer_hook_pda_helper";
+import { extraAccountMetaListPda, mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
@@ -9,7 +9,6 @@ import {
   SYSTEM_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
-  FACTORY_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
   HOLD_PROGRAM_ID,
@@ -205,7 +204,7 @@ export async function controllerTransfer(
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       freezeProgram: FREEZE_PROGRAM_ID,
-      factoryProgram: FACTORY_PROGRAM_ID,
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceControlListPda: controlListPda(callContext.mint, callContext.from),

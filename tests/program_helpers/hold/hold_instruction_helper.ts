@@ -4,7 +4,6 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { Hold } from "../../../target/types/hold";
 import {
-  FACTORY_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
   HOLD_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
@@ -13,7 +12,7 @@ import {
   TRANSFER_HOOK_PROGRAM_ID,
 } from "../../utils/address_utils";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { extraAccountMetaListPda } from "../transfer_hook/transfer_hook_pda_helper";
+import { extraAccountMetaListPda, mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { BaseWriteContext, MintContext, PayerContext } from "../base_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
@@ -188,7 +187,7 @@ export async function executeHold(
       operationsProgram: OPERATIONS_PROGRAM_ID,
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-      factoryProgram: FACTORY_PROGRAM_ID,
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId

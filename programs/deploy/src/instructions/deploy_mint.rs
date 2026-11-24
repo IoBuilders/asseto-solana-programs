@@ -4,7 +4,7 @@ use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_spl::token_2022::Token2022;
 use common::program_ids as constants;
 use common::state::AssetClassVersion;
-use common::{pda_seeds, pda_utils, CommonError};
+use common::{is_functionality_enabled, pda_seeds, pda_utils, CommonError};
 use solana_system_interface::instruction as system_instruction;
 use spl_token_2022_interface::{
     extension::{
@@ -290,23 +290,31 @@ pub fn deploy_mint(ctx: Context<DeployMint>, params: DeployMintParams) -> Result
     }
     ctx.accounts.asset_configuration_pda.bump = ctx.bumps.asset_configuration_pda;
 
-    // ── 14. Initialize the ExtraAccountMetaList for the transfer hook ────────
+    // ── 14. Initialize the hook's per-mint state ─────────────────────────────
+    let transfer_hook_execute_enabled = is_functionality_enabled(
+        ctx.accounts.asset_class_version_pda.load()?,
+        common::functionalities::TRANSFER_HOOK_EXECUTE,
+    )?;
     let asset_configuration_signer_seeds = pda_utils::build_pda_signer_seeds(
         pda_seeds::asset_configuration_seeds(&mint_key),
         &ctx.bumps.asset_configuration_pda,
     );
-    transfer_hook::cpi::initialize_extra_account_meta_list(CpiContext::new_with_signer(
-        constants::TRANSFER_HOOK_PROGRAM_ID,
-        transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
-            payer: ctx.accounts.payer.to_account_info(),
-            asset_configuration_pda: ctx.accounts.asset_configuration_pda.to_account_info(),
-            extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            system_program: ctx.accounts.system_program.to_account_info(),
-            rent: ctx.accounts.rent.to_account_info(),
-        },
-        &[asset_configuration_signer_seeds.as_slice()],
-    ))?;
+    transfer_hook::cpi::initialize_extra_account_meta_list(
+        CpiContext::new_with_signer(
+            constants::TRANSFER_HOOK_PROGRAM_ID,
+            transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
+                payer: ctx.accounts.payer.to_account_info(),
+                asset_configuration_pda: ctx.accounts.asset_configuration_pda.to_account_info(),
+                extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
+                mint_compliance_pda: ctx.accounts.mint_compliance_pda.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+                rent: ctx.accounts.rent.to_account_info(),
+            },
+            &[asset_configuration_signer_seeds.as_slice()],
+        ),
+        transfer_hook_execute_enabled,
+    )?;
 
     // ── 15. Grant ROLE_ADMIN to the deployer on this mint ─────────────────────
     access_control::cpi::initialize(CpiContext::new_with_signer(
@@ -443,6 +451,11 @@ pub struct DeployMint<'info> {
         bump,
     )]
     pub extra_account_meta_list: UncheckedAccount<'info>,
+
+    /// CHECK: Created by the hook during the step-14 CPI, whose `init` constraint derives
+    /// and checks the address; not re-derived here to save a PDA search on a heavy instruction.
+    #[account(mut)]
+    pub mint_compliance_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint.
     #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]

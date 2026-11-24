@@ -12,9 +12,9 @@ This is where the whole transfer compliance suite lives. Two responsibilities:
    forwards from the `ExtraAccountMetaList`: mint not deactivated, transfer-mode
    / control list (source and destination), source not fully frozen, and the source's
    partial-freeze lock still covered after the debit.
-2. **Functionality gate.** Reads the mint's `asset_configuration_pda` to locate
-   its `asset_class_version_pda` and requires the `TRANSFER_HOOK_EXECUTE` bit to
-   be enabled.
+2. **Functionality gate.** Requires the mint's `MintCompliance` record to have
+   `transfer_hook_execute_enabled` set — `deploy_mint`'s copy of the asset-class
+   version's `TRANSFER_HOOK_EXECUTE` bit (see [State](#state-compliance-registry)).
 
 There is no instruction introspection and no `Instructions` sysvar read: the hook
 does not care what top-level instruction it was reached from, which is what makes
@@ -31,12 +31,9 @@ successfully without running any check, because only `operations` can sign those
 seeds and `operations::controller_transfer` is itself fully gated (see
 [Permanent-delegate bypass](#permanent-delegate-bypass)).
 
-The hook writes **no state at all** — it only reads and either passes or
-aborts the transfer.
-
-Owns two mint-scoped PDAs: `["transfer_hook_authority", mint]` (the Token-2022
-extension authority, set on the mint at deploy time) and
-`["extra-account-metas", mint]` (the SPL `ExtraAccountMetaList`).
+`execute` writes **no state at all** — it only reads and either passes or aborts
+the transfer. The hook's other instructions are auxiliary, CPI-only writers for its
+mint-scoped PDAs and compliance records (see [PDAs](#pdas)).
 
 ---
 
@@ -53,7 +50,7 @@ extension authority, set on the mint at deploy time) and
 
 ## State: compliance registry
 
-The hook owns two records that hold all the state `execute` reads, so the metalist needs only one fixed entry for the mint plus one derived entry per side of the transfer, and no program entries (the records are hook-owned). This is Option C of the *Transfer-hook metalist reduction* ADR. Each capability program keeps its own instructions, roles and events. It writes only its own fields, through a hook auxiliary instruction signed by its own PDA. The structs are defined here, but nothing creates or writes them yet: the writer instructions and the switch of `execute` to read them come in the per-capability migrations.
+The hook owns two records that hold all the state `execute` reads, so the metalist needs only one fixed entry for the mint plus one derived entry per side of the transfer, and no program entries (the records are hook-owned). This is Option C of the *Transfer-hook metalist reduction* ADR. Each capability program keeps its own instructions, roles and events. It writes only its own fields, through a hook auxiliary instruction signed by its own PDA. The registry is filled in one capability at a time. Today `MintCompliance` is created by `deploy_mint` (through [`initialize_extra_account_meta_list`](#instruction-initialize_extra_account_meta_list-auxiliary)) and `execute` reads its `transfer_hook_execute_enabled`; its other fields and `AccountCompliance` are not written yet, and `execute` still reads that state from the capability programs' own PDAs until their migrations land.
 
 Both are **zero-copy** (`#[account(zero_copy)]`, `#[repr(C)]`). The canonical definitions live in `transfer_hook::state`. `common::state` has field-for-field mirrors so that readers which cannot depend on `transfer-hook` (`mint`, `hold`, `operations`, …) can load them with `AccountLoader::<T>::try_from`. Compile-time size and discriminator asserts in `transfer-hook/src/state.rs` keep the two definitions in sync. A round-trip test there catches a same-size field reorder, and offset tests in `common/src/state/compliance.rs` pin every offset.
 
@@ -67,13 +64,13 @@ Booleans are stored as `u8` (`0` = false, non-zero = true) because `bool` is not
 
 ### `MintCompliance` — `["mint_compliance", mint]`
 
-| Offset¹ | Field | Type | Written by (planned) | Meaning |
+| Offset¹ | Field | Type | Written by | Meaning |
 |---|---|---|---|---|
 | 0 | `mint` | `Pubkey` | `deploy` (creation) | The mint this record belongs to |
 | 32 | `version` | `u8` | hook | Layout version (`COMPLIANCE_LAYOUT_VERSION`) |
 | 33 | `bump` | `u8` | hook | PDA bump |
-| 34 | `deactivated` | `u8` (bool) | `deactivate` | Mint permanently deactivated. Set by the same instruction that creates the `["deactivate", mint]` marker, which stays for `require_active` |
-| 35 | `transfer_mode` | `u8` | `transfer-control` | `TRANSFER_MODE_NONE` (0) / `TRANSFER_MODE_WHITELIST` (1) / `TRANSFER_MODE_BLACKLIST` (2). `NONE` is the same as today's absent `transfer_control_mode` PDA: no list check |
+| 34 | `deactivated` | `u8` (bool) | `deactivate` (planned) | Mint permanently deactivated. Set by the same instruction that creates the `["deactivate", mint]` marker, which stays for `require_active` |
+| 35 | `transfer_mode` | `u8` | `transfer-control` (planned) | `TRANSFER_MODE_NONE` (0) / `TRANSFER_MODE_WHITELIST` (1) / `TRANSFER_MODE_BLACKLIST` (2). `NONE` is the same as today's absent `transfer_control_mode` PDA: no list check |
 | 36 | `transfer_hook_execute_enabled` | `u8` (bool) | `deploy` (creation) | Copy of the version's `TRANSFER_HOOK_EXECUTE` functionality bit, so `execute` no longer needs `asset_configuration` → factory → `asset_class_version` (3 metalist entries) to read one bit. The copy stays exact because a mint never changes asset-class version and a `Finalized` version is immutable; any future "migrate mint to version N" instruction must refresh it. Another functionality the hook needs later gets its own flag from `_reserved` |
 | 37 | `_padding` | `[u8; 3]` | — | Not required by `Pod` (the struct is 1-aligned); keeps `_reserved` at an 8-byte offset so a future `u64` carved from it stays aligned |
 | 40 | `_reserved` | `[u8; 128]` | — | Future per-mint fields (e.g. External Eligibility list config) |
@@ -107,13 +104,29 @@ Total: 8 + 152 = **160 bytes**.
 
 ## Instruction: `initialize_extra_account_meta_list` (Auxiliary)
 
-Creates and populates the `ExtraAccountMetaList` PDA. Called exclusively via CPI
-from `deploy::deploy_mint`, authorised by requiring `asset_configuration_pda` as
-`Signer` — only `deploy` can produce that signature.
+Creates the hook's per-mint state: the `ExtraAccountMetaList` PDA and the mint's
+`MintCompliance` record. Called exclusively via CPI from `deploy::deploy_mint`,
+authorised by requiring `asset_configuration_pda` as `Signer` — only `deploy` can
+produce that signature.
+
+Both accounts are created in this one call because `deploy_mint` runs close to the
+default 200k CU budget: a separate CPI for `MintCompliance` (its own dispatch, its own
+`asset_configuration_pda` seed check and PDA search) pushed it over. Here the record's
+address is derived once, by its `init` constraint, and reused as the metalist literal.
+
+`transfer_hook_execute_enabled` arrives as an argument rather than being read from
+the asset-class version: during the CPI, `deploy_mint`'s `asset_configuration_pda`
+is allocated but its data is only serialized when `deploy_mint` returns, so the hook
+cannot locate the version through it. Trusting the argument is equivalent to
+trusting the signer. The copy stays exact because a mint never changes asset-class
+version and a `Finalized` version is immutable; any future "migrate mint to version
+N" instruction must refresh it.
 
 ### Parameters
 
-None.
+```rust
+transfer_hook_execute_enabled: bool  // the version's TRANSFER_HOOK_EXECUTE bit, read by deploy_mint
+```
 
 ### Accounts
 
@@ -121,7 +134,8 @@ None.
 |---|---|---|---|---|
 | `payer` | yes | yes | Signer | Funds rent |
 | `asset_configuration_pda` | no | yes | UncheckedAccount | Signer proves the call originates from `deploy_mint`; seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 12) |
+| `extra_account_meta_list` | yes | no | AccountInfo | init; seeds `["extra-account-metas", mint]`; size = `ExtraAccountMetaList::size_of(EXTRA_ACCOUNT_META_COUNT)` (currently 10) |
+| `mint_compliance_pda` | yes | no | `AccountLoader<MintCompliance>` | init; seeds `["mint_compliance", mint]`. Gets `mint`, `version = COMPLIANCE_LAYOUT_VERSION`, `bump` and `transfer_hook_execute_enabled`; every other field starts at zero (not deactivated, no transfer mode) |
 | `mint` | no | no | UncheckedAccount | Seed component and PDA-precompute input |
 | `system_program` | no | no | Program<System> | |
 | `rent` | no | no | Sysvar<Rent> | |
@@ -137,26 +151,24 @@ interface (`source_token`, `mint`, `destination_token`, `owner`,
 
 | Hook idx | Entry | Kind |
 |---|---|---|
-| 5 | `asset_configuration_pda` | literal pubkey — `["asset_configuration", mint]` of `deploy`, taken from the signer of the init call |
-| 6 | `factory` program | literal pubkey — resolves @7 |
-| 7 | `asset_class_version_pda` | external PDA via @6 — seeds `["asset_class_version", @5.asset_class_config_id, @5.asset_class_version_id]` |
-| 8 | `deactivate_pda` | literal pubkey — `["deactivate", mint]` of `deactivate`, derived at init |
-| 9 | `transfer-control` program | literal pubkey — resolves @11, @12 |
-| 10 | `transfer_control_mode_pda` | literal pubkey — `["transfer_control_mode", mint]` of `transfer-control`, derived at init |
-| 11 | `source_control_list_pda` | external PDA via @9 — seeds `["control_list", mint@1, source_token@0]` |
-| 12 | `destination_control_list_pda` | external PDA via @9 — seeds `["control_list", mint@1, destination_token@2]` |
-| 13 | `freeze` program | literal pubkey — resolves @14 |
-| 14 | `source_freeze_state_pda` | external PDA via @13 — seeds `["freeze_state", mint@1, source_token@0]` |
-| 15 | `hold` program | literal pubkey — resolves @16 |
-| 16 | `source_hold_position_pda` | external PDA via @15 — seeds `["hold_position", mint@1, source_token@0]` |
+| 5 | `mint_compliance_pda` | literal pubkey — `["mint_compliance", mint]` of this program, created by the same call |
+| 6 | `deactivate_pda` | literal pubkey — `["deactivate", mint]` of `deactivate`, derived at init |
+| 7 | `transfer-control` program | literal pubkey — resolves @9, @10 |
+| 8 | `transfer_control_mode_pda` | literal pubkey — `["transfer_control_mode", mint]` of `transfer-control`, derived at init |
+| 9 | `source_control_list_pda` | external PDA via @7 — seeds `["control_list", mint@1, source_token@0]` |
+| 10 | `destination_control_list_pda` | external PDA via @7 — seeds `["control_list", mint@1, destination_token@2]` |
+| 11 | `freeze` program | literal pubkey — resolves @12 |
+| 12 | `source_freeze_state_pda` | external PDA via @11 — seeds `["freeze_state", mint@1, source_token@0]` |
+| 13 | `hold` program | literal pubkey — resolves @14 |
+| 14 | `source_hold_position_pda` | external PDA via @13 — seeds `["hold_position", mint@1, source_token@0]` |
 
 **Mint-only PDAs are literals.** Each mint has its own metalist, written once by
 `deploy_mint`, so a PDA whose seeds depend only on the mint has a fixed address for
 the metalist's whole life. Storing that address as a literal instead of an external
 PDA means its owning program does not need an entry of its own to resolve it — which
-is why `deploy` and `deactivate` are not in the list at all. Only PDAs seeded by a
-token account (`control_list`, `freeze_state`, `hold_position`) or by another
-account's data (`asset_class_version`) still need their program listed. The hook's
+is why `deploy` and `deactivate` are not in the list at all, and why the hook's own
+`mint_compliance` needs no program entry either. Only PDAs seeded by a token account
+(`control_list`, `freeze_state`, `hold_position`) still need their program listed. The hook's
 own `seeds` constraints re-check every one of these addresses, so a wrong literal
 would fail transfers, not admit them.
 
@@ -179,8 +191,11 @@ invoking the hook, each forwarded PDA is guaranteed canonical by the time
 > (`["frozen_account", …]` and `["frozen_balance", …]`); merging them into the
 > single `freeze_state` PDA (see [`freeze.md`](freeze.md#state)) freed one slot.
 > Storing the mint-only PDAs as literals then dropped the `deploy` and `deactivate`
-> program entries, leaving 12 entries with 6 PDA derivations — three slots below
-> the 15 this list is known to resolve at. Literals are also the cheapest entry for
+> program entries (12 entries). Reading the `TRANSFER_HOOK_EXECUTE` bit from
+> `MintCompliance` instead of following `asset_configuration` → factory →
+> `asset_class_version` replaced those three entries with one literal, leaving 10
+> entries with 4 PDA derivations — five slots below the 15 this list is known to
+> resolve at. Literals are also the cheapest entry for
 > the heap: they derive nothing, and Token-2022's bump allocator never frees what a
 > derivation allocates.
 >
@@ -212,7 +227,7 @@ discriminator when invoking the hook during `transfer_checked`.
 
 ### Accounts
 
-Indices 0–4 are fixed by the SPL interface; 5–16 are the metalist entries above,
+Indices 0–4 are fixed by the SPL interface; 5–14 are the metalist entries above,
 in order.
 
 | Index | Account |
@@ -222,18 +237,16 @@ in order.
 | 2 | `destination_token` |
 | 3 | `owner` (transfer authority) |
 | 4 | `extra_account_meta_list` |
-| 5 | `asset_configuration_pda` |
-| 6 | `factory_program` |
-| 7 | `asset_class_version_pda` |
-| 8 | `deactivate_pda` |
-| 9 | `transfer_control_program` |
-| 10 | `transfer_control_mode_pda` |
-| 11 | `source_control_list_pda` |
-| 12 | `destination_control_list_pda` |
-| 13 | `freeze_program` |
-| 14 | `source_freeze_state_pda` |
-| 15 | `hold_program` |
-| 16 | `source_hold_position_pda` |
+| 5 | `mint_compliance_pda` (`AccountLoader<MintCompliance>`; owner, discriminator and seeds checked by Anchor) |
+| 6 | `deactivate_pda` |
+| 7 | `transfer_control_program` |
+| 8 | `transfer_control_mode_pda` |
+| 9 | `source_control_list_pda` |
+| 10 | `destination_control_list_pda` |
+| 11 | `freeze_program` |
+| 12 | `source_freeze_state_pda` |
+| 13 | `hold_program` |
+| 14 | `source_hold_position_pda` |
 
 ### Execution
 
@@ -263,9 +276,12 @@ in order.
    `frozen` comes from a management partial freeze, `held` is the sum of the
    account's active holds (0 when the position PDA does not exist). See
    [`docs/hold.md`](hold.md).
-7. `require_functionality(asset_class_version_pda, TRANSFER_HOOK_EXECUTE)` — the
-   asset-class version this mint is pinned to must have the hook's execute bit
-   enabled.
+7. `mint_compliance_pda.transfer_hook_execute_enabled` must be set, else
+   `CommonError::FunctionalityNotSupportedError` — the same error
+   `require_functionality` raised before, so clients see no change. The flag is
+   `deploy_mint`'s copy of the version's `TRANSFER_HOOK_EXECUTE` bit; there is no
+   separate "version finalized" check because `deploy_mint` only accepts finalized
+   versions.
 
 Then it returns. The hook performs no CPI and mutates no account, so it adds
 nothing to the transfer's write set beyond what Token-2022 itself touches.
@@ -338,8 +354,9 @@ pub enum TransferHookError {
 
 Compliance failures propagate from the helpers the hook calls:
 `common::CommonError::Deactivated`, `transfer_control::TransferControlError::{NotWhitelisted, Blacklisted}`,
-`freeze::ErrorCode::{AccountFrozen, InsufficientUnfrozenBalance}`, and the
-functionality errors from `common::require_functionality`.
+`freeze::ErrorCode::{AccountFrozen, InsufficientUnfrozenBalance}`, and
+`common::CommonError::FunctionalityNotSupportedError` when the mint's
+`MintCompliance` copy of `TRANSFER_HOOK_EXECUTE` is off.
 
 ---
 

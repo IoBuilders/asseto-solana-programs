@@ -3,7 +3,6 @@ use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token_2022::Token2022;
 use common::pda_seeds;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration};
 use common::HookAccounts;
 use spl_token_2022_interface::{
     extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
@@ -33,8 +32,6 @@ pub fn batch_transfer<'info>(
 
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
-    let asset_configuration_info = ctx.accounts.asset_configuration_pda.to_account_info();
-    let asset_class_version_info = ctx.accounts.asset_class_version_pda.to_account_info();
 
     for (i, &amount) in amounts.iter().enumerate() {
         let destination = &ctx.remaining_accounts[i * 2];
@@ -55,9 +52,7 @@ pub fn batch_transfer<'info>(
         let hook_accounts = HookAccounts {
             extra_account_meta_list: &ctx.accounts.extra_account_meta_list,
             transfer_hook_program: &ctx.accounts.transfer_hook_program,
-            asset_configuration_pda: &asset_configuration_info,
-            factory_program: &ctx.accounts.factory_program,
-            asset_class_version_pda: &asset_class_version_info,
+            mint_compliance_pda: &ctx.accounts.mint_compliance_pda,
             deactivate_pda: &ctx.accounts.deactivate_pda,
             transfer_control_program: &ctx.accounts.transfer_control_program,
             transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
@@ -121,27 +116,13 @@ pub struct BatchTransferTokens<'info> {
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
+    /// CHECK: seeds verified; forwarded to the hook.
     #[account(
-        seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
-        seeds::program = constants::DEPLOY_PROGRAM_ID,
-        bump = asset_configuration_pda.bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump,
     )]
-    pub asset_configuration_pda: Account<'info, AssetConfiguration>,
-
-    /// CHECK: Address verified by constraint; forwarded to the hook.
-    #[account(address = constants::FACTORY_PROGRAM_ID)]
-    pub factory_program: UncheckedAccount<'info>,
-
-    #[account(
-        seeds = [
-            pda_seeds::ASSET_CLASS_VERSION,
-            &asset_configuration_pda.asset_class_config_id.to_le_bytes(),
-            &asset_configuration_pda.asset_class_version_id.to_le_bytes()
-        ],
-        seeds::program = constants::FACTORY_PROGRAM_ID,
-        bump = asset_class_version_pda.load()?.bump,
-    )]
-    pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+    pub mint_compliance_pda: UncheckedAccount<'info>,
 
     /// CHECK: seeds verified; forwarded to the hook (require_active reads it).
     #[account(
