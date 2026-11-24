@@ -20,7 +20,11 @@ pub mod mint {
     /// for every index `i` of the given Token-2022 mint. Runs the same checks as
     /// `mint` (issuer role, active, functionality, control list) but skips snapshots.
     /// Per-destination token accounts and control-list PDAs are passed via
-    /// `remaining_accounts` (two per destination). Only a `ROLE_ISSUER` holder may call it.
+    /// `remaining_accounts` (three per destination: token account, control-list PDA and
+    /// owner wallet); a missing destination is created as the owner's ATA, paid by
+    /// `authority`. The owner slot is always required, but only read for missing
+    /// destinations; for existing ones any pubkey works as a placeholder.
+    /// Only a `ROLE_ISSUER` holder may call it.
     pub fn batch_mint<'info>(
         ctx: Context<'info, BatchMintTokens<'info>>,
         amounts: Vec<u64>,
