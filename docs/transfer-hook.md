@@ -46,6 +46,62 @@ extension authority, set on the mint at deploy time) and
 |---|---|
 | `["transfer_hook_authority", mint]` | Token-2022 TransferHook extension authority. Recorded on the mint by `deploy_mint`; not passed to `execute` and never used as a signer |
 | `["extra-account-metas", mint]` | SPL `ExtraAccountMetaList` — declares which extra accounts Token-2022 forwards to `execute` |
+| `["mint_compliance", mint]` | `MintCompliance` — per-mint compliance record (see [State](#state-compliance-registry)) |
+| `["account_compliance", mint, token_account]` | `AccountCompliance` — per-`(mint, token account)` compliance record (see [State](#state-compliance-registry)) |
+
+---
+
+## State: compliance registry
+
+The hook owns two records that hold all the state `execute` reads, so the metalist needs only one fixed entry for the mint plus one derived entry per side of the transfer, and no program entries (the records are hook-owned). This is Option C of the *Transfer-hook metalist reduction* ADR. Each capability program keeps its own instructions, roles and events. It writes only its own fields, through a hook auxiliary instruction signed by its own PDA. The structs are defined here, but nothing creates or writes them yet: the writer instructions and the switch of `execute` to read them come in the per-capability migrations.
+
+Both are **zero-copy** (`#[account(zero_copy)]`, `#[repr(C)]`). The canonical definitions live in `transfer_hook::state`. `common::state` has field-for-field mirrors so that readers which cannot depend on `transfer-hook` (`mint`, `hold`, `operations`, …) can load them with `AccountLoader::<T>::try_from`. Compile-time size and discriminator asserts in `transfer-hook/src/state.rs` keep the two definitions in sync. A round-trip test there catches a same-size field reorder, and offset tests in `common/src/state/compliance.rs` pin every offset.
+
+**Layout rules (append-only).** Readers in other programs read these bytes directly, and they cannot all be upgraded in the same transaction as the hook. So:
+- never reorder, resize or remove a field;
+- a new field is carved out of `_reserved`, which is zero on every existing account, so `0` must mean "unset / not applicable" for any new field;
+- bump `COMPLIANCE_LAYOUT_VERSION` (`version` field) when the meaning of the layout changes, so readers can tell old records from new ones;
+- `mint` stays at offset 8 (right after the discriminator), so `getProgramAccounts` + `memcmp(offset = 8, mint)` lists every record of a mint off-chain.
+
+Booleans are stored as `u8` (`0` = false, non-zero = true) because `bool` is not `Pod`. Use the `is_*` helpers on the `common` mirrors.
+
+### `MintCompliance` — `["mint_compliance", mint]`
+
+| Offset¹ | Field | Type | Written by (planned) | Meaning |
+|---|---|---|---|---|
+| 0 | `mint` | `Pubkey` | `deploy` (creation) | The mint this record belongs to |
+| 32 | `version` | `u8` | hook | Layout version (`COMPLIANCE_LAYOUT_VERSION`) |
+| 33 | `bump` | `u8` | hook | PDA bump |
+| 34 | `deactivated` | `u8` (bool) | `deactivate` | Mint permanently deactivated. Set by the same instruction that creates the `["deactivate", mint]` marker, which stays for `require_active` |
+| 35 | `transfer_mode` | `u8` | `transfer-control` | `TRANSFER_MODE_NONE` (0) / `TRANSFER_MODE_WHITELIST` (1) / `TRANSFER_MODE_BLACKLIST` (2). `NONE` is the same as today's absent `transfer_control_mode` PDA: no list check |
+| 36 | `transfer_hook_execute_enabled` | `u8` (bool) | `deploy` (creation) | Copy of the version's `TRANSFER_HOOK_EXECUTE` functionality bit, so `execute` no longer needs `asset_configuration` → factory → `asset_class_version` (3 metalist entries) to read one bit. The copy stays exact because a mint never changes asset-class version and a `Finalized` version is immutable; any future "migrate mint to version N" instruction must refresh it. Another functionality the hook needs later gets its own flag from `_reserved` |
+| 37 | `_padding` | `[u8; 3]` | — | Not required by `Pod` (the struct is 1-aligned); keeps `_reserved` at an 8-byte offset so a future `u64` carved from it stays aligned |
+| 40 | `_reserved` | `[u8; 128]` | — | Future per-mint fields (e.g. External Eligibility list config) |
+
+Total: 8 + 168 = **176 bytes**.
+
+### `AccountCompliance` — `["account_compliance", mint, token_account]`
+
+| Offset¹ | Field | Type | Written by (planned) | Meaning |
+|---|---|---|---|---|
+| 0 | `mint` | `Pubkey` | hook (creation) | Mint of the token account. Already in the seeds; stored so the records can be enumerated with `memcmp` |
+| 32 | `token_account` | `Pubkey` | hook (creation) | The token account this record belongs to |
+| 64 | `frozen_balance` | `u64` | `freeze` | Partial-freeze lien; `0` = none |
+| 72 | `held_amount` | `u64` | `hold` | Sum of active hold liens. Moved (not copied) out of `HoldPosition`, which keeps only `hold_count` |
+| 80 | `version` | `u8` | hook | Layout version |
+| 81 | `bump` | `u8` | hook | PDA bump |
+| 82 | `in_control_list` | `u8` (bool) | `transfer-control` | Control-list membership |
+| 83 | `fully_frozen` | `u8` (bool) | `freeze` | Full freeze |
+| 84 | `_padding` | `[u8; 4]` | — | Alignment |
+| 88 | `_reserved` | `[u8; 64]` | — | Future per-account fields |
+
+Total: 8 + 152 = **160 bytes**.
+
+¹ Offset within the struct; add 8 for the discriminator to get the offset in the account data.
+
+**Membership is a flag, not existence.** Today a token account is "in the control list" if its `control_list` PDA exists. An `AccountCompliance` record can exist only because the account is frozen or held, so membership must always be read from `in_control_list`, never from whether the record exists. An absent record means "every field is zero".
+
+**Seeds keep the mint** even though a token account address is already unique across mints. This keeps the derivation the same shape as every other per-account PDA in the workspace, so Token-2022 can resolve it from metalist indices 0/1/2 with no data lookup.
 
 ---
 

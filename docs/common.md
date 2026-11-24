@@ -31,6 +31,12 @@ A **zero-copy** (`#[repr(C)]`, `Pod`, `Zeroable`) field-for-field mirror of `fac
 
 ---
 
+## State: `MintCompliance` / `AccountCompliance`
+
+**Zero-copy** field-for-field mirrors of `transfer_hook::state::MintCompliance` / `AccountCompliance`, the hook-owned compliance registry. Field meanings, layout and append-only rules are in [`docs/transfer-hook.md`](transfer-hook.md#state-compliance-registry). They are defined here because `transfer-hook` depends on `freeze`, `hold` and `transfer-control`, so those programs (and `mint`, `operations`) cannot import it back. Load them with `AccountLoader::<T>::try_from`: `Owner` is `TRANSFER_HOOK_PROGRAM_ID`. Their discriminators are Anchor's standard `sha256("account:MintCompliance")[..8]` / `sha256("account:AccountCompliance")[..8]`, hard-coded because `common` has no `declare_id!` and so cannot use `#[account]` to derive them. The hook's own structs take theirs from these constants (`#[account(zero_copy, discriminator = …)]`). Compile-time size and discriminator asserts in `transfer-hook/src/state.rs` keep the definitions in sync. The constants that go with them (`COMPLIANCE_LAYOUT_VERSION`, `TRANSFER_MODE_*`) live here as well. Seed helpers: `pda_seeds::mint_compliance_seeds` / `account_compliance_seeds`.
+
+---
+
 ## Error Codes
 
 ```rust

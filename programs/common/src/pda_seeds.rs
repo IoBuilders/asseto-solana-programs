@@ -78,6 +78,19 @@ pub fn transfer_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
 /****************************** TRANSFER-HOOK *******************************/
 pub const TRANSFER_HOOK_AUTHORITY: &[u8] = b"transfer_hook_authority";
 pub const EXTRA_ACCOUNT_METAS: &[u8] = b"extra-account-metas";
+pub const MINT_COMPLIANCE: &[u8] = b"mint_compliance";
+pub const ACCOUNT_COMPLIANCE: &[u8] = b"account_compliance";
+
+pub fn mint_compliance_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
+    vec![MINT_COMPLIANCE, mint.as_ref()]
+}
+
+pub fn account_compliance_seeds<'info>(
+    mint: &'info Pubkey,
+    token_account: &'info Pubkey,
+) -> Vec<&'info [u8]> {
+    vec![ACCOUNT_COMPLIANCE, mint.as_ref(), token_account.as_ref()]
+}
 
 /********************************* SNAPSHOT *********************************/
 pub const SNAPSHOT_COUNTER: &[u8] = b"snapshot_counter";
