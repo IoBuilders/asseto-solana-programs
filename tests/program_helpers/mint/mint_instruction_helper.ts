@@ -1,7 +1,7 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
 import { deactivatePda } from "../deactivate/deactivate_pda_helper";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import { MintWriteContext } from "../base_helper";
@@ -22,6 +22,9 @@ export function getMintProgram(): Program<Mint> {
 
 export type MintTokensContext = MintWriteContext & {
   destination: PublicKey;
+  // Wallet owning `destination`. Only needed when `destination` does not exist yet
+  // and must be created as its ATA; omitted, the optional account is passed as `null`.
+  destinationOwner?: PublicKey;
 };
 
 type MintTokensArgs = {
@@ -52,6 +55,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       authority: callContext.authority.publicKey,
       mint: callContext.mint,
       destination: callContext.destination,
+      destinationOwner: callContext.destinationOwner ?? null,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       mintAuthority: mintAuthorityPda(callContext.mint),
@@ -59,6 +63,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       destinationControlListPda: controlListPda(callContext.mint, callContext.destination),
       maxSupplyPda: maxSupplyPda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: mintEventAuthorityPda(),
       program: mintProgram.programId,
@@ -87,13 +92,17 @@ export async function getIssuedEvent(signature: string) {
 
 export type BatchMintTokensContext = MintWriteContext & {
   destinations: PublicKey[];
+  // Wallet owning each destination, by index. Only read on-chain for destinations
+  // that do not exist yet (created as the owner's ATA). Defaults to the mint program
+  // id as a "no owner" placeholder for every destination.
+  destinationOwners?: PublicKey[];
 };
 
 type BatchMintTokensArgs = {
   // The `amounts` instruction argument. Defaults to `1` per destination.
   amounts?: anchor.BN[];
-  // Overrides the remaining accounts. Defaults to `[destination (writable), controlListPda]`
-  // per destination, in order. Provide this to exercise remaining-account error paths.
+  // Overrides the remaining accounts. Defaults to
+  // `[destination (writable), controlListPda, destinationOwner]` per destination, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
 
@@ -107,12 +116,18 @@ export async function batchMintTokens(
 
   const amounts = args?.amounts ?? callContext.destinations.map(() => new anchor.BN(1));
 
-  // Two remaining accounts per destination, in order: [destination (writable), controlListPda].
+  // Three remaining accounts per destination, in order:
+  // [destination (writable), controlListPda, destinationOwner].
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
-    callContext.destinations.flatMap((destination) => [
+    callContext.destinations.flatMap((destination, i) => [
       { pubkey: destination, isWritable: true, isSigner: false },
       { pubkey: controlListPda(callContext.mint, destination), isWritable: false, isSigner: false },
+      {
+        pubkey: callContext.destinationOwners?.[i] ?? mintProgram.programId,
+        isWritable: false,
+        isSigner: false,
+      },
     ]);
 
   // The asset-class version PDA is derived from the ids recorded in the mint's
@@ -134,6 +149,8 @@ export async function batchMintTokens(
         assetConfiguration.assetClassVersionId
       ),
       token2022Program: TOKEN_2022_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SYSTEM_PROGRAM_ID,
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       eventAuthority: mintEventAuthorityPda(),
       program: mintProgram.programId,

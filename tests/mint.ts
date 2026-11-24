@@ -2,6 +2,7 @@ import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN, ROLE_ISSUER } from "./utils/roles";
@@ -17,6 +18,7 @@ import {
   getIssuedEvent,
   batchMintTokens,
   getIssuedEvents,
+  getMintProgram,
 } from "./program_helpers/mint/mint_instruction_helper";
 import {
   TRANSFER_CONTROL_BLACKLIST,
@@ -265,9 +267,65 @@ describe("mint", () => {
       assert.equal(anchorErr.error.errorCode.code, "MaxSupplyExceeded", "error code should be MaxSupplyExceeded");
     }
   });
+  it("mint: creates the destination ATA when it does not exist and mints into it", async () => {
+    const owner = Keypair.generate().publicKey;
+    const destination = getAssociatedTokenAddressSync(mint, owner, false, TOKEN_2022_PROGRAM_ID);
+    assert.isNull(await provider.connection.getAccountInfo(destination), "destination ATA should not exist yet");
+    const mintAmount = new anchor.BN(1_000 * 10 ** MINT_DECIMALS);
+
+    const signature = await mintTokens(
+      { mint, destination, destinationOwner: owner, authority },
+      { amount: mintAmount }
+    );
+
+    const account = await getTokenAccount(destination);
+    assert.equal(account.owner.toBase58(), owner.toBase58(), "created ATA should be owned by the destination owner");
+    assert.equal(account.mint.toBase58(), mint.toBase58(), "created ATA should belong to the mint");
+    assert.equal(account.amount.toString(), mintAmount.toString(), "created ATA should hold the minted amount");
+
+    const issued = await getIssuedEvent(signature);
+    assert.equal(issued!.to.toBase58(), destination.toBase58(), "event destination should be the created ATA");
+  });
+
+  it("mint: mints into an existing destination ATA when the destination owner is passed", async () => {
+    const owner = Keypair.generate().publicKey;
+    const destination = getAssociatedTokenAddressSync(mint, owner, false, TOKEN_2022_PROGRAM_ID);
+    await mintTokens({ mint, destination, destinationOwner: owner, authority }, { amount: new anchor.BN(1) });
+
+    await mintTokens({ mint, destination, destinationOwner: owner, authority }, { amount: new anchor.BN(2) });
+
+    const account = await getTokenAccount(destination);
+    assert.equal(account.amount.toString(), "3", "existing ATA should accumulate both mints");
+  });
+
+  it("mint: fails with MissingDestinationOwner when the destination does not exist and no owner is passed", async () => {
+    const destination = getAssociatedTokenAddressSync(mint, Keypair.generate().publicKey, false, TOKEN_2022_PROGRAM_ID);
+
+    try {
+      await mintTokens({ mint, destination, authority });
+      assert.fail("Expected MissingDestinationOwner error but instruction succeeded");
+    } catch (err) {
+      assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+      const anchorErr = err as AnchorError;
+      assert.equal(anchorErr.error.errorCode.code, "MissingDestinationOwner");
+    }
+  });
+
+  it("mint: fails when the missing destination is not the owner's ATA", async () => {
+    const destination = Keypair.generate().publicKey;
+
+    try {
+      await mintTokens({ mint, destination, destinationOwner: Keypair.generate().publicKey, authority });
+      assert.fail("Expected the ATA program to reject a non-ATA destination");
+    } catch (err) {
+      assert.instanceOf(err, SendTransactionError, "error should be raised by the ATA program CPI");
+    }
+    assert.isNull(await provider.connection.getAccountInfo(destination), "no account should have been created");
+  });
 });
 
 describe("batch_mint", () => {
+  const mintProgramId = () => getMintProgram().programId;
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const authority = provider.wallet.payer;
@@ -523,7 +581,7 @@ describe("batch_mint", () => {
       await batchMintTokens(
         { mint, authority, destinations: [destination] },
         {
-          // One destination expects two remaining accounts, but only one is passed.
+          // One destination expects three remaining accounts, but only one is passed.
           remainingAccounts: [{ pubkey: destination, isWritable: true, isSigner: false }],
         }
       );
@@ -547,6 +605,7 @@ describe("batch_mint", () => {
           remainingAccounts: [
             { pubkey: destination, isWritable: true, isSigner: false },
             { pubkey: controlListPda(mint, other), isWritable: false, isSigner: false },
+            { pubkey: Keypair.generate().publicKey, isWritable: false, isSigner: false },
           ],
         }
       );
@@ -642,6 +701,39 @@ describe("batch_mint", () => {
       assert.instanceOf(err, AnchorError, "error should be an AnchorError");
       const anchorErr = err as AnchorError;
       assert.equal(anchorErr.error.errorCode.code, "MaxSupplyExceeded", "error code should be MaxSupplyExceeded");
+    }
+  });
+  it("batch_mint: creates missing destination ATAs and mints into them alongside existing accounts", async () => {
+    const existing = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
+    const newOwner = Keypair.generate().publicKey;
+    const missing = getAssociatedTokenAddressSync(mint, newOwner, false, TOKEN_2022_PROGRAM_ID);
+    assert.isNull(await provider.connection.getAccountInfo(missing), "destination ATA should not exist yet");
+    const amounts = [new anchor.BN(1_000 * 10 ** MINT_DECIMALS), new anchor.BN(2_500 * 10 ** MINT_DECIMALS)];
+
+    await batchMintTokens(
+      { mint, authority, destinations: [existing, missing], destinationOwners: [mintProgramId(), newOwner] },
+      { amounts }
+    );
+
+    assert.equal((await getTokenAccount(existing)).amount.toString(), amounts[0].toString());
+    const created = await getTokenAccount(missing);
+    assert.equal(created.owner.toBase58(), newOwner.toBase58(), "created ATA should be owned by its owner");
+    assert.equal(created.amount.toString(), amounts[1].toString(), "created ATA should hold its amount");
+  });
+
+  it("batch_mint: fails when a missing destination is not its owner's ATA", async () => {
+    const destination = Keypair.generate().publicKey;
+
+    try {
+      await batchMintTokens({
+        mint,
+        authority,
+        destinations: [destination],
+        destinationOwners: [Keypair.generate().publicKey],
+      });
+      assert.fail("Expected the ATA program to reject a non-ATA destination");
+    } catch (err) {
+      assert.instanceOf(err, SendTransactionError, "error should be raised by the ATA program CPI");
     }
   });
 });

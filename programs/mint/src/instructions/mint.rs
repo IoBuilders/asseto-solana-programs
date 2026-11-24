@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::Token2022;
 use cap::require_within_max_supply;
 use common::pda_utils;
@@ -9,6 +10,7 @@ use spl_token_2022_interface::instruction::mint_to;
 use transfer_control::verify_transfer_control_mode;
 
 use crate::events::Issued;
+use crate::instructions::destination_ata::create_destination_ata_if_missing;
 use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration};
 
@@ -35,6 +37,21 @@ pub fn mint<'info>(ctx: Context<'info, MintTokens<'info>>, amount: u64) -> Resul
         &ctx.accounts.max_supply_pda,
         ctx.accounts.asset_class_version_pda.load()?,
         amount,
+    )?;
+
+    // ── Create the destination ATA if it does not exist yet ──────────────
+    create_destination_ata_if_missing(
+        &ctx.accounts.destination.to_account_info(),
+        ctx.accounts
+            .destination_owner
+            .as_ref()
+            .map(|owner| owner.to_account_info())
+            .as_ref(),
+        &ctx.accounts.authority.to_account_info(),
+        &ctx.accounts.mint.to_account_info(),
+        &ctx.accounts.system_program.to_account_info(),
+        &ctx.accounts.token_2022_program.to_account_info(),
+        &ctx.accounts.associated_token_program.to_account_info(),
     )?;
 
     let mint_key = ctx.accounts.mint.key();
@@ -77,6 +94,8 @@ pub fn mint<'info>(ctx: Context<'info, MintTokens<'info>>, amount: u64) -> Resul
 #[event_cpi]
 #[derive(Accounts)]
 pub struct MintTokens<'info> {
+    /// Also pays rent when the destination ATA has to be created.
+    #[account(mut)]
     pub authority: Signer<'info>,
 
     #[account(
@@ -105,9 +124,17 @@ pub struct MintTokens<'info> {
     )]
     pub mint_authority: UncheckedAccount<'info>,
 
-    /// CHECK: Writable; validated by Token-2022 and freeze during CPIs.
+    /// CHECK: Writable; validated by Token-2022 during the mint_to CPI. When it
+    /// does not exist yet it is created as `destination_owner`'s ATA, and the
+    /// ATA program verifies its address.
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
+
+    /// Wallet that owns `destination`. Only required (and only read) when
+    /// `destination` does not exist yet and has to be created as its ATA.
+    ///
+    /// CHECK: Address verified by the ATA program against `destination`.
+    pub destination_owner: Option<UncheckedAccount<'info>>,
 
     /// CHECK: Address verified by seeds/bump; contents read by verify_transfer_control_mode.
     #[account(
@@ -152,5 +179,6 @@ pub struct MintTokens<'info> {
     pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
 
     pub token_2022_program: Program<'info, Token2022>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }

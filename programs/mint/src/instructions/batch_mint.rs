@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::Token2022;
 use cap::require_within_max_supply;
 use common::pda_utils;
@@ -12,6 +13,7 @@ use transfer_control::verify_transfer_control_mode;
 
 use crate::errors::MintError;
 use crate::events::Issued;
+use crate::instructions::destination_ata::create_destination_ata_if_missing;
 use common::program_ids as constants;
 
 pub fn batch_mint<'info>(
@@ -19,8 +21,16 @@ pub fn batch_mint<'info>(
     amounts: Vec<u64>,
 ) -> Result<()> {
     require!(!amounts.is_empty(), MintError::EmptyBatch);
+    // `remaining_accounts` is a fixed layout of three accounts per destination:
+    // `[destination, control_list_pda, destination_owner]`. The owner slot is
+    // mandatory even for destinations that already exist (where it is never read;
+    // any pubkey, e.g. this program's id, works as a placeholder). A variable
+    // layout (owner only for missing destinations) would save 32 bytes per
+    // existing destination, but would force the client to know which ATAs exist
+    // when building the transaction: an ATA created in between would shift every
+    // following account by one position. The fixed layout avoids that.
     require!(
-        ctx.remaining_accounts.len() == amounts.len() * 2,
+        ctx.remaining_accounts.len() == amounts.len() * 3,
         MintError::InvalidRemainingAccounts
     );
 
@@ -54,9 +64,9 @@ pub fn batch_mint<'info>(
     let token_program_id = ctx.accounts.token_2022_program.key();
 
     let mut destination_control_list_pdas = Vec::with_capacity(amounts.len());
-    for pair in ctx.remaining_accounts.chunks_exact(2) {
-        verify_control_list_pda(&pair[1], &pair[0].key(), &mint_key)?;
-        destination_control_list_pdas.push(&pair[1]);
+    for triple in ctx.remaining_accounts.chunks_exact(3) {
+        verify_control_list_pda(&triple[1], &triple[0].key(), &mint_key)?;
+        destination_control_list_pdas.push(&triple[1]);
     }
     verify_transfer_control_mode(
         &ctx.accounts.transfer_control_mode_pda,
@@ -70,8 +80,22 @@ pub fn batch_mint<'info>(
 
     for i in 0..amounts.len() {
         let amount = amounts[i];
-        let destination = &ctx.remaining_accounts[i * 2];
+        let destination = &ctx.remaining_accounts[i * 3];
+        // Only read by `create_destination_ata_if_missing` when `destination` does
+        // not exist yet; for an existing destination it is a placeholder.
+        let destination_owner = &ctx.remaining_accounts[i * 3 + 2];
         let destination_key = destination.key();
+
+        // ── Create the destination ATA if it does not exist yet ─────────────
+        create_destination_ata_if_missing(
+            destination,
+            Some(destination_owner),
+            &ctx.accounts.authority.to_account_info(),
+            &ctx.accounts.mint.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+            &ctx.accounts.token_2022_program.to_account_info(),
+            &ctx.accounts.associated_token_program.to_account_info(),
+        )?;
 
         // ──  Mint tokens (CPI to Token-2022) ────────────────────────────────
         invoke_signed(
@@ -106,6 +130,8 @@ pub fn batch_mint<'info>(
 #[event_cpi]
 #[derive(Accounts)]
 pub struct BatchMintTokens<'info> {
+    /// Also pays rent for any destination ATA that has to be created.
+    #[account(mut)]
     pub authority: Signer<'info>,
 
     #[account(
@@ -162,6 +188,8 @@ pub struct BatchMintTokens<'info> {
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
     pub token_2022_program: Program<'info, Token2022>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 
     #[account(
         seeds = [pda_seeds::ROLES, mint.key().as_ref(), authority.key().as_ref()],
