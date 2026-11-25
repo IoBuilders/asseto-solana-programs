@@ -51,6 +51,9 @@ pub enum CommonError {
     MissingRole,                    // signer's Roles PDA lacks the required role bit
     ControlListPdaMismatch,         // a remaining_accounts control-list PDA doesn't match the derived address for its destination
     InvalidMerkleProof,             // (account, balance) not proven against the snapshot root
+    AccountFrozen,                  // full-freeze side set (freeze_account twice / transfer or hold from a frozen account)
+    InsufficientUnfrozenBalance,    // the balance no longer covers every lien on the account
+    AccountCompliancePdaMismatch,   // a remaining_accounts account_compliance_pda doesn't match the derived address for its token account
     InsufficientSpendableBalance,   // amount exceeds balance − held (see require_hold_covered)
     HoldPositionPdaMismatch,        // supplied hold_position_pda is not the derived one
 }
@@ -131,6 +134,20 @@ Re-derives the canonical `["control_list", mint, destination]` PDA (owned by `tr
 
 ---
 
+## Function: `verify_account_compliance_pda`
+
+```rust
+pub fn verify_account_compliance_pda(
+    account_compliance_pda: &AccountInfo,
+    token_account: &Pubkey,
+    mint: &Pubkey,
+) -> Result<()>
+```
+
+Re-derives the canonical `["account_compliance", mint, token_account]` PDA (owned by `transfer-hook`) and checks it matches `account_compliance_pda.key()`, returning `Err(CommonError::AccountCompliancePdaMismatch)` on a mismatch. Needed only where the record arrives without an Anchor `seeds` constraint — the `freeze` batch instructions, which take one per entry from `remaining_accounts`. Without it a caller could have one account's record read in place of another's. It only derives an address from `pda_seeds` + `program_ids`, so it does not depend on the record's layout.
+
+---
+
 ## Module: `pda_utils`
 
 `is_caller_pda(caller, program_seeds, program_id) -> bool` and `build_pda_signer_seeds(seeds, bump) -> Vec<&[u8]>` are small shared helpers used throughout the workspace for CPI-authorization checks and building `invoke_signed` seed slices.
@@ -150,15 +167,7 @@ pub fn create_or_adopt_pda<'info>(
 
 Creates `pda` (owned by `program_id`, sized `space`) the same way Anchor's own `#[account(init, ...)]` constraint does under the hood, tolerating a PDA that already holds lamports. A plain `system_instruction::create_account` CPI unconditionally fails with `AccountAlreadyInUse` if the destination already has `lamports() > 0` — including a zero-data account that was merely sent lamports. Since a PDA's address is derivable by anyone, an attacker can grief any `create_account`-based initialization by pre-funding the target address with a single lamport before the legitimate transaction lands, permanently blocking that exact call.
 
-When `pda` has no lamports yet, this does a plain `create_account` (funds + allocates + assigns atomically). Otherwise it falls back to the same two-step sequence Anchor's `init` uses: top up to rent-exemption via `transfer` (only if needed), then `allocate` + `assign` separately — since `create_account` itself refuses to run against a non-empty-lamports account. Needed anywhere a PDA is created manually via `remaining_accounts` rather than through a typed Anchor account (Anchor's `init` can't target a variable-length account list) — e.g. `freeze::batch_freeze_account`, which creates one `frozen_account_pda` per entry.
-
-### Function: `close_pda`
-
-```rust
-pub fn close_pda(pda: &AccountInfo, authority: &AccountInfo) -> Result<()>
-```
-
-The manual counterpart to Anchor's `#[account(close = authority)]` constraint: zeroes `pda`'s lamports (crediting them to `authority`) and clears its data. Needed anywhere a PDA is closed via `remaining_accounts` rather than through a typed Anchor account (Anchor's `close` constraint can't target a variable-length account list) — e.g. `freeze::batch_unfreeze_account` / `freeze::batch_unfreeze_account_partial`, each of which closes one PDA per entry. Callers are expected to have already verified `pda` is the expected account and is non-empty; unlike `create_or_adopt_pda`, there's no griefing angle to closing an account, so this is a plain, unconditional operation.
+When `pda` has no lamports yet, this does a plain `create_account` (funds + allocates + assigns atomically). Otherwise it falls back to the same two-step sequence Anchor's `init` uses: top up to rent-exemption via `transfer` (only if needed), then `allocate` + `assign` separately — since `create_account` itself refuses to run against a non-empty-lamports account. Needed anywhere a PDA is created manually via `remaining_accounts` rather than through a typed Anchor account (Anchor's `init` can't target a variable-length account list) — e.g. `document::set_document`.
 
 ---
 
@@ -282,9 +291,9 @@ The block of accounts every `transfer_checked` on an Asseto mint must append so 
 resolve and invoke `transfer-hook::execute`.
 
 ```rust
-pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 11;
+pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 10;
 
-pub struct HookAccounts<'a, 'info> { /* 11 &AccountInfo fields, in wire order */ }
+pub struct HookAccounts<'a, 'info> { /* 10 &AccountInfo fields, in wire order */ }
 
 impl<'a, 'info> HookAccounts<'a, 'info> {
     pub fn ordered(&self) -> [&'a AccountInfo<'info>; HOOK_FORWARDED_ACCOUNT_COUNT]
@@ -295,7 +304,7 @@ impl<'a, 'info> HookAccounts<'a, 'info> {
 
 The field order **is** the wire order: Token-2022 matches forwarded accounts positionally against
 the list `transfer-hook::initialize_extra_account_meta_list` built, so a wrong order fails inside
-Token-2022 before the hook even runs. The 11 are the metalist's own 9 entries plus the two
+Token-2022 before the hook even runs. The 10 are the metalist's own 8 entries plus the two
 Token-2022 requires on top (`extra_account_meta_list` and `transfer_hook_program`) — keep
 `HOOK_FORWARDED_ACCOUNT_COUNT` and the hook's `EXTRA_ACCOUNT_META_COUNT` in step.
 
@@ -308,6 +317,24 @@ mismatch in whichever call site was missed.
 `append_metas` and `append_infos` must always be used together: an account the instruction's
 `AccountMeta` list references but whose `AccountInfo` is missing from the `invoke` is never
 passed to the callee.
+
+---
+
+## Function: `freeze_status`
+
+```rust
+pub struct FreezeStatus { pub fully_frozen: bool, pub frozen_balance: u64 }
+
+pub fn freeze_status(account_compliance_pda: &AccountInfo) -> Result<FreezeStatus>
+
+pub fn require_locked_balance_covered(token_account: &AccountInfo, total_locked: u64) -> Result<()>
+```
+
+`freeze_status` reads both freeze sides of a token account from the hook's `AccountCompliance` (`["account_compliance", mint, token_account]`, owned by `transfer-hook`). An empty account yields `FreezeStatus::default()` (not frozen, 0 locked); otherwise it is loaded with `AccountLoader::<state::AccountCompliance>::try_from`, so a foreign owner or a wrong discriminator errors instead of being trusted. The caller validates the address with its own `seeds` constraint (`seeds::program = TRANSFER_HOOK_PROGRAM_ID`). Called by `transfer-hook::execute`, `hold::execute_hold`, `hold`'s creation paths, and `freeze` itself (to read the current state before writing through `set_freeze`).
+
+`require_locked_balance_covered` asserts `balance >= total_locked`, else `CommonError::InsufficientUnfrozenBalance`. It owns no lien and reads no PDA — `total_locked` is the caller's sum of every lien on the account (the partial-freeze balance plus `held_amount`). The hook runs **post-debit**, so passing that sum asserts `balance_post >= frozen + held`, the pre-debit `available >= amount` restated; `execute_hold` runs pre-debit and adds the moved `amount` to the sum itself.
+
+Both live here (with `AccountFrozen` / `InsufficientUnfrozenBalance` in `CommonError`) because `transfer-hook` and `hold` need them and neither may depend on `freeze`, which depends on `transfer-hook` for its `set_freeze` CPI.
 
 ---
 

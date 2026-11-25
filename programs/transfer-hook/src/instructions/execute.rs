@@ -1,9 +1,6 @@
 use anchor_lang::prelude::*;
-use common::program_ids::{
-    FREEZE_PROGRAM_ID, HOLD_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID,
-};
-use common::{pda_seeds, pda_utils, CommonError};
-use freeze::require_locked_balance_covered;
+use common::program_ids::{HOLD_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID};
+use common::{freeze_status, pda_seeds, pda_utils, require_locked_balance_covered, CommonError};
 use spl_token_2022_interface::extension::{
     transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
 };
@@ -45,19 +42,14 @@ pub fn execute<'info>(ctx: Context<'info, Execute<'info>>, _amount: u64) -> Resu
         ],
     )?;
 
-    let freeze_status = freeze::freeze_status(&ctx.accounts.source_freeze_state_pda)?;
-    require!(
-        !freeze_status.fully_frozen,
-        freeze::errors::ErrorCode::AccountFrozen
-    );
+    let freeze_status = freeze_status(&ctx.accounts.source_account_compliance_pda)?;
+    require!(!freeze_status.fully_frozen, CommonError::AccountFrozen);
 
     // The hook runs post-debit, so this asserts balance_post >= frozen + held.
     let total_locked = freeze_status
         .frozen_balance
         .checked_add(common::held_amount(&ctx.accounts.source_hold_position_pda)?)
-        .ok_or(error!(
-            freeze::errors::ErrorCode::InsufficientUnfrozenBalance
-        ))?;
+        .ok_or(error!(CommonError::InsufficientUnfrozenBalance))?;
     require_locked_balance_covered(&ctx.accounts.source_token, total_locked)?;
 
     require!(
@@ -137,24 +129,19 @@ pub struct Execute<'info> {
     )]
     pub destination_control_list_pda: UncheckedAccount<'info>,
 
-    /// CHECK: freeze program (index 10); resolves source_freeze_state_pda in the metalist.
-    #[account(address = FREEZE_PROGRAM_ID)]
-    pub freeze_program: UncheckedAccount<'info>,
-
-    /// CHECK: Source freeze state (index 11); may be empty (nothing frozen). Owner and
-    /// discriminator checked by freeze::freeze_status.
+    /// CHECK: Source compliance record (index 10); may be empty (nothing recorded). Owner
+    /// and discriminator checked by common::freeze_status.
     #[account(
-        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), source_token.key().as_ref()],
-        seeds::program = FREEZE_PROGRAM_ID,
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), source_token.key().as_ref()],
         bump,
     )]
-    pub source_freeze_state_pda: UncheckedAccount<'info>,
+    pub source_account_compliance_pda: UncheckedAccount<'info>,
 
-    /// CHECK: hold program (index 12); resolves source_hold_position_pda in the metalist.
+    /// CHECK: hold program (index 11); resolves source_hold_position_pda in the metalist.
     #[account(address = HOLD_PROGRAM_ID)]
     pub hold_program: UncheckedAccount<'info>,
 
-    /// CHECK: Source held-balance accumulator (index 13); may be empty (no hold ever created).
+    /// CHECK: Source held-balance accumulator (index 12); may be empty (no hold ever created).
     #[account(
         seeds = [pda_seeds::HOLD_POSITION, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = HOLD_PROGRAM_ID,

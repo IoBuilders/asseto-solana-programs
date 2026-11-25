@@ -1,21 +1,19 @@
 import { AccountMeta, PublicKey, SendTransactionError, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { extraAccountMetaListPda, mintCompliancePda } from "./transfer_hook/transfer_hook_pda_helper";
+import {
+  accountCompliancePda,
+  extraAccountMetaListPda,
+  mintCompliancePda,
+} from "./transfer_hook/transfer_hook_pda_helper";
 import { createTransferCheckedInstruction, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, AnchorProvider } from "@anchor-lang/core";
 import { getMint } from "./spl_token_helper";
-import {
-  TRANSFER_HOOK_PROGRAM_ID,
-  TRANSFER_CONTROL_PROGRAM_ID,
-  FREEZE_PROGRAM_ID,
-  HOLD_PROGRAM_ID,
-} from "../utils/address_utils";
+import { TRANSFER_HOOK_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID, HOLD_PROGRAM_ID } from "../utils/address_utils";
 import { holdPositionPda } from "./hold/hold_pda_helper";
 import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, controlListPda } from "./transfer_control/transfer_control_pda_helper";
-import { freezeStatePda } from "./freeze/freeze_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
@@ -148,8 +146,7 @@ export async function buildSplTransferCheckedInstruction(
     readonly(transferControlModePda(callContext.mint)),
     readonly(controlListPda(callContext.mint, callContext.source)),
     readonly(controlListPda(callContext.mint, callContext.destination)),
-    readonly(FREEZE_PROGRAM_ID),
-    readonly(freezeStatePda(callContext.mint, callContext.source)),
+    readonly(accountCompliancePda(callContext.mint, callContext.source)),
     readonly(HOLD_PROGRAM_ID),
     readonly(holdPositionPda(callContext.mint, callContext.source))
   );
@@ -205,12 +202,11 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       mint: callContext.mint,
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-      freezeProgram: FREEZE_PROGRAM_ID,
       mintCompliancePda: mintCompliancePda(callContext.mint),
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceControlListPda: controlListPda(callContext.mint, callContext.source),
-      sourceFreezeStatePda: freezeStatePda(callContext.mint, callContext.source),
+      sourceAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.source),
       holdProgram: HOLD_PROGRAM_ID,
       sourceHoldPositionPda: holdPositionPda(callContext.mint, callContext.source),
       token2022Program: TOKEN_2022_PROGRAM_ID,

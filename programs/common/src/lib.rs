@@ -46,6 +46,12 @@ pub enum CommonError {
     HoldPositionPdaMismatch,
     #[msg("Merkle proof does not prove the given (account, balance) against the snapshot root")]
     InvalidMerkleProof,
+    #[msg("The account has been frozen")]
+    AccountFrozen,
+    #[msg("Transfer amount exceeds available (unfrozen) balance")]
+    InsufficientUnfrozenBalance,
+    #[msg("Provided account_compliance_pda does not match the derived PDA for this account")]
+    AccountCompliancePdaMismatch,
 }
 
 pub fn require_active(mint_compliance: Ref<state::MintCompliance>) -> Result<()> {
@@ -133,6 +139,26 @@ pub fn verify_control_list_pda(
     Ok(())
 }
 
+/// For an `account_compliance_pda` arriving through `remaining_accounts`, where no
+/// `seeds` constraint applies: without it a caller could have one account's record
+/// read in place of another's.
+pub fn verify_account_compliance_pda(
+    account_compliance_pda: &AccountInfo,
+    token_account: &Pubkey,
+    mint: &Pubkey,
+) -> Result<()> {
+    let (expected, _) = Pubkey::find_program_address(
+        &pda_seeds::account_compliance_seeds(mint, token_account),
+        &program_ids::TRANSFER_HOOK_PROGRAM_ID,
+    );
+    require_keys_eq!(
+        account_compliance_pda.key(),
+        expected,
+        CommonError::AccountCompliancePdaMismatch
+    );
+    Ok(())
+}
+
 pub fn require_balance_proof(
     proof: &[[u8; 32]],
     root: [u8; 32],
@@ -142,6 +168,46 @@ pub fn require_balance_proof(
     require!(
         merkle::verify_balance_proof(proof, root, account, balance),
         CommonError::InvalidMerkleProof
+    );
+    Ok(())
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct FreezeStatus {
+    pub fully_frozen: bool,
+    pub frozen_balance: u64,
+}
+
+/// An absent `AccountCompliance` means nothing was ever recorded for the account.
+pub fn freeze_status<'info>(
+    account_compliance_pda: &'info AccountInfo<'info>,
+) -> Result<FreezeStatus> {
+    if account_compliance_pda.data_is_empty() {
+        return Ok(FreezeStatus::default());
+    }
+    let loader = AccountLoader::<state::AccountCompliance>::try_from(account_compliance_pda)?;
+    let record = loader.load()?;
+    Ok(FreezeStatus {
+        fully_frozen: record.is_fully_frozen(),
+        frozen_balance: record.frozen_balance,
+    })
+}
+
+/// `total_locked` is the caller's sum of every lien on the account (partial freeze +
+/// holds). Post-debit callers (the hook) pass it as-is; see docs/common.md.
+pub fn require_locked_balance_covered(
+    token_account: &AccountInfo,
+    total_locked: u64,
+) -> Result<()> {
+    use spl_token_2022_interface::extension::StateWithExtensions;
+    use spl_token_2022_interface::state::Account as TokenAccountState;
+
+    let token_data = token_account.try_borrow_data()?;
+    let token_state = StateWithExtensions::<TokenAccountState>::unpack(&token_data)
+        .map_err(|_| error!(CommonError::InsufficientUnfrozenBalance))?;
+    require!(
+        token_state.base.amount >= total_locked,
+        CommonError::InsufficientUnfrozenBalance
     );
     Ok(())
 }

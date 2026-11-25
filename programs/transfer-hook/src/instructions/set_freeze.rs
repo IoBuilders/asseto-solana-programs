@@ -1,0 +1,47 @@
+use anchor_lang::prelude::*;
+use common::pda_seeds;
+use common::program_ids::FREEZE_PROGRAM_ID;
+
+use crate::state::{load_or_init_account_compliance, AccountCompliance};
+
+pub fn set_freeze(ctx: Context<SetFreeze>, fully_frozen: bool, frozen_balance: u64) -> Result<()> {
+    let mut record = load_or_init_account_compliance(
+        &ctx.accounts.account_compliance_pda,
+        ctx.bumps.account_compliance_pda,
+        ctx.accounts.mint.key(),
+        ctx.accounts.token_account.key(),
+    )?;
+    record.fully_frozen = fully_frozen as u8;
+    record.frozen_balance = frozen_balance;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct SetFreeze<'info> {
+    #[account(
+        seeds = [pda_seeds::REGISTRY_WRITER],
+        seeds::program = FREEZE_PROGRAM_ID,
+        bump,
+    )]
+    pub registry_writer: Signer<'info>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = AccountCompliance::SPACE,
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), token_account.key().as_ref()],
+        bump,
+    )]
+    pub account_compliance_pda: AccountLoader<'info, AccountCompliance>,
+
+    /// CHECK: Seed component only.
+    pub mint: UncheckedAccount<'info>,
+
+    /// CHECK: Seed component only.
+    pub token_account: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}

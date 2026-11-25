@@ -26,9 +26,7 @@ anchor-spl = "1.0.2"
 spl-transfer-hook-interface = { version = ">=2.0.0, <3" }
 spl-tlv-account-resolution = { version = ">=0.11.1, <0.12" }
 common = { path = "../common" }
-freeze = { path = "../freeze", features = ["cpi"] }
 transfer-control = { path = "../transfer-control", features = ["cpi"] }
-hold = { path = "../hold", features = ["cpi"] }
 spl-token-2022-interface = "=3.0.1"
 bytemuck = { version = "1.17", features = ["derive", "min_const_generics"] }
 

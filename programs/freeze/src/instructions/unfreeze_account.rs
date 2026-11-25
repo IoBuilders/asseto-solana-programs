@@ -1,25 +1,23 @@
-use crate::events::AccountUnfrozen;
 use anchor_lang::prelude::*;
+use common::program_ids as constants;
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
 use common::{
-    pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
+    freeze_status, pda_seeds, require_active, require_functionality, require_not_paused,
+    require_role, roles,
 };
 
 use crate::errors::ErrorCode;
-use crate::state::FreezeState;
-use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
+use crate::events::AccountUnfrozen;
+use crate::registry::RegistryWriter;
 
-pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
-    // ── Verify caller holds the freeze-manager role ───────────────────────────
+pub fn unfreeze_account<'info>(ctx: Context<'info, UnfreezeAccount<'info>>) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
         roles::ROLE_FREEZE_MANAGER,
     )?;
 
-    // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
-    // ── Verify mint has not been deactivated ──────────────────────────────────
     require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
@@ -27,12 +25,21 @@ pub fn unfreeze_account(ctx: Context<UnfreezeAccount>) -> Result<()> {
         common::functionalities::FREEZE_UNFREEZE_ACCOUNT,
     )?;
 
-    let freeze_state = &mut ctx.accounts.freeze_state_pda;
-    require!(freeze_state.fully_frozen, ErrorCode::AccountNotFrozen);
-    freeze_state.fully_frozen = false;
-    if freeze_state.is_empty() {
-        freeze_state.close(ctx.accounts.authority.to_account_info())?;
+    let mut status = freeze_status(&ctx.accounts.account_compliance_pda)?;
+    require!(status.fully_frozen, ErrorCode::AccountNotFrozen);
+    status.fully_frozen = false;
+    RegistryWriter {
+        registry_writer: &ctx.accounts.registry_writer,
+        bump: ctx.bumps.registry_writer,
+        payer: &ctx.accounts.authority,
+        mint: &ctx.accounts.mint,
+        system_program: &ctx.accounts.system_program,
     }
+    .set_freeze(
+        &ctx.accounts.account,
+        &ctx.accounts.account_compliance_pda,
+        status,
+    )?;
 
     emit_cpi!(AccountUnfrozen {
         mint: ctx.accounts.mint.key(),
@@ -66,8 +73,19 @@ pub struct UnfreezeAccount<'info> {
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: Address used as a seed for freeze_state_pda; not otherwise validated here.
+    /// CHECK: Address used as a seed for account_compliance_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by seeds/bump; may be empty (nothing recorded). Owner and
+    /// discriminator checked by common::freeze_status; created/written by the
+    /// transfer-hook::set_freeze CPI.
+    #[account(
+        mut,
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), account.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump,
+    )]
+    pub account_compliance_pda: UncheckedAccount<'info>,
 
     #[account(
         seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
@@ -75,13 +93,6 @@ pub struct UnfreezeAccount<'info> {
         bump = mint_compliance_pda.load()?.bump,
     )]
     pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
-
-    #[account(
-        mut,
-        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), account.key().as_ref()],
-        bump = freeze_state_pda.bump,
-    )]
-    pub freeze_state_pda: Account<'info, FreezeState>,
 
     #[account(
         seeds = [
@@ -93,4 +104,15 @@ pub struct UnfreezeAccount<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+
+    /// CHECK: Address verified by seeds/bump; signs the set_freeze CPI, which accepts
+    /// only this PDA.
+    #[account(seeds = [pda_seeds::REGISTRY_WRITER], bump)]
+    pub registry_writer: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by constraint.
+    #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
+    pub transfer_hook_program: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
 }

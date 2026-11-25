@@ -777,6 +777,7 @@ dependencies = [
  "anchor-spl",
  "common",
  "spl-token-2022-interface 3.0.1",
+ "transfer-hook",
 ]
 
 [[package]]
@@ -857,7 +858,6 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "common",
- "freeze",
  "operations",
  "spl-token-2022-interface 3.0.1",
  "transfer-control",
@@ -2658,7 +2658,6 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "common",
- "freeze",
  "solana-instructions-sysvar 4.0.0",
  "spl-token-2022-interface 3.0.1",
  "transfer-control",
@@ -2681,8 +2680,6 @@ dependencies = [
  "anchor-spl",
  "bytemuck",
  "common",
- "freeze",
- "hold",
  "spl-tlv-account-resolution",
  "spl-token-2022-interface 3.0.1",
  "spl-transfer-hook-interface",

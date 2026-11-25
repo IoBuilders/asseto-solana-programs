@@ -1,6 +1,10 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { extraAccountMetaListPda, mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
+import {
+  accountCompliancePda,
+  extraAccountMetaListPda,
+  mintCompliancePda,
+} from "../transfer_hook/transfer_hook_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
@@ -9,7 +13,6 @@ import {
   OPERATIONS_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
-  FREEZE_PROGRAM_ID,
   HOLD_PROGRAM_ID,
 } from "../../utils/address_utils";
 import { holdPositionPda } from "../hold/hold_pda_helper";
@@ -20,7 +23,6 @@ import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, permissionedBurnPda, operationsEventAuthorityPda } from "./operations_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
-import { freezeStatePda } from "../freeze/freeze_pda_helper";
 
 export function getOperationsProgram(): Program<Operations> {
   return anchor.workspace.Operations as Program<Operations>;
@@ -201,13 +203,12 @@ export async function controllerTransfer(
       operationsAuthority: permanentDelegatePda(callContext.mint),
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
-      freezeProgram: FREEZE_PROGRAM_ID,
       mintCompliancePda: mintCompliancePda(callContext.mint),
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceControlListPda: controlListPda(callContext.mint, callContext.from),
       destinationControlListPda: controlListPda(callContext.mint, callContext.to),
-      sourceFreezeStatePda: freezeStatePda(callContext.mint, callContext.from),
+      sourceAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.from),
       holdProgram: HOLD_PROGRAM_ID,
       sourceHoldPositionPda: holdPositionPda(callContext.mint, callContext.from),
       assetClassVersionPda: assetClassVersionPda(

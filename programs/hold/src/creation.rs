@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use common::{freeze_status, CommonError};
 
 use crate::errors::ErrorCode;
 use crate::state::{Hold, HoldPosition, HoldStatus};
@@ -15,7 +16,7 @@ pub(crate) struct HoldTarget<'info> {
     pub mint: Pubkey,
     pub token_account: Pubkey,
     pub balance: u64,
-    pub freeze_state_pda: &'info AccountInfo<'info>,
+    pub account_compliance_pda: &'info AccountInfo<'info>,
 }
 
 pub(crate) fn record_new_hold<'info>(
@@ -26,11 +27,8 @@ pub(crate) fn record_new_hold<'info>(
     hold_bump: u8,
     args: &NewHoldArgs,
 ) -> Result<()> {
-    let freeze_status = freeze::freeze_status(target.freeze_state_pda)?;
-    require!(
-        !freeze_status.fully_frozen,
-        freeze::errors::ErrorCode::AccountFrozen
-    );
+    let freeze_status = freeze_status(target.account_compliance_pda)?;
+    require!(!freeze_status.fully_frozen, CommonError::AccountFrozen);
 
     require!(args.amount > 0, ErrorCode::ZeroAmount);
 

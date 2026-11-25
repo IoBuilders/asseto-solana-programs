@@ -54,8 +54,7 @@ pub fn hold_transfer(ctx: Context<HoldTransfer>, amount: u64) -> Result<()> {
         transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
         source_control_list_pda: &ctx.accounts.source_control_list_pda,
         destination_control_list_pda: &ctx.accounts.destination_control_list_pda,
-        freeze_program: &ctx.accounts.freeze_program,
-        source_freeze_state_pda: &ctx.accounts.source_freeze_state_pda,
+        source_account_compliance_pda: &ctx.accounts.source_account_compliance_pda,
         hold_program: &ctx.accounts.hold_program,
         source_hold_position_pda: &ctx.accounts.source_hold_position_pda,
     };
@@ -150,17 +149,13 @@ pub struct HoldTransfer<'info> {
     )]
     pub destination_control_list_pda: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by constraint; forwarded to the hook.
-    #[account(address = constants::FREEZE_PROGRAM_ID)]
-    pub freeze_program: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; forwarded to the hook. May be empty (nothing frozen).
+    /// CHECK: seeds verified; forwarded to the hook. May be empty (nothing recorded).
     #[account(
-        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), from.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), from.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]
-    pub source_freeze_state_pda: UncheckedAccount<'info>,
+    pub source_account_compliance_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::HOLD_PROGRAM_ID)]
