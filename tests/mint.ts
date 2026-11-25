@@ -3,6 +3,7 @@ import { AnchorError } from "@anchor-lang/core";
 import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
 import { assert } from "chai";
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { accountCompliancePda } from "./program_helpers/transfer_hook/transfer_hook_pda_helper";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_ADMIN, ROLE_ISSUER } from "./utils/roles";
@@ -41,7 +42,6 @@ import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_help
 import {
   setTransferControlModeMarker,
   setControlListMarker,
-  controlListPda,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import { setMaxSupplyPda } from "./program_helpers/cap/cap_pda_helper";
 import { U64_MAX } from "./constants";
@@ -593,7 +593,7 @@ describe("batch_mint", () => {
     }
   });
 
-  it("batch_mint: fails with ControlListPdaMismatch when a remaining control-list PDA is not the derived one", async () => {
+  it("batch_mint: fails with AccountCompliancePdaMismatch when a remaining AccountCompliance PDA is not the derived one", async () => {
     const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
     const other = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
 
@@ -601,19 +601,19 @@ describe("batch_mint", () => {
       await batchMintTokens(
         { mint, authority, destinations: [destination] },
         {
-          // Destination matches, but the control-list PDA is derived for a different account.
+          // Destination matches, but the AccountCompliance PDA is derived for a different account.
           remainingAccounts: [
             { pubkey: destination, isWritable: true, isSigner: false },
-            { pubkey: controlListPda(mint, other), isWritable: false, isSigner: false },
+            { pubkey: accountCompliancePda(mint, other), isWritable: false, isSigner: false },
             { pubkey: Keypair.generate().publicKey, isWritable: false, isSigner: false },
           ],
         }
       );
-      assert.fail("Expected ControlListPdaMismatch error but instruction succeeded");
+      assert.fail("Expected AccountCompliancePdaMismatch error but instruction succeeded");
     } catch (err) {
       assert.instanceOf(err, AnchorError);
       const anchorErr = err as AnchorError;
-      assert.equal(anchorErr.error.errorCode.code, "ControlListPdaMismatch");
+      assert.equal(anchorErr.error.errorCode.code, "AccountCompliancePdaMismatch");
     }
   });
 

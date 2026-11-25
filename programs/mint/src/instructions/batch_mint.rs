@@ -6,10 +6,10 @@ use cap::require_within_max_supply;
 use common::pda_utils;
 use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles as RolesCommon};
 use common::{
-    pda_seeds, require_active, require_functionality, require_role, roles, verify_control_list_pda,
+    pda_seeds, require_active, require_functionality, require_role, roles,
+    verify_account_compliance_pda, verify_transfer_control_mode,
 };
 use spl_token_2022_interface::instruction::mint_to;
-use transfer_control::verify_transfer_control_mode;
 
 use crate::errors::MintError;
 use crate::events::Issued;
@@ -22,7 +22,7 @@ pub fn batch_mint<'info>(
 ) -> Result<()> {
     require!(!amounts.is_empty(), MintError::EmptyBatch);
     // `remaining_accounts` is a fixed layout of three accounts per destination:
-    // `[destination, control_list_pda, destination_owner]`. The owner slot is
+    // `[destination, account_compliance_pda, destination_owner]`. The owner slot is
     // mandatory even for destinations that already exist (where it is never read;
     // any pubkey, e.g. this program's id, works as a placeholder). A variable
     // layout (owner only for missing destinations) would save 32 bytes per
@@ -63,14 +63,14 @@ pub fn batch_mint<'info>(
     let mint_key = ctx.accounts.mint.key();
     let token_program_id = ctx.accounts.token_2022_program.key();
 
-    let mut destination_control_list_pdas = Vec::with_capacity(amounts.len());
+    let mut destination_account_compliance_pdas = Vec::with_capacity(amounts.len());
     for triple in ctx.remaining_accounts.chunks_exact(3) {
-        verify_control_list_pda(&triple[1], &triple[0].key(), &mint_key)?;
-        destination_control_list_pdas.push(&triple[1]);
+        verify_account_compliance_pda(&triple[1], &triple[0].key(), &mint_key)?;
+        destination_account_compliance_pdas.push(&triple[1]);
     }
     verify_transfer_control_mode(
-        &ctx.accounts.transfer_control_mode_pda,
-        &destination_control_list_pdas,
+        ctx.accounts.mint_compliance_pda.load()?.transfer_mode,
+        &destination_account_compliance_pdas,
     )?;
 
     let mint_authority_signer_seeds = pda_utils::build_pda_signer_seeds(
@@ -166,14 +166,6 @@ pub struct BatchMintTokens<'info> {
         bump,
     )]
     pub max_supply_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by seeds/bump; contents read by verify_transfer_control_mode.
-    #[account(
-        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub transfer_control_mode_pda: UncheckedAccount<'info>,
 
     #[account(
         seeds = [

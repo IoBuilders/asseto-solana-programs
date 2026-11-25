@@ -6,4 +6,6 @@ pub enum TransferHookError {
     InvalidAccountSize,
     #[msg("transfer-hook execute was invoked outside of a Token-2022 transfer")]
     NotTransferring,
+    #[msg("Transfer mode must be Whitelist or Blacklist")]
+    InvalidTransferMode,
 }

@@ -1,11 +1,13 @@
 use anchor_lang::prelude::*;
-use common::program_ids::{HOLD_PROGRAM_ID, OPERATIONS_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID};
-use common::{freeze_status, pda_seeds, pda_utils, require_locked_balance_covered, CommonError};
+use common::program_ids::{HOLD_PROGRAM_ID, OPERATIONS_PROGRAM_ID};
+use common::{
+    freeze_status, pda_seeds, pda_utils, require_locked_balance_covered,
+    verify_transfer_control_mode, CommonError,
+};
 use spl_token_2022_interface::extension::{
     transfer_hook::TransferHookAccount, BaseStateWithExtensions, StateWithExtensions,
 };
 use spl_token_2022_interface::state::Account as TokenAccountState;
-use transfer_control::verify_transfer_control_mode;
 
 use crate::errors::TransferHookError;
 use crate::state::MintCompliance;
@@ -25,20 +27,21 @@ pub fn execute<'info>(ctx: Context<'info, Execute<'info>>, _amount: u64) -> Resu
         return Ok(());
     }
 
-    let (deactivated, transfer_hook_execute_enabled) = {
+    let (deactivated, transfer_mode, transfer_hook_execute_enabled) = {
         let mint_compliance = ctx.accounts.mint_compliance_pda.load()?;
         (
             mint_compliance.deactivated != 0,
+            mint_compliance.transfer_mode,
             mint_compliance.transfer_hook_execute_enabled != 0,
         )
     };
     require!(!deactivated, CommonError::Deactivated);
 
     verify_transfer_control_mode(
-        &ctx.accounts.transfer_control_mode_pda,
+        transfer_mode,
         &[
-            &ctx.accounts.source_control_list_pda,
-            &ctx.accounts.destination_control_list_pda,
+            &ctx.accounts.source_account_compliance_pda,
+            &ctx.accounts.destination_account_compliance_pda,
         ],
     )?;
 
@@ -101,47 +104,27 @@ pub struct Execute<'info> {
     )]
     pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
-    /// CHECK: transfer-control program (index 6); resolves the mode + control-list PDAs.
-    #[account(address = TRANSFER_CONTROL_PROGRAM_ID)]
-    pub transfer_control_program: UncheckedAccount<'info>,
-
-    /// CHECK: Transfer-control mode (index 7); may be empty (no mode active).
-    #[account(
-        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
-        seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub transfer_control_mode_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Source control-list marker (index 8); seeded by the source token account.
-    #[account(
-        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), source_token.key().as_ref()],
-        seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub source_control_list_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Destination control-list marker (index 9); seeded by the destination token account.
-    #[account(
-        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), destination_token.key().as_ref()],
-        seeds::program = TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub destination_control_list_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Source compliance record (index 10); may be empty (nothing recorded). Owner
-    /// and discriminator checked by common::freeze_status.
+    /// CHECK: Source compliance record (index 6); may be empty (nothing recorded). Owner
+    /// and discriminator checked by the common readers.
     #[account(
         seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), source_token.key().as_ref()],
         bump,
     )]
     pub source_account_compliance_pda: UncheckedAccount<'info>,
 
-    /// CHECK: hold program (index 11); resolves source_hold_position_pda in the metalist.
+    /// CHECK: Destination compliance record (index 7); may be empty (nothing recorded).
+    /// Owner and discriminator checked by common::in_control_list.
+    #[account(
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), destination_token.key().as_ref()],
+        bump,
+    )]
+    pub destination_account_compliance_pda: UncheckedAccount<'info>,
+
+    /// CHECK: hold program (index 8); resolves source_hold_position_pda in the metalist.
     #[account(address = HOLD_PROGRAM_ID)]
     pub hold_program: UncheckedAccount<'info>,
 
-    /// CHECK: Source held-balance accumulator (index 12); may be empty (no hold ever created).
+    /// CHECK: Source held-balance accumulator (index 9); may be empty (no hold ever created).
     #[account(
         seeds = [pda_seeds::HOLD_POSITION, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = HOLD_PROGRAM_ID,

@@ -8,12 +8,11 @@ import { createTransferCheckedInstruction, TOKEN_2022_PROGRAM_ID } from "@solana
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, AnchorProvider } from "@anchor-lang/core";
 import { getMint } from "./spl_token_helper";
-import { TRANSFER_HOOK_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID, HOLD_PROGRAM_ID } from "../utils/address_utils";
+import { TRANSFER_HOOK_PROGRAM_ID, HOLD_PROGRAM_ID } from "../utils/address_utils";
 import { holdPositionPda } from "./hold/hold_pda_helper";
 import { BaseWriteContext, MintContext } from "./base_helper";
 import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
-import { transferControlModePda, controlListPda } from "./transfer_control/transfer_control_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
@@ -142,11 +141,8 @@ export async function buildSplTransferCheckedInstruction(
     readonly(extraAccountMetaListPda(callContext.mint)),
     readonly(TRANSFER_HOOK_PROGRAM_ID),
     readonly(mintCompliancePda(callContext.mint)),
-    readonly(TRANSFER_CONTROL_PROGRAM_ID),
-    readonly(transferControlModePda(callContext.mint)),
-    readonly(controlListPda(callContext.mint, callContext.source)),
-    readonly(controlListPda(callContext.mint, callContext.destination)),
     readonly(accountCompliancePda(callContext.mint, callContext.source)),
+    readonly(accountCompliancePda(callContext.mint, callContext.destination)),
     readonly(HOLD_PROGRAM_ID),
     readonly(holdPositionPda(callContext.mint, callContext.source))
   );
@@ -167,7 +163,7 @@ export type BatchTransferArgs = {
   // The `amounts` instruction argument. Defaults to `1` per destination.
   amounts?: anchor.BN[];
   // Overrides batch_transfer's remaining accounts. Defaults to
-  // `[destination (writable), destinationControlListPda]` per destination.
+  // `[destination (writable), destinationAccountCompliancePda]` per destination.
   // Provide to exercise error paths.
   transferRemainingAccounts?: AccountMeta[];
 };
@@ -191,7 +187,7 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
     args?.transferRemainingAccounts ??
     callContext.destinations.flatMap((destination) => [
       { pubkey: destination, isWritable: true, isSigner: false },
-      { pubkey: controlListPda(callContext.mint, destination), isWritable: false, isSigner: false },
+      { pubkey: accountCompliancePda(callContext.mint, destination), isWritable: false, isSigner: false },
     ]);
 
   await getTransferProgram()
@@ -203,9 +199,6 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       mintCompliancePda: mintCompliancePda(callContext.mint),
-      transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceControlListPda: controlListPda(callContext.mint, callContext.source),
       sourceAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.source),
       holdProgram: HOLD_PROGRAM_ID,
       sourceHoldPositionPda: holdPositionPda(callContext.mint, callContext.source),

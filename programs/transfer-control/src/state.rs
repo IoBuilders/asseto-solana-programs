@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use common::state::{TRANSFER_MODE_BLACKLIST, TRANSFER_MODE_WHITELIST};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, InitSpace)]
 pub enum TransferMode {
@@ -6,15 +7,12 @@ pub enum TransferMode {
     Blacklist,
 }
 
-#[account]
-#[derive(InitSpace)]
-pub struct TransferControlMode {
-    pub mode: TransferMode,
-    pub bump: u8,
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct ControlListStatus {
-    pub bump: u8,
+impl TransferMode {
+    /// The `MintCompliance.transfer_mode` encoding (0 is reserved for "no mode").
+    pub fn compliance_value(self) -> u8 {
+        match self {
+            TransferMode::Whitelist => TRANSFER_MODE_WHITELIST,
+            TransferMode::Blacklist => TRANSFER_MODE_BLACKLIST,
+        }
+    }
 }

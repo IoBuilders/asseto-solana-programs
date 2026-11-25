@@ -26,8 +26,7 @@ amount: u64  // raw token units (accounting for decimals)
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs the `mint_to` CPI |
 | `destination` | yes | no | UncheckedAccount | Token account receiving minted tokens |
-| `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; read by `verify_transfer_control_mode` to get the active mode |
-| `destination_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, destination]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; must exist in Whitelist mode, must not exist in Blacklist mode |
+| `destination_account_compliance_pda` | no | no | UncheckedAccount | seeds `["account_compliance", mint, destination]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be absent; its `in_control_list` must be set in Whitelist mode and clear in Blacklist mode |
 | `max_supply_pda` | no | no | UncheckedAccount | seeds `["max_supply", mint]`, `seeds::program = CAP_PROGRAM_ID`; may be empty only when the asset-class version does not enable `CAP_MAX_SUPPLY` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
@@ -41,7 +40,7 @@ amount: u64  // raw token units (accounting for decimals)
 1. `require_role(authority_roles_pda.load()?, ROLE_ISSUER)` — errors with `MissingRole` if `authority` does not hold the issuer role (or `RoleOutOfBounds` if the role id exceeds the mask)
 2. `require_active(mint_compliance_pda.load()?)` — errors if the mint has been deactivated
 3. `require_functionality(asset_class_version_pda.load()?, MINT_MINT)` — errors if the mint's asset-class version isn't finalized or doesn't enable `MINT_MINT`
-4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[&destination_control_list_pda])` — a no-op if `transfer_control_mode_pda` is empty (no mode active); otherwise errors with `NotWhitelisted` in Whitelist mode if `destination_control_list_pda` is empty, or `Blacklisted` in Blacklist mode if it exists
+4. `common::verify_transfer_control_mode(mint_compliance.transfer_mode, &[&destination_account_compliance_pda])` — a no-op if no mode is set; otherwise errors with `NotWhitelisted` in Whitelist mode if the destination is not listed, or `Blacklisted` in Blacklist mode if it is
 5. `cap::require_within_max_supply(&mint, &max_supply_pda, asset_class_version_pda.load()?, amount)` — errors with `MaxSupplyExceeded` if `supply + amount` exceeds the stored cap. When `max_supply_pda` is empty, the outcome depends on the asset-class version's `CAP_MAX_SUPPLY` bit: a no-op if the bit is unset (the mint opted out of capping), `MaxSupplyNotSet` if it is set (the mint is meant to be capped but `set_max_supply` was never called). Runs before the snapshot CPIs so a rejected mint leaves no writes behind
 6. `invoke_signed` → `mint_to(mint, destination, mint_authority, amount)` signed with `["mint_authority", mint, bump]`
 7. Emit `Issued { mint, operator: authority, to: destination, value: amount }` via `emit_cpi!`
@@ -71,22 +70,23 @@ amounts: Vec<u64>  // amounts[i] is minted to remaining_accounts[i*2]
 
 ### `remaining_accounts` layout
 
-For each destination `i` (`0..amounts.len()`), two consecutive entries:
+For each destination `i` (`0..amounts.len()`), three consecutive entries:
 
 | Offset | Account | Notes |
 |---|---|---|
-| `i*2` | destination token account | Writable; receives `amounts[i]` |
-| `i*2 + 1` | destination's control-list PDA | Not seed-constrained by Anchor (dynamic list) — re-derived and matched at runtime via `common::verify_control_list_pda` (always, whatever the mode), then checked against the active mode by `transfer_control::verify_transfer_control_mode` |
+| `i*3` | destination token account | Writable; receives `amounts[i]` (created as the owner's ATA if missing) |
+| `i*3 + 1` | destination's `account_compliance_pda` | Not seed-constrained by Anchor (dynamic list) — re-derived and matched at runtime via `common::verify_account_compliance_pda` (always, whatever the mode), then checked against the active mode by `common::verify_transfer_control_mode` |
+| `i*3 + 2` | destination owner | Only read when the destination has to be created; a placeholder otherwise |
 
 ### Preconditions
 
 - `require!(!amounts.is_empty(), MintError::EmptyBatch)`
-- `require!(ctx.remaining_accounts.len() == amounts.len() * 2, MintError::InvalidRemainingAccounts)`
+- `require!(ctx.remaining_accounts.len() == amounts.len() * 3, MintError::InvalidRemainingAccounts)`
 - `require_role(authority_roles_pda, ROLE_ISSUER)`
 - `require_active(mint_compliance_pda.load()?)`
 - `require_functionality(asset_class_version_pda, MINT_MINT)` — same functionality bit as `mint`, not a separate one
 - `cap::require_within_max_supply(&mint, &max_supply_pda, asset_class_version_pda, sum(amounts))` — checked **once on the batch total**, not per destination. Equivalent to a per-destination check (the final supply is `initial + sum`, and every intermediate undershoots it) but pays the mint's TLV unpack once instead of `N` times, and fails before any CPI is issued. When `max_supply_pda` is empty it's a no-op if the asset-class version leaves `CAP_MAX_SUPPLY` unset, and errors with `MaxSupplyNotSet` if that bit is set. The sum itself is folded with `checked_add` and errors with `AmountOverflow` if it overflows `u64`
-- **Every** destination's control-list PDA is re-derived (`ControlListPdaMismatch` if the passed PDA isn't the one derived for that destination), then all of them are passed in one call to `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[..])` — the same mode-aware check `mint` runs: a no-op if no mode is active, otherwise `NotWhitelisted` in Whitelist mode if any is empty, or `Blacklisted` in Blacklist mode if any exists. Both run for the whole batch before the first `mint_to` CPI, so a single ineligible destination fails the instruction without minting to anyone.
+- **Every** destination's `account_compliance_pda` is re-derived (`AccountCompliancePdaMismatch` if the passed PDA isn't the one derived for that destination), then all of them are passed in one call to `common::verify_transfer_control_mode(mint_compliance.transfer_mode, &[..])` — the same mode-aware check `mint` runs: a no-op if no mode is set, otherwise `NotWhitelisted` in Whitelist mode if any destination is not listed, or `Blacklisted` in Blacklist mode if any is. Both run for the whole batch before the first `mint_to` CPI, so a single ineligible destination fails the instruction without minting to anyone.
 
 ### Accounts
 
@@ -98,17 +98,16 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs the `mint_to` CPI per destination |
 | `max_supply_pda` | no | no | UncheckedAccount | seeds `["max_supply", mint]`, `seeds::program = CAP_PROGRAM_ID`; may be empty only when the asset-class version does not enable `CAP_MAX_SUPPLY` |
-| `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID`; read once by `verify_transfer_control_mode` for the whole batch |
 | `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` (`MINT_MINT`) and again by `cap::require_within_max_supply` (`CAP_MAX_SUPPLY`) |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `authority_roles_pda` | no | no | AccountLoader<Roles> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read to verify `authority` holds `ROLE_ISSUER` |
 | `event_authority` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`; signs the self-CPI that emits `Issued` (once per destination) |
 | `program` | no | no | UncheckedAccount | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI |
-| *(remaining_accounts)* | varies | no | — | Two per destination — see layout above |
+| *(remaining_accounts)* | varies | no | — | Three per destination — see layout above |
 
 ### Execution
 
-Once, before the loop: `verify_control_list_pda` on every `remaining_accounts[i*2 + 1]`, then a single `verify_transfer_control_mode` over all of them.
+Once, before the loop: `verify_account_compliance_pda` on every `remaining_accounts[i*3 + 1]`, then a single `verify_transfer_control_mode` over all of them.
 
 For each index `i` in `0..amounts.len()`:
 
@@ -122,9 +121,7 @@ The role/active/functionality and supply-cap checks (see Preconditions) run once
 | Code                       | Cause                                              |
 |----------------------------|----------------------------------------------------|
 | `EmptyBatch`               | `amounts` is empty                                 |
-| `InvalidRemainingAccounts` | `remaining_accounts.len() != amounts.len() * 2`    |
-| `ControlListPdaMismatch`     | `the passed control-list PDA isn't correctly derived` |
-| `NotWhitelisted`           | `remaining_accounts.len() != amounts.len() * 2`    |
+| `InvalidRemainingAccounts` | `remaining_accounts.len() != amounts.len() * 3`    |
 | `AmountOverflow`           | the sum of `amounts` overflows `u64`               |
 | `MaxSupplyExceeded`        | `supply + sum(amounts)` exceeds the stored cap     |
 | `MaxSupplyNotSet`          | `CAP_MAX_SUPPLY` is enabled but the `max_supply` PDA doesn't exist |
@@ -132,7 +129,7 @@ The role/active/functionality and supply-cap checks (see Preconditions) run once
 ---
 ```
 
-Plus `common::CommonError::ControlListPdaMismatch` (from `verify_control_list_pda`) and `transfer_control::TransferControlError::NotWhitelisted` / `Blacklisted` (from `verify_transfer_control_mode`) in Whitelist / Blacklist mode.
+Plus `common::CommonError::AccountCompliancePdaMismatch` (from `verify_account_compliance_pda`) and `common::CommonError::NotWhitelisted` / `Blacklisted` (from `verify_transfer_control_mode`) in Whitelist / Blacklist mode.
 
 ### Events
 

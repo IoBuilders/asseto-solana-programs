@@ -1,66 +1,54 @@
 import { PublicKey } from "@solana/web3.js";
 import { TRANSFER_CONTROL_PROGRAM_ID } from "../../utils/address_utils";
-import { getTransferControlProgram } from "./transfer_control_instruction_helper";
-import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
+import {
+  getAccountCompliance,
+  getMintCompliance,
+  setAccountComplianceFields,
+  setMintComplianceTransferMode,
+  TRANSFER_MODE_BLACKLIST,
+  TRANSFER_MODE_WHITELIST,
+} from "../transfer_hook/transfer_hook_pda_helper";
 
-// ── transfer_control_mode PDA ─────────────────────────────────────────────────
+export {
+  TRANSFER_MODE_NONE,
+  TRANSFER_MODE_WHITELIST,
+  TRANSFER_MODE_BLACKLIST,
+} from "../transfer_hook/transfer_hook_pda_helper";
 
-export function transferControlModePda(mint: PublicKey): PublicKey {
-  return transferControlModePdaWithBump(mint)[0];
+// ── transfer mode (MintCompliance.transfer_mode) ──────────────────────────────
+
+/** The `MintCompliance.transfer_mode` encoding of the program's `TransferMode` enum arg. */
+export function transferModeValue(mode: { whitelist?: object; blacklist?: object }): number {
+  return mode.whitelist !== undefined ? TRANSFER_MODE_WHITELIST : TRANSFER_MODE_BLACKLIST;
 }
 
-export function transferControlModePdaWithBump(mint: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("transfer_control_mode"), mint.toBuffer()],
-    TRANSFER_CONTROL_PROGRAM_ID
-  );
+export async function getTransferMode(mint: PublicKey): Promise<number> {
+  return (await getMintCompliance(mint))!.transferMode;
 }
 
-export async function getTransferControlModeByPda(pda: PublicKey) {
-  return await getTransferControlProgram().account.transferControlMode.fetchNullable(pda, "confirmed");
+/** Test-only: sets the mint's transfer mode via surfpool, without `initialize`'s gates. */
+export async function setTransferControlModeMarker(
+  mint: PublicKey,
+  mode: { whitelist?: object; blacklist?: object }
+): Promise<void> {
+  await setMintComplianceTransferMode(mint, transferModeValue(mode));
 }
 
-export async function setTransferControlModeMarker(mint: PublicKey, mode: any): Promise<void> {
-  const [pda, bump] = transferControlModePdaWithBump(mint);
-  const data = await getTransferControlProgram().coder.accounts.encode("transferControlMode", { mode, bump });
-  const lamports = await getBalanceForRentExeption(data.length);
-  await surfnetSetAccount(pda, {
-    lamports,
-    owner: TRANSFER_CONTROL_PROGRAM_ID.toBase58(),
-    data: data.toString("hex"),
-    executable: false,
-    rentEpoch: 0,
-  });
+// ── control-list membership (AccountCompliance.in_control_list) ───────────────
+
+export async function isInControlList(mint: PublicKey, account: PublicKey): Promise<boolean> {
+  return ((await getAccountCompliance(mint, account))?.inControlList ?? 0) !== 0;
 }
 
-// ── control-list PDA ──────────────────────────────────────────────────────────────
-
-export function controlListPda(mint: PublicKey, account: PublicKey): PublicKey {
-  return controlListPdaWithBump(mint, account)[0];
-}
-
-export function controlListPdaWithBump(mint: PublicKey, account: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("control_list"), mint.toBuffer(), account.toBuffer()],
-    TRANSFER_CONTROL_PROGRAM_ID
-  );
-}
-
-export async function getControlListStatusByPda(pda: PublicKey) {
-  return await getTransferControlProgram().account.controlListStatus.fetchNullable(pda, "confirmed");
-}
-
+/** Test-only: puts `account` in the control list via surfpool, without `add_to_control_list`'s gates. */
 export async function setControlListMarker(mint: PublicKey, account: PublicKey): Promise<void> {
-  const [pda, bump] = controlListPdaWithBump(mint, account);
-  const data = await getTransferControlProgram().coder.accounts.encode("controlListStatus", { bump });
-  const lamports = await getBalanceForRentExeption(data.length);
-  await surfnetSetAccount(pda, {
-    lamports,
-    owner: TRANSFER_CONTROL_PROGRAM_ID.toBase58(),
-    data: data.toString("hex"),
-    executable: false,
-    rentEpoch: 0,
-  });
+  await setAccountComplianceFields(mint, account, { inControlList: true });
+}
+
+// ── registry_writer PDA ───────────────────────────────────────────────────────
+
+export function transferControlRegistryWriterPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("registry_writer")], TRANSFER_CONTROL_PROGRAM_ID)[0];
 }
 
 // ── __event_authority PDA ─────────────────────────────────────────────────────

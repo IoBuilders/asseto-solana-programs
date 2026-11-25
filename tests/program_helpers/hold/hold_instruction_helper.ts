@@ -7,7 +7,6 @@ import {
   HOLD_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
-  TRANSFER_CONTROL_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
 } from "../../utils/address_utils";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
@@ -20,7 +19,6 @@ import { rolesPda } from "../access_control/access_control_pda_helper";
 import { BaseWriteContext, MintContext, PayerContext } from "../base_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { permanentDelegatePda } from "../operations/operations_pda_helper";
-import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
 import { getEvent } from "../event_helper";
 import { holdAuthorityPda, holdEventAuthorityPda, holdPda, holdPositionPda, nextHoldId } from "./hold_pda_helper";
 
@@ -192,10 +190,7 @@ export async function executeHold(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
-      transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceControlListPda: controlListPda(callContext.mint, callContext.tokenAccount),
-      destinationControlListPda: controlListPda(callContext.mint, callContext.destination),
+      destinationAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.destination),
       sourceAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.tokenAccount),
       holdProgram: HOLD_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,

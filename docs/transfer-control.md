@@ -9,26 +9,32 @@ Governs who may transfer tokens for a given mint. The mode is chosen once, at `i
 | **Whitelist** | Both source and destination must be individually in the control list before a transfer is allowed |
 | **Blacklist** | Neither source nor destination may be in the control list; every other account may transfer |
 
-If no mode is set (no `transfer_control_mode_pda` created), transfers are unrestricted.
+If no mode is set, transfers are unrestricted.
 
-Also exports `verify_transfer_control_mode`, a helper function used by `mint` and `transfer-hook` to enforce the active mode against one or more control-list PDAs.
+This program holds no state of its own. Both pieces of state live in the transfer hook's compliance registry (ADR option C, see [`transfer-hook.md`](transfer-hook.md#state-compliance-registry)), which is their single source of truth:
+
+| State | Where | Written through |
+|---|---|---|
+| Transfer mode | `MintCompliance.transfer_mode` (`0` = none, `1` = Whitelist, `2` = Blacklist) | `transfer-hook::set_transfer_mode` |
+| Membership of a token account | `AccountCompliance.in_control_list` of `["account_compliance", mint, token_account]` | `transfer-hook::set_in_control_list` |
+
+Each instruction validates, then writes through a CPI signed by this program's `["registry_writer"]` PDA — the only writer the hook accepts for those fields (the same pattern `deactivate` and `freeze` use). Membership is the **flag**, not the existence of a record: an `AccountCompliance` can exist because the account is frozen, and an absent record means "not in the list". The record is never closed.
+
+Enforcement is read-side and lives in `common::verify_transfer_control_mode` (see [`common.md`](common.md#function-verify_transfer_control_mode)), called by `transfer-hook::execute`, `mint::mint`, `mint::batch_mint` and `hold::execute_hold`. None of them depends on this crate.
 
 ---
 
-## State: `TransferControlMode`
+## PDA: `registry_writer`
+
+`["registry_writer"]` (owned by this program, no data). Signs the `set_transfer_mode` and `set_in_control_list` CPIs.
+
+## `TransferMode`
 
 ```rust
-#[account]
-#[derive(InitSpace)]
-pub struct TransferControlMode {
-    pub mode: TransferMode,
-    pub bump: u8,
-}
-
-pub enum TransferMode { Whitelist, Blacklist }  // data-less: 1-byte Borsh tag, account size is the same for both
-
-// Seeds: ["transfer_control_mode", mint]
+pub enum TransferMode { Whitelist, Blacklist }  // instruction argument and event field
 ```
+
+`TransferMode::compliance_value` maps it to the `MintCompliance.transfer_mode` encoding (`TRANSFER_MODE_WHITELIST = 1`, `TRANSFER_MODE_BLACKLIST = 2`; `0` is reserved for "no mode").
 
 ---
 
@@ -36,46 +42,18 @@ pub enum TransferMode { Whitelist, Blacklist }  // data-less: 1-byte Borsh tag, 
 
 ```rust
 pub enum TransferControlError {
-    NotWhitelisted,  // Whitelist mode is active and a control_list_pda passed to verify_transfer_control_mode is empty
-    Blacklisted,     // Blacklist mode is active and a control_list_pda passed to verify_transfer_control_mode exists
+    TransferModeAlreadySet,   // initialize on a mint whose transfer_mode is already set
+    AccountNotInControlList,  // remove_from_control_list on an account that is not listed
 }
 ```
 
-Each mode fails with its own error, because the failure condition is opposite: Whitelist rejects an account that is *missing* from the control list, Blacklist one that is *present*. `Blacklisted` is appended after `NotWhitelisted` so existing error codes stay stable.
-
----
-
-## Exported Functions
-
-### `verify_control_list_membership`
-
-```rust
-pub fn verify_control_list_membership(control_list_pda: &AccountInfo) -> Result<()>
-```
-
-Returns `Ok(())` if `control_list_pda` exists (non-empty data — the account is in the control list), else `Err(TransferControlError::NotWhitelisted)`. This is the mode-blind membership primitive that `verify_transfer_control_mode` applies in Whitelist mode. Callers outside this crate should use `verify_transfer_control_mode` instead, which only treats a missing PDA as a failure when the active mode says so.
-
-### `verify_transfer_control_mode`
-
-```rust
-pub fn verify_transfer_control_mode(
-    transfer_control_mode_pda: &AccountInfo,
-    control_list_pdas: &[&AccountInfo],
-) -> Result<()>
-```
-
-`transfer_control_mode_pda` and every `control_list_pda` are raw, unchecked PDAs — their address is verified by the caller's `seeds`/`bump` constraints, but Anchor does not deserialize their contents. Behaviour:
-
-- If `transfer_control_mode_pda` has empty data, no mode is active — returns `Ok(())` immediately.
-- Otherwise, Borsh-deserializes `TransferControlMode` from the account data (via `Account::<TransferControlMode>::try_from`, which checks the owner is `transfer-control` and the discriminator).
-- If `mode == TransferMode::Whitelist`, every account in `control_list_pdas` is checked with `data_is_empty()`; an empty account (not in the control list) errors with `TransferControlError::NotWhitelisted`.
-- If `mode == TransferMode::Blacklist`, the condition is inverted: an existing account (in the control list) errors with `TransferControlError::Blacklisted`.
-
-Called by `mint::mint` (with the single `destination_control_list_pda`), `mint::batch_mint` (with every destination's control-list PDA, after re-deriving each with `common::verify_control_list_pda`), `hold::execute_hold` (with both source and destination) and `transfer-hook::execute` (with both `source_control_list_pda` and `destination_control_list_pda`).
+The enforcement errors `NotWhitelisted` / `Blacklisted` live in `common::CommonError`, raised by `common::verify_transfer_control_mode`. Each mode fails with its own error because the failure condition is opposite: Whitelist rejects an account that is *missing* from the list, Blacklist one that is *present*.
 
 ---
 
 ## Instruction: `initialize` (Management)
+
+Sets the mint's transfer mode, once.
 
 ### Parameters
 
@@ -83,30 +61,35 @@ Called by `mint::mint` (with the single `destination_control_list_pda`), `mint::
 mode: TransferMode   // Whitelist | Blacklist
 ```
 
-Creates `transfer_control_mode_pda` (`init`, fixed space) and writes `mode` into it. Unlike a resizable/closable design, this instruction only creates the PDA — there is currently no instruction to close it or change the mode afterward.
+Fails with `TransferModeAlreadySet` if `MintCompliance.transfer_mode` is already set; there is no instruction to change or clear the mode afterwards.
 
 ### Preconditions
 
 - `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint (checked against its own `["roles", mint, authority]` PDA).
 - `require_not_paused`, `require_active`
 - `require_functionality(TRANSFER_CONTROL_INITIALIZE)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_INITIALIZE` functionality bit enabled.
+- `MintCompliance.transfer_mode == 0`, else `TransferModeAlreadySet`.
 
 ### Accounts
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; funds PDA creation |
+| `authority` | no | yes | Signer | Must hold `ROLE_CONTROL_LIST` |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
-| `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | `init`, `payer = authority`; seeds `["transfer_control_mode", mint]` |
+| `mint_compliance_pda` | yes | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (`require_active`), `transfer_mode` must be 0; written by the `set_transfer_mode` CPI |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
-| `system_program` | no | no | Program<System> | |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the hook setter CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
 | `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
 | `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
 
-Calling `initialize` a second time for the same mint fails at the System program level ("already in use"), since the account struct uses `init` rather than `init_if_needed`.
+### Execution
+
+1. Preconditions above.
+2. CPI → `transfer_hook::set_transfer_mode(mode.compliance_value())`, signed by `registry_writer`.
+3. Emit `TransferControlModeSet`.
 
 ---
 
@@ -114,7 +97,7 @@ Calling `initialize` a second time for the same mint fails at the System program
 
 No parameters.
 
-Creates a `control_list_pda` marker for a specific token account. If the PDA already exists, the instruction is a no-op.
+Puts a token account in the control list: sets `in_control_list` on its `AccountCompliance`, creating the record if absent. Idempotent — adding an account that is already listed succeeds and emits the event again.
 
 ### Preconditions
 
@@ -126,17 +109,25 @@ Creates a `control_list_pda` marker for a specific token account. If the PDA alr
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; funds PDA creation |
+| `authority` | yes | yes | Signer | Must hold `ROLE_CONTROL_LIST`; pays for the `AccountCompliance` record when `set_in_control_list` creates it |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `account` | no | no | UncheckedAccount | Token account to add to the control list; used as a seed |
+| `account` | no | no | UncheckedAccount | Token account whose membership changes; used as a seed |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
-| `control_list_pda` | yes | no | Account | `init_if_needed`; seeds `["control_list", mint, account]`, `payer = authority` |
+| `account_compliance_pda` | yes | no | UncheckedAccount | seeds `["account_compliance", mint, account]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be absent; created/written by the `set_in_control_list` CPI |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
-| `system_program` | no | no | Program<System> | |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the hook setter CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_in_control_list` (`init_if_needed` on the record) |
 | `event_authority` | no | no | UncheckedAccount | Added by `#[event_cpi]`; seeds `["__event_authority"]` |
 | `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`; this program's own id |
+
+### Execution
+
+1. Preconditions above.
+2. CPI → `transfer_hook::set_in_control_list(true)`, signed by `registry_writer`, `payer = authority`.
+3. Emit `AccountAddedToControlList`.
 
 ---
 
@@ -144,17 +135,24 @@ Creates a `control_list_pda` marker for a specific token account. If the PDA alr
 
 No parameters.
 
-Closes the `control_list_pda` and returns rent to `authority`. If the PDA does not exist, the instruction is a no-op.
+Takes a token account out of the control list: clears `in_control_list` on its `AccountCompliance`. The record is kept (it may carry other compliance fields). Fails with `AccountNotInControlList` if the account is not listed (including when it has no record).
 
 ### Preconditions
 
 - `require_role(ROLE_CONTROL_LIST)` — the `authority` caller must sign and hold `ROLE_CONTROL_LIST` on this mint.
 - `require_not_paused`, `require_active`
 - `require_functionality(TRANSFER_CONTROL_REMOVE_FROM_CONTROL_LIST)` — the mint's asset-class version must be finalized and have the `TRANSFER_CONTROL_REMOVE_FROM_CONTROL_LIST` functionality bit enabled.
+- `common::in_control_list(account_compliance_pda)`, else `AccountNotInControlList`.
 
 ### Accounts
 
-Same shape as `add_to_control_list` but the `control_list_pda` constraint uses `close = authority`.
+Same shape as `add_to_control_list`.
+
+### Execution
+
+1. Preconditions above.
+2. CPI → `transfer_hook::set_in_control_list(false)`, signed by `registry_writer`.
+3. Emit `AccountRemovedFromControlList`.
 
 ---
 
@@ -165,7 +163,7 @@ and the `event_authority` / `program` accounts above on the instruction context)
 
 ### `TransferControlModeSet`
 
-Emitted at the end of `initialize`, after the `transfer_control_mode_pda` has been created.
+Emitted at the end of `initialize`, after the mode has been written.
 
 ```rust
 #[event]
@@ -178,8 +176,7 @@ pub struct TransferControlModeSet {
 
 ### `AccountAddedToControlList`
 
-Emitted at the end of `add_to_control_list`, including on the no-op path where the `control_list_pda`
-already existed.
+Emitted at the end of `add_to_control_list`, including when the account was already listed.
 
 ```rust
 #[event]
@@ -192,7 +189,7 @@ pub struct AccountAddedToControlList {
 
 ### `AccountRemovedFromControlList`
 
-Emitted at the end of `remove_from_control_list`, after the `control_list_pda` close has been queued.
+Emitted at the end of `remove_from_control_list`.
 
 ```rust
 #[event]
@@ -210,3 +207,5 @@ pub struct AccountRemovedFromControlList {
 ## Program IDs
 
 Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.
+
+`transfer-control` depends on `transfer-hook` (with `cpi`) for the setter CPIs; the hook does not depend on `transfer-control`, so there is no cycle.

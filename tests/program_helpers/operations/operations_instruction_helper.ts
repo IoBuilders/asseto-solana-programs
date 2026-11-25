@@ -12,7 +12,6 @@ import {
   SYSTEM_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
   TRANSFER_HOOK_PROGRAM_ID,
-  TRANSFER_CONTROL_PROGRAM_ID,
   HOLD_PROGRAM_ID,
 } from "../../utils/address_utils";
 import { holdPositionPda } from "../hold/hold_pda_helper";
@@ -22,7 +21,6 @@ import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { Operations } from "../../../target/types/operations";
 import { permanentDelegatePda, permissionedBurnPda, operationsEventAuthorityPda } from "./operations_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
-import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
 
 export function getOperationsProgram(): Program<Operations> {
   return anchor.workspace.Operations as Program<Operations>;
@@ -204,10 +202,7 @@ export async function controllerTransfer(
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       mintCompliancePda: mintCompliancePda(callContext.mint),
-      transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
-      transferControlModePda: transferControlModePda(callContext.mint),
-      sourceControlListPda: controlListPda(callContext.mint, callContext.from),
-      destinationControlListPda: controlListPda(callContext.mint, callContext.to),
+      destinationAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.to),
       sourceAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.from),
       holdProgram: HOLD_PROGRAM_ID,
       sourceHoldPositionPda: holdPositionPda(callContext.mint, callContext.from),

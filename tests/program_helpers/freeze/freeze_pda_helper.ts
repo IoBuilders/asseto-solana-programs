@@ -4,7 +4,7 @@ import { FREEZE_PROGRAM_ID } from "../../utils/address_utils";
 import {
   accountCompliancePda,
   getAccountComplianceByPda,
-  setAccountComplianceFreeze,
+  setAccountComplianceFields,
 } from "../transfer_hook/transfer_hook_pda_helper";
 
 export { accountCompliancePda, accountCompliancePdaWithBump } from "../transfer_hook/transfer_hook_pda_helper";
@@ -36,7 +36,7 @@ export async function setFreezeStatePda(
   account: PublicKey,
   changes: Partial<Omit<FreezeState, "bump">>
 ): Promise<void> {
-  await setAccountComplianceFreeze(mint, account, changes);
+  await setAccountComplianceFields(mint, account, changes);
 }
 
 export async function setFrozenAccountPda(mint: PublicKey, account: PublicKey): Promise<void> {

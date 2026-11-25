@@ -1,12 +1,16 @@
 use anchor_lang::prelude::*;
+use common::program_ids as constants;
+use common::state::{
+    AssetClassVersion, AssetConfiguration, MintCompliance, Roles, TRANSFER_MODE_NONE,
+};
 use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
+use crate::errors::TransferControlError;
 use crate::events::TransferControlModeSet;
-use crate::state::{TransferControlMode, TransferMode};
-use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
+use crate::registry::RegistryWriter;
+use crate::state::TransferMode;
 
 pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
     require_role(
@@ -14,10 +18,8 @@ pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
         roles::ROLE_CONTROL_LIST,
     )?;
 
-    // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
-    // ── Verify mint has not been deactivated ──────────────────────────────────
     require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
@@ -25,8 +27,20 @@ pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
         common::functionalities::TRANSFER_CONTROL_INITIALIZE,
     )?;
 
-    ctx.accounts.transfer_control_mode_pda.bump = ctx.bumps.transfer_control_mode_pda;
-    ctx.accounts.transfer_control_mode_pda.mode = mode;
+    require!(
+        ctx.accounts.mint_compliance_pda.load()?.transfer_mode == TRANSFER_MODE_NONE,
+        TransferControlError::TransferModeAlreadySet
+    );
+
+    RegistryWriter {
+        registry_writer: &ctx.accounts.registry_writer,
+        bump: ctx.bumps.registry_writer,
+        mint: &ctx.accounts.mint,
+    }
+    .set_transfer_mode(
+        ctx.accounts.mint_compliance_pda.as_ref(),
+        mode.compliance_value(),
+    )?;
 
     emit_cpi!(TransferControlModeSet {
         mint: ctx.accounts.mint.key(),
@@ -40,7 +54,6 @@ pub fn initialize(ctx: Context<SetMode>, mode: TransferMode) -> Result<()> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct SetMode<'info> {
-    #[account(mut)]
     pub authority: Signer<'info>,
 
     #[account(
@@ -61,20 +74,12 @@ pub struct SetMode<'info> {
     pub mint: UncheckedAccount<'info>,
 
     #[account(
+        mut,
         seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
         seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
         bump = mint_compliance_pda.load()?.bump,
     )]
     pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
-
-    #[account(
-        init,
-        payer = authority,
-        space = TransferControlMode::DISCRIMINATOR.len() + TransferControlMode::INIT_SPACE,
-        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
-        bump,
-    )]
-    pub transfer_control_mode_pda: Account<'info, TransferControlMode>,
 
     #[account(
         seeds = [
@@ -87,5 +92,12 @@ pub struct SetMode<'info> {
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
-    pub system_program: Program<'info, System>,
+    /// CHECK: Address verified by seeds/bump; signs the hook setter CPI, which accepts
+    /// only this PDA.
+    #[account(seeds = [pda_seeds::REGISTRY_WRITER], bump)]
+    pub registry_writer: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by constraint.
+    #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
+    pub transfer_hook_program: UncheckedAccount<'info>,
 }
