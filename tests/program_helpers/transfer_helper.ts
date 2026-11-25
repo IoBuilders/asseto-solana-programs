@@ -1,6 +1,5 @@
 import { AccountMeta, PublicKey, SendTransactionError, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { assetConfigurationPda, getAssetConfiguration } from "./deploy/deploy_pda_helper";
-import { extraAccountMetaListPda } from "./transfer_hook/transfer_hook_pda_helper";
+import { extraAccountMetaListPda, mintCompliancePda } from "./transfer_hook/transfer_hook_pda_helper";
 import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { createTransferCheckedInstruction, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
@@ -8,7 +7,6 @@ import { AnchorError, AnchorProvider } from "@anchor-lang/core";
 import { getMint } from "./spl_token_helper";
 import {
   TRANSFER_HOOK_PROGRAM_ID,
-  FACTORY_PROGRAM_ID,
   TRANSFER_CONTROL_PROGRAM_ID,
   FREEZE_PROGRAM_ID,
   HOLD_PROGRAM_ID,
@@ -19,7 +17,6 @@ import { Program } from "@anchor-lang/core";
 import { Transfer } from "../../target/types/transfer";
 import { transferControlModePda, controlListPda } from "./transfer_control/transfer_control_pda_helper";
 import { freezeStatePda } from "./freeze/freeze_pda_helper";
-import { assetClassVersionPda } from "./factory/factory_pda_helper";
 
 export function getTransferProgram(): Program<Transfer> {
   return anchor.workspace.Transfer as Program<Transfer>;
@@ -130,9 +127,6 @@ export async function buildSplTransferCheckedInstruction(
   args: Required<TransferArgs>
 ): Promise<TransactionInstruction> {
   const decimals = (await getMint(callContext.mint)).decimals;
-  // The asset-class version PDA is derived from the ids recorded in the mint's
-  // `asset_configuration` account — the same values the hook reads.
-  const assetConfiguration = await getAssetConfiguration(callContext.mint);
 
   const instruction = createTransferCheckedInstruction(
     callContext.source,
@@ -150,9 +144,7 @@ export async function buildSplTransferCheckedInstruction(
   instruction.keys.push(
     readonly(extraAccountMetaListPda(callContext.mint)),
     readonly(TRANSFER_HOOK_PROGRAM_ID),
-    readonly(assetConfigurationPda(callContext.mint)),
-    readonly(FACTORY_PROGRAM_ID),
-    readonly(assetClassVersionPda(assetConfiguration.assetClassConfigId, assetConfiguration.assetClassVersionId)),
+    readonly(mintCompliancePda(callContext.mint)),
     readonly(deactivatePda(callContext.mint)),
     readonly(TRANSFER_CONTROL_PROGRAM_ID),
     readonly(transferControlModePda(callContext.mint)),
@@ -207,8 +199,6 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       { pubkey: controlListPda(callContext.mint, destination), isWritable: false, isSigner: false },
     ]);
 
-  const assetConfiguration = await getAssetConfiguration(callContext.mint);
-
   await getTransferProgram()
     .methods.batchTransfer(amounts)
     .accountsStrict({
@@ -218,12 +208,7 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       extraAccountMetaList: extraAccountMetaListPda(callContext.mint),
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       freezeProgram: FREEZE_PROGRAM_ID,
-      assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      factoryProgram: FACTORY_PROGRAM_ID,
-      assetClassVersionPda: assetClassVersionPda(
-        assetConfiguration.assetClassConfigId,
-        assetConfiguration.assetClassVersionId
-      ),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),

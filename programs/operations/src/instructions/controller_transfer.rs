@@ -64,15 +64,10 @@ pub fn controller_transfer<'info>(
     )
     .map_err(Error::from)?;
 
-    let asset_configuration_info = ctx.accounts.asset_configuration_pda.to_account_info();
-    let asset_class_version_info = ctx.accounts.asset_class_version_pda.to_account_info();
-
     let hook_accounts = HookAccounts {
         extra_account_meta_list: &ctx.accounts.extra_account_meta_list,
         transfer_hook_program: &ctx.accounts.transfer_hook_program,
-        asset_configuration_pda: &asset_configuration_info,
-        factory_program: &ctx.accounts.factory_program,
-        asset_class_version_pda: &asset_class_version_info,
+        mint_compliance_pda: &ctx.accounts.mint_compliance_pda,
         deactivate_pda: &ctx.accounts.deactivate_pda,
         transfer_control_program: &ctx.accounts.transfer_control_program,
         transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
@@ -165,10 +160,13 @@ pub struct ControllerTransfer<'info> {
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by constraint; forwarded to the hook so its
-    /// metalist can resolve `asset_class_version_pda` as an external PDA.
-    #[account(address = constants::FACTORY_PROGRAM_ID)]
-    pub factory_program: UncheckedAccount<'info>,
+    /// CHECK: seeds verified; forwarded to the hook.
+    #[account(
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump,
+    )]
+    pub mint_compliance_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]

@@ -75,7 +75,7 @@ pub struct MetadataField {
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|
-| `payer` | yes | yes | Signer | Pays rent for mint account, `asset_configuration_pda`, and `extra_account_meta_list` |
+| `payer` | yes | yes | Signer | Pays rent for mint account, `asset_configuration_pda`, `extra_account_meta_list` and `mint_compliance_pda` |
 | `deployer` | no | yes | Signer | Granted `ROLE_ADMIN` on this mint in step 15; can be same wallet as `payer` |
 | `asset_configuration_pda` | yes | no | `Account<AssetConfiguration>` | init; seeds `["asset_configuration", mint]` |
 | `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", params.asset_class_config_id, params.asset_class_version_id]`, `seeds::program = FACTORY_PROGRAM_ID`. Must be `Finalized`, else `CommonError::AssetClassVersionNotFinalized`; a version that was never created fails account resolution with `AccountOwnedByWrongProgram` |
@@ -88,6 +88,7 @@ pub struct MetadataField {
 | `pausable_authority` | no | no | UncheckedAccount | seeds `["pausable_authority", mint]`, `seeds::program = PAUSE_PROGRAM_ID` |
 | `transfer_hook_authority` | no | no | UncheckedAccount | seeds `["transfer_hook_authority", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
 | `extra_account_meta_list` | yes | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; created via CPI in step 14 |
+| `mint_compliance_pda` | yes | no | UncheckedAccount | `["mint_compliance", mint]` of `TRANSFER_HOOK_PROGRAM_ID`; created via the CPI in step 14, whose `init` constraint derives and checks the address (not re-derived here, to save a PDA search) |
 | `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
@@ -96,7 +97,7 @@ pub struct MetadataField {
 | `access_control_program` | no | no | UncheckedAccount | address constrained to `ACCESS_CONTROL_PROGRAM_ID`; the program invoked by the step 15 CPI |
 | `access_control_event_authority` | no | no | UncheckedAccount | `access-control`'s `#[event_cpi]` PDA (seeds `["__event_authority"]`, verified by that program); forwarded in the step 15 CPI so `RolesGranted` can be emitted |
 
-### 15-Step Execution
+### 16-Step Execution
 
 **1 — Size calculation**
 - `base_size` = `ExtensionType::try_calculate_account_len` for the five fixed extensions (PermanentDelegate, MetadataPointer, Pausable, TransferHook, PermissionedBurn). This list must match exactly the set of extensions actually initialized in steps 3–7: `initialize_mint2` (step 8) rejects the mint unless the allocated length equals the length recomputed from the extensions already written.
@@ -149,9 +150,10 @@ pub struct MetadataField {
 - Writes `asset_class_config_id` / `asset_class_version_id` (read from the validated `asset_class_version_pda`) and the PDA bump into `asset_configuration_pda`.
 
 **14 — CPI → `initialize_extra_account_meta_list`** (signed by `asset_configuration_pda`)
-- Calls `transfer_hook::initialize_extra_account_meta_list`.
+- Reads `TRANSFER_HOOK_EXECUTE` from `asset_class_version_pda` with `common::is_functionality_enabled` and passes it as the instruction argument.
 - Passes `asset_configuration_pda` as signer via `invoke_signed` to prove the call originates from `deploy_mint`.
-- Creates the populated `ExtraAccountMetaList` PDA (`["extra-account-metas", mint]`) inside `transfer-hook`.
+- Creates, inside `transfer-hook`, the populated `ExtraAccountMetaList` PDA (`["extra-account-metas", mint]`) and the `MintCompliance` record (`["mint_compliance", mint]`) holding that bit, so the hook reads one fixed account per transfer instead of `asset_configuration` → factory → `asset_class_version`. See [`transfer-hook.md`](transfer-hook.md#instruction-initialize_extra_account_meta_list-auxiliary).
+- The copy never needs refreshing: this is the only place a mint's version is recorded, and a `Finalized` version is immutable.
 
 **15 — CPI → `access_control::initialize`** (signed by `temp_mint_authority`)
 - Grants `ROLE_ADMIN` to the `deployer` on this mint by creating the `roles_pda` (`[mint, deployer]`, owned by `access-control`).

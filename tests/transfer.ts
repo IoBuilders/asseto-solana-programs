@@ -23,6 +23,7 @@ import { TRANSFER_CONTROL_WHITELIST } from "./program_helpers/transfer_control/t
 import { batchTransfer, splTransfer, splTransferWithoutHookAccounts } from "./program_helpers/transfer_helper";
 import { beforeEach } from "mocha";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
+import { setMintComplianceTransferHookExecute } from "./program_helpers/transfer_hook/transfer_hook_pda_helper";
 import {
   DEACTIVATE_DEACTIVATE,
   FREEZE_FREEZE_ACCOUNT,
@@ -525,6 +526,23 @@ describe("transfer", () => {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         const anchorErr = err as AnchorError;
         assert.equal(anchorErr.error.errorCode.code, "Deactivated", "error code should be Deactivated");
+      }
+    });
+
+    it("transfer: fails with FunctionalityNotSupportedError when the mint's compliance copy has TRANSFER_HOOK_EXECUTE off", async () => {
+      const source = await createTokenAccount({ mint, owner: sourceOwner });
+      await mintTokensViaSurfpool(mint, source, MINT_AMOUNT);
+      const destination = await createTokenAccount({ mint, owner: destinationOwner });
+
+      // The version still enables the bit; only deploy_mint's copy, which the hook reads, is off.
+      await setMintComplianceTransferHookExecute(mint, false);
+
+      try {
+        await splTransfer({ mint, source, sourceOwner, destination, signers: [sourceOwnerKeypair] });
+        assert.fail("Expected FunctionalityNotSupportedError but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "FunctionalityNotSupportedError");
       }
     });
   });

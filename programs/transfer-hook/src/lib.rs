@@ -14,8 +14,12 @@ pub mod transfer_hook {
 
     pub fn initialize_extra_account_meta_list(
         ctx: Context<InitializeExtraAccountMetaList>,
+        transfer_hook_execute_enabled: bool,
     ) -> Result<()> {
-        initialize_extra_account_meta_list::initialize_extra_account_meta_list(ctx)
+        initialize_extra_account_meta_list::initialize_extra_account_meta_list(
+            ctx,
+            transfer_hook_execute_enabled,
+        )
     }
 
     // Discriminator = sha256("spl-transfer-hook-interface:execute")[..8] — see
