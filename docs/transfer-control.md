@@ -99,7 +99,7 @@ Creates `transfer_control_mode_pda` (`init`, fixed space) and writes `mode` into
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `transfer_control_mode_pda` | yes | no | `Account<TransferControlMode>` | `init`, `payer = authority`; seeds `["transfer_control_mode", mint]` |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |
@@ -131,7 +131,7 @@ Creates a `control_list_pda` marker for a specific token account. If the PDA alr
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `account` | no | no | UncheckedAccount | Token account to add to the control list; used as a seed |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID` |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `control_list_pda` | yes | no | Account | `init_if_needed`; seeds `["control_list", mint, account]`, `payer = authority` |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `system_program` | no | no | Program<System> | |

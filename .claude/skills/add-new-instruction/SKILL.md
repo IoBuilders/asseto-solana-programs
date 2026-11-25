@@ -54,7 +54,7 @@ See the **Instruction Categories** table in `CLAUDE.md`. The category drives you
 
 | Category | Authorisation |
 |---|---|
-| **Management** | Role-gated. Start the handler with `require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_X)?`. Usually followed by `require_not_paused(&mint)?`, `require_active(&deactivate_pda)?`, and `require_functionality(ctx.accounts.asset_class_version_pda.load()?, common::functionalities::X)?`. If no role fits, check `common::roles` before adding a new one — roles are a flat, append-only `u16` list shared across the whole workspace. |
+| **Management** | Role-gated. Start the handler with `require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_X)?`. Usually followed by `require_not_paused(&mint)?`, `require_active(ctx.accounts.mint_compliance_pda.load()?)?`, and `require_functionality(ctx.accounts.asset_class_version_pda.load()?, common::functionalities::X)?`. If no role fits, check `common::roles` before adding a new one — roles are a flat, append-only `u16` list shared across the whole workspace. |
 | **Operational** | Caller is a token holder. Use program-specific gates (ownership, control list, etc.). |
 | **Auxiliary** | Only callable via CPI from another program. Take a `calling_authority: Signer<'info>` and at runtime `require!(calling_authority.key() == <expected PDA>, ...)`. The expected PDA is derived from seeds owned by the authorised program (see `freeze` for the canonical 3-caller example). |
 
@@ -65,7 +65,7 @@ Order matters, and it's consistent across the workspace:
 ```rust
 require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_X)?;
 require_not_paused(&ctx.accounts.mint.to_account_info())?;   // if the mint must not be paused
-require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+require_active(ctx.accounts.mint_compliance_pda.load()?)?;   // AccountLoader<common::state::MintCompliance>, seeds ["mint_compliance", mint], seeds::program = TRANSFER_HOOK_PROGRAM_ID
 require_functionality(
     ctx.accounts.asset_class_version_pda.load()?,
     common::functionalities::X,
@@ -135,7 +135,7 @@ Update `docs/<x>.md` with a new section for the instruction, in this order: a **
 Once the docs above are written, the handler and `#[derive(Accounts)]` struct should carry almost no comments. Specifically:
 
 - **No function-level doc comment restating what the docs already say.** If `docs/<x>.md` describes the instruction, a `///` comment above `pub fn <name>` that says the same thing in Rust prose is pure duplication — delete it.
-- **No field-level doc comments that restate the field name/type/seeds** (e.g. `/// The Token-2022 mint.` above `pub mint: UncheckedAccount<'info>`, or `/// Deactivation marker PDA — must not exist...` above a `deactivate_pda` field whose seeds and `require_active` call already say that). The `/// CHECK:` comment (§5) is the only doc comment expected on most fields.
+- **No field-level doc comments that restate the field name/type/seeds** (e.g. `/// The Token-2022 mint.` above `pub mint: UncheckedAccount<'info>`, or `/// Mint must not be deactivated...` above a `mint_compliance_pda` field whose seeds and `require_active` call already say that). The `/// CHECK:` comment (§5) is the only doc comment expected on most fields.
 - **Do** keep a comment when it encodes something the compiler won't catch and the docs don't already state as clearly in-line at the point of use — e.g. a load-bearing account-ordering invariant (`transfer::batch_transfer` forwards the hook's accounts in `ExtraAccountMetaList` order, which is not the order they are declared in the struct, so the forwarding list may not be reshuffled), a non-obvious arithmetic or padding rationale, or a workaround for a specific runtime constraint (BPF stack limits, heap limits).
 - Section-marker comments like `// ── Auth + state checks ──` inside a handler body are fine to keep or drop at your judgement — they're navigational, not explanatory duplication.
 - If you're ever unsure whether a comment is "why" (keep) or "what" (cut), ask: does removing it lose information not already in `docs/<x>.md` or obvious from the code itself? If no, cut it.

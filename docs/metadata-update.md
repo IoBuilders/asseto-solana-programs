@@ -20,7 +20,7 @@ can be removed.
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint whose metadata is being modified |
 | `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda` |
 | `metadata_update_authority` | no | no | UncheckedAccount | seeds `["metadata_update_authority", mint]` (owned) |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `asset_class_version_pda` | no | no | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
 | `token_2022_program` | no | no | Program<Token2022> | |
 | `system_program` | no | no | Program<System> | |
@@ -97,7 +97,7 @@ _        => Field::Key(key)   // custom field; created if it doesn't exist
 
 1. `require_role(authority_roles_pda, role)` — `role` is `ROLE_ADMIN` for `name` / `symbol`, `ROLE_CUSTOM_DATA_MANAGER` for `uri` or any custom key
 2. `require_not_paused(&mint)`
-3. `require_active(&deactivate_pda)`
+3. `require_active(mint_compliance_pda.load()?)`
 4. `require_functionality(asset_class_version_pda, METADATA_UPDATE_UPDATE_METADATA_FIELD)`
 5. Reads the mint's current `TokenMetadata` extension, simulates the field write, and computes the
    byte growth (`new_size - old_size`)
@@ -130,7 +130,7 @@ idempotent: bool  // if true, silently succeeds when the key doesn't exist
 
 1. `require_role(authority_roles_pda, ROLE_CUSTOM_DATA_MANAGER)`
 2. `require_not_paused(&mint)`
-3. `require_active(&deactivate_pda)`
+3. `require_active(mint_compliance_pda.load()?)`
 4. `require_functionality(asset_class_version_pda, METADATA_UPDATE_REMOVE_METADATA_FIELD)`
 5. `invoke_signed` → `remove_key(mint, metadata_update_authority, key, idempotent)` signed with seeds `["metadata_update_authority", mint, bump]`
 

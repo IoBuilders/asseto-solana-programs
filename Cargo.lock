@@ -647,6 +647,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "common",
+ "transfer-hook",
 ]
 
 [[package]]

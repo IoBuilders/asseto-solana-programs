@@ -71,7 +71,7 @@ Creates the `max_supply` PDA on the first call (`init_if_needed`) and overwrites
 | `authority` | no | yes | Signer | Must hold `ROLE_CAP` |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role` |
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `mint` | no | no | UncheckedAccount | Read-only; pause state checked by `require_not_paused`, `supply` unpacked in the handler |
 | `max_supply_pda` | yes | no | `Account<MaxSupply>` | `init_if_needed`; seeds `["max_supply", mint]`, `payer = payer` |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
@@ -85,7 +85,7 @@ Creates the `max_supply` PDA on the first call (`init_if_needed`) and overwrites
 
 1. `require_role(ROLE_CAP)` against `authority_roles_pda`.
 2. `require_not_paused(mint)`.
-3. `require_active(deactivate_pda)`.
+3. `require_active(mint_compliance_pda.load()?)`.
 4. `require_functionality(CAP_MAX_SUPPLY)` against `asset_class_version_pda`.
 5. Reject `max_supply == 0` with `MaxSupplyTooLow`.
 6. Unpack the Token-2022 mint and reject `max_supply < mint.supply` with `MaxSupplyBelowTotalSupply`.

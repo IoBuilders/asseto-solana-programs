@@ -29,7 +29,7 @@ import {
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
 import { getAccountInfo } from "./program_helpers/account_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setMintPaused } from "./program_helpers/spl_token_helper";
 
 const ALL_FUNCTIONALITIES = [NOMINAL_VALUE_INITIALIZE, NOMINAL_VALUE_PUBLISH, NOMINAL_VALUE_REPUBLISH];
@@ -134,7 +134,7 @@ describe("nominal-value", () => {
     });
 
     it("initialize_nominal_value: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
       await expectAnchorError(() => initializeNominalValue({ authority, mint }), "Deactivated");
     });
   });
@@ -224,7 +224,7 @@ describe("nominal-value", () => {
     });
 
     it("publish_nominal_value: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
       await expectAnchorError(
         () => publishNominalValue({ authority, mint }, { effectiveDatetime: PAST_1 }),
         "Deactivated"
@@ -317,7 +317,7 @@ describe("nominal-value", () => {
     });
 
     it("republish_nominal_value: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
       await expectAnchorError(
         () => republishNominalValue({ authority, mint }, { effectiveDatetime: PAST_1 }),
         "Deactivated"

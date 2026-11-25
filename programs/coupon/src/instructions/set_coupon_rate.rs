@@ -6,7 +6,7 @@ use common::{
 use crate::events::CouponRateSet;
 use crate::state::Coupon;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles as RolesCommon};
 
 pub fn set_coupon_rate(
     ctx: Context<SetCouponRate>,
@@ -19,7 +19,7 @@ pub fn set_coupon_rate(
         roles::ROLE_CORPORATE_ACTION,
     )?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
         common::functionalities::COUPON_SET_COUPON_RATE,
@@ -51,13 +51,12 @@ pub struct SetCouponRate<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     /// CHECK: Read-only; pause state validated by require_not_paused.
     pub mint: UncheckedAccount<'info>,

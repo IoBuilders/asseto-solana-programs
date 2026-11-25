@@ -1,5 +1,5 @@
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { deactivatePda } from "../deactivate/deactivate_pda_helper";
+import { mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
@@ -32,7 +32,7 @@ export async function pauseMint(callContext: MintWriteContext): Promise<{ signat
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       pausableAuthority: pausableAuthorityPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
@@ -78,7 +78,7 @@ export async function unpauseMint(callContext: MintWriteContext): Promise<{ sign
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       pausableAuthority: pausableAuthorityPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,

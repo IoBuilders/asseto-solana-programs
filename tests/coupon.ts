@@ -32,7 +32,7 @@ import {
   DEACTIVATE_DEACTIVATE,
   PAUSE_PAUSE,
 } from "./utils/functionalities";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { ROLE_ADMIN, ROLE_CORPORATE_ACTION } from "./utils/roles";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { setMintPaused } from "./program_helpers/spl_token_helper";
@@ -317,7 +317,7 @@ describe("coupon", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("create_coupon: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await createCoupon({ authority, mint });
@@ -562,7 +562,7 @@ describe("coupon", () => {
     it("set_coupon_rate: fails with Deactivated when mint has been deactivated", async () => {
       const couponId = new anchor.BN(1);
       await createCoupon({ authority, mint }, { couponId });
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await setCouponRate({ authority, mint }, { couponId });

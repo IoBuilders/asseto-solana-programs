@@ -3,7 +3,7 @@ import { AnchorError } from "@anchor-lang/core";
 import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   getMetadataFieldRemovedEvent,
   getMetadataFieldUpdatedEvent,
@@ -148,7 +148,7 @@ describe("metadata-update", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("update_metadata_field: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await updateMetadataField({ authority, mint });
@@ -298,7 +298,7 @@ describe("metadata-update", () => {
       });
       await setRoles(mint, authority.publicKey, [ROLE_CUSTOM_DATA_MANAGER]);
 
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await removeMetadataField({ authority, mint });

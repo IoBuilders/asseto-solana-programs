@@ -1,6 +1,5 @@
 import { AccountMeta, PublicKey, SendTransactionError, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { extraAccountMetaListPda, mintCompliancePda } from "./transfer_hook/transfer_hook_pda_helper";
-import { deactivatePda } from "./deactivate/deactivate_pda_helper";
 import { createTransferCheckedInstruction, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { AnchorError, AnchorProvider } from "@anchor-lang/core";
@@ -145,7 +144,6 @@ export async function buildSplTransferCheckedInstruction(
     readonly(extraAccountMetaListPda(callContext.mint)),
     readonly(TRANSFER_HOOK_PROGRAM_ID),
     readonly(mintCompliancePda(callContext.mint)),
-    readonly(deactivatePda(callContext.mint)),
     readonly(TRANSFER_CONTROL_PROGRAM_ID),
     readonly(transferControlModePda(callContext.mint)),
     readonly(controlListPda(callContext.mint, callContext.source)),
@@ -209,7 +207,6 @@ export async function batchTransfer(callContext: BatchTransferContext, args?: Ba
       transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
       freezeProgram: FREEZE_PROGRAM_ID,
       mintCompliancePda: mintCompliancePda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
       transferControlProgram: TRANSFER_CONTROL_PROGRAM_ID,
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceControlListPda: controlListPda(callContext.mint, callContext.source),

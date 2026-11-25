@@ -19,7 +19,7 @@ import {
   getControllerRedemptionEvents,
   getControllerTransferredEvent,
 } from "./program_helpers/operations/operations_instruction_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
@@ -130,7 +130,7 @@ describe("operations", () => {
       const source = await createTokenAccount({ mint, owner: assetConfigurationKey });
 
       // ── Deactivate the mint ────────────────────────────────────────────────
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       // ── Burn must now be rejected with Deactivated ─────────────────────────
       try {
@@ -275,7 +275,7 @@ describe("operations", () => {
 
     it("batch_burn: fails with Deactivated when mint has been deactivated", async () => {
       const source = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await batchBurnTokens({ mint, authority, sources: [source] });
@@ -478,7 +478,7 @@ describe("operations", () => {
 
     it("controller_transfer: fails with Deactivated when mint has been deactivated", async () => {
       const accounts = await createFundedAccounts(new anchor.BN(1));
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await callControllerTransfer(authority!, accounts);

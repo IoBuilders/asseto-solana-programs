@@ -11,7 +11,7 @@ import {
   setAssetClassVersionForMint,
 } from "./program_helpers/factory/factory_pda_helper";
 import { getAccountInfo, getBalanceForRentExeption } from "./program_helpers/account_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setMintPaused } from "./program_helpers/spl_token_helper";
 import { DOCUMENT_PROGRAM_ID } from "./utils/address_utils";
 import {
@@ -254,7 +254,7 @@ describe("document", () => {
     });
 
     it("set_document: fails with Deactivated when the mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
       try {
         await setDocument({ authority, mint });
         assert.fail("Expected Deactivated error but instruction succeeded");
@@ -396,7 +396,7 @@ describe("document", () => {
     it("remove_document: fails with Deactivated when the mint has been deactivated", async () => {
       const name = nameToBytes("prospectus");
       await setDocument({ authority, mint }, { name });
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
       try {
         await removeDocument({ authority, mint }, { name });
         assert.fail("Expected Deactivated error but instruction succeeded");

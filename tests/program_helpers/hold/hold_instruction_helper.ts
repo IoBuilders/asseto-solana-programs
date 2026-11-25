@@ -15,7 +15,6 @@ import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_p
 import { extraAccountMetaListPda, mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { BaseWriteContext, MintContext, PayerContext } from "../base_helper";
-import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import { freezeStatePda } from "../freeze/freeze_pda_helper";
 import { permanentDelegatePda } from "../operations/operations_pda_helper";
@@ -70,7 +69,7 @@ export async function createHold(
       payer: callContext.payer ?? callContext.authority.publicKey,
       authority: callContext.authority.publicKey,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
       tokenAccountFreezeStatePda: freezeStatePda(callContext.mint, callContext.tokenAccount),
@@ -121,7 +120,7 @@ export async function controllerCreateHold(
       authority: callContext.authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, callContext.authority.publicKey),
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
       tokenAccountFreezeStatePda: freezeStatePda(callContext.mint, callContext.tokenAccount),
@@ -176,7 +175,6 @@ export async function executeHold(
     .accountsStrict({
       escrow: callContext.escrow.publicKey,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       sourceToken: callContext.tokenAccount,
       destinationToken: callContext.destination,

@@ -1,44 +1,25 @@
 import { PublicKey } from "@solana/web3.js";
 import { DEACTIVATE_PROGRAM_ID } from "../../utils/address_utils";
-import { getDeactivateProgram } from "./deactivate_instruction_helper";
-import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
-
-// ── deactivate PDA ─────────────────────────────────────────────────────────────
-
-export function deactivatePda(mint: PublicKey): PublicKey {
-  return deactivatePdaWithBump(mint)[0];
-}
-
-export function deactivatePdaWithBump(mint: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("deactivate"), mint.toBuffer()], DEACTIVATE_PROGRAM_ID);
-}
-
-export async function getDeactivatePda(pda: PublicKey) {
-  return await getDeactivateProgram().account.deactivateStatus.fetchNullable(pda);
-}
+import { setMintComplianceDeactivated } from "../transfer_hook/transfer_hook_pda_helper";
 
 /**
- * Test-only: plants the `deactivate` marker PDA for `mint` directly via surfpool,
- * without invoking the `deactivate` program. `require_active` only checks that the
- * account is non-empty, so its existence is enough to make the mint read as
- * deactivated.
+ * Test-only: sets the hook's `MintCompliance.deactivated` flag directly via surfpool,
+ * without invoking the `deactivate` program (which requires `ROLE_DEACTIVATE` and the
+ * `DEACTIVATE_DEACTIVATE` functionality).
  */
-export async function setDeactivateMarker(mint: PublicKey): Promise<void> {
-  const [pda, bump] = deactivatePdaWithBump(mint);
-  const data = await getDeactivateProgram().coder.accounts.encode("deactivateStatus", { bump });
-  const lamports = await getBalanceForRentExeption(data.length);
-  await surfnetSetAccount(pda, {
-    lamports,
-    owner: DEACTIVATE_PROGRAM_ID.toBase58(),
-    data: data.toString("hex"),
-    executable: false,
-    rentEpoch: 0,
-  });
+export async function setDeactivated(mint: PublicKey): Promise<void> {
+  await setMintComplianceDeactivated(mint, true);
 }
 
-/** Test-only: deletes the `deactivate` marker PDA for `mint` (surfpool `lamports: 0`). */
-export async function clearDeactivateMarker(mint: PublicKey): Promise<void> {
-  await surfnetSetAccount(deactivatePda(mint), { lamports: 0 });
+/** Test-only: clears the hook's `MintCompliance.deactivated` flag. */
+export async function clearDeactivated(mint: PublicKey): Promise<void> {
+  await setMintComplianceDeactivated(mint, false);
+}
+
+// ── registry_writer PDA ────────────────────────────────────────────────────────
+
+export function deactivateRegistryWriterPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("registry_writer")], DEACTIVATE_PROGRAM_ID)[0];
 }
 
 // ── __event_authority PDA ──────────────────────────────────────────────────────

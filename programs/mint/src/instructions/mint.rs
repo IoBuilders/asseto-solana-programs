@@ -12,13 +12,13 @@ use transfer_control::verify_transfer_control_mode;
 use crate::events::Issued;
 use crate::instructions::destination_ata::create_destination_ata_if_missing;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance};
 
 pub fn mint<'info>(ctx: Context<'info, MintTokens<'info>>, amount: u64) -> Result<()> {
     require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_ISSUER)?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    require_active(&ctx.accounts.deactivate_pda)?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -105,13 +105,12 @@ pub struct MintTokens<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     /// CHECK: Writable; validated by Token-2022 during the mint_to CPI.
     #[account(mut)]

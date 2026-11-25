@@ -42,7 +42,7 @@ import {
   TREASURY_SET_PAYMENT_TOKEN,
 } from "./utils/functionalities";
 import { beforeEach } from "mocha";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
 
 // ── Bond mint parameters ───────────────────────────────────────────────────────
@@ -293,7 +293,7 @@ describe("treasury", () => {
     it("set_payment_token: fails with Deactivated when mint has been deactivated", async () => {
       const paymentMint = await createMint();
 
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await setPaymentToken({ authority, mint, paymentMint });
@@ -716,7 +716,7 @@ describe("treasury", () => {
     // ────────────────────────────────────────────────────────────────────────────
     it("pay_coupon: fails with Deactivated when the bond mint has been deactivated", async () => {
       const ctx = await deployBondAndCoupon();
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await payCouponInternal(ctx);

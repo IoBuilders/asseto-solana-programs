@@ -118,7 +118,7 @@ The three dates must satisfy `period_start_date < period_end_date < payment_date
 | `payer`                   | yes | yes    | Signer                        | Funds `coupon_counter` (first call), `coupon` (always), and `snapshot_counter` (on the first snapshot); distinct from `authority` so any wallet can pay |
 | `authority`               | no  | yes    | Signer                        | The caller; must hold `ROLE_CORPORATE_ACTION` on this mint                                             |
 | `asset_configuration_pda`          | no  | no     | `Account<AssetConfiguration>`          | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`                                     |
-| `deactivate_pda`          | no  | no     | UncheckedAccount              | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty                  |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `mint`                    | no  | no     | UncheckedAccount              | Read-only; pause state checked by `require_not_paused`                                                 |
 | `coupon_authority`        | no  | no     | UncheckedAccount              | seeds `["coupon_authority", mint]`; signs the `take_snapshot` CPI via `invoke_signed`                  |
 | `coupon_counter`          | yes | no     | `Account<CouponCounter>`      | `init_if_needed`; seeds `["coupon_counter", mint]`, `payer = payer`                                    |
@@ -176,7 +176,7 @@ interest_rate_decimals:  Option<u8>   // exponent: actual rate = interest_rate /
 |---------------------------|-----|--------|----------------------------------|---------------------------------------------------------------------------------------|
 | `authority`               | no  | yes    | Signer                           | The caller; must hold `ROLE_CORPORATE_ACTION` on this mint                            |
 | `asset_configuration_pda`          | no  | no     | `Account<AssetConfiguration>`             | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`                    |
-| `deactivate_pda`          | no  | no     | UncheckedAccount                 | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read-only; pause state checked by `require_not_paused`                                |
 | `coupon`                  | yes | no     | `Account<Coupon>`                | seeds `["coupon", mint, coupon_id.to_le_bytes()]`; must already exist                 |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`; functionality gate |

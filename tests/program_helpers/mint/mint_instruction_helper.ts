@@ -1,6 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { deactivatePda } from "../deactivate/deactivate_pda_helper";
+import { mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
@@ -57,7 +57,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       destination: callContext.destination,
       destinationOwner: callContext.destinationOwner ?? null,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       mintAuthority: mintAuthorityPda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       destinationControlListPda: controlListPda(callContext.mint, callContext.destination),
@@ -139,7 +139,7 @@ export async function batchMintTokens(
     .accountsStrict({
       authority: authority.publicKey,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       mint: callContext.mint,
       mintAuthority: mintAuthorityPda(callContext.mint),
       maxSupplyPda: maxSupplyPda(callContext.mint),

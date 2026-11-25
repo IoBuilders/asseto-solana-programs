@@ -84,7 +84,7 @@ document_hash: [u8; 32]
 | `authority` | no | yes | Signer | Must hold `ROLE_DOCUMENT_MANAGER`. |
 | `authority_roles_pda` | no | no | AccountLoader\<Roles\> | seeds `["roles", mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`. |
 | `asset_configuration_pda` | no | no | Account\<AssetConfiguration\> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids. |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; read by `require_active`. |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `mint` | no | no | UncheckedAccount | Read-only; pause state validated by `require_not_paused`. |
 | `document_pda` | yes | no | UncheckedAccount | seeds `["document", mint, name]`. Created, resized, and written by the handler — see "Why not `init_if_needed`" below. |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`. |
@@ -134,7 +134,7 @@ Same four checks as `set_document`, gated on `DOCUMENT_REMOVE_DOCUMENT` instead 
 
 ### Accounts
 
-Same support accounts as `set_document` (`payer`, `authority`, `authority_roles_pda`, `asset_configuration_pda`, `deactivate_pda`, `mint`, `asset_class_version_pda`, `event_authority`, `program`), except:
+Same support accounts as `set_document` (`payer`, `authority`, `authority_roles_pda`, `asset_configuration_pda`, `mint_compliance_pda`, `mint`, `asset_class_version_pda`, `event_authority`, `program`), except:
 
 | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|

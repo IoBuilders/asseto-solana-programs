@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { deactivatePda } from "../deactivate/deactivate_pda_helper";
+import { mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID } from "../../utils/address_utils";
@@ -56,7 +56,7 @@ export async function initializeTransferControlMode(
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       mint: callContext.mint,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       transferControlModePda: transferControlModePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
@@ -106,7 +106,7 @@ export async function addToControlList(callContext: AddToControlListContext): Pr
       mint: callContext.mint,
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       controlListPda: controlListPda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
@@ -156,7 +156,7 @@ export async function removeFromControlList(callContext: RemoveFromControlListCo
       mint: callContext.mint,
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       controlListPda: controlListPda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,

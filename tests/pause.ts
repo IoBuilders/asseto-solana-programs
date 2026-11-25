@@ -11,7 +11,7 @@ import {
   unpauseMint,
 } from "./program_helpers/pause/pause_instruction_helper";
 import { pausableAuthorityPda } from "./program_helpers/pause/pause_pda_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { getMint } from "./program_helpers/spl_token_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
@@ -85,7 +85,7 @@ describe("pause", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("pause: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await pauseMint({ authority, mint });
@@ -180,7 +180,7 @@ describe("pause", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("unpause: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await unpauseMint({ authority, mint });

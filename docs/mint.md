@@ -22,7 +22,7 @@ amount: u64  // raw token units (accounting for decimals)
 |---|---|---|---|---|
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ISSUER` on this mint |
 | `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs the `mint_to` CPI |
 | `destination` | yes | no | UncheckedAccount | Token account receiving minted tokens |
@@ -39,7 +39,7 @@ amount: u64  // raw token units (accounting for decimals)
 ### Execution
 
 1. `require_role(authority_roles_pda.load()?, ROLE_ISSUER)` — errors with `MissingRole` if `authority` does not hold the issuer role (or `RoleOutOfBounds` if the role id exceeds the mask)
-2. `require_active(&deactivate_pda)` — errors if the mint has been deactivated
+2. `require_active(mint_compliance_pda.load()?)` — errors if the mint has been deactivated
 3. `require_functionality(asset_class_version_pda.load()?, MINT_MINT)` — errors if the mint's asset-class version isn't finalized or doesn't enable `MINT_MINT`
 4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[&destination_control_list_pda])` — a no-op if `transfer_control_mode_pda` is empty (no mode active); otherwise errors with `NotWhitelisted` in Whitelist mode if `destination_control_list_pda` is empty, or `Blacklisted` in Blacklist mode if it exists
 5. `cap::require_within_max_supply(&mint, &max_supply_pda, asset_class_version_pda.load()?, amount)` — errors with `MaxSupplyExceeded` if `supply + amount` exceeds the stored cap. When `max_supply_pda` is empty, the outcome depends on the asset-class version's `CAP_MAX_SUPPLY` bit: a no-op if the bit is unset (the mint opted out of capping), `MaxSupplyNotSet` if it is set (the mint is meant to be capped but `set_max_supply` was never called). Runs before the snapshot CPIs so a rejected mint leaves no writes behind
@@ -83,7 +83,7 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 - `require!(!amounts.is_empty(), MintError::EmptyBatch)`
 - `require!(ctx.remaining_accounts.len() == amounts.len() * 2, MintError::InvalidRemainingAccounts)`
 - `require_role(authority_roles_pda, ROLE_ISSUER)`
-- `require_active(&deactivate_pda)`
+- `require_active(mint_compliance_pda.load()?)`
 - `require_functionality(asset_class_version_pda, MINT_MINT)` — same functionality bit as `mint`, not a separate one
 - `cap::require_within_max_supply(&mint, &max_supply_pda, asset_class_version_pda, sum(amounts))` — checked **once on the batch total**, not per destination. Equivalent to a per-destination check (the final supply is `initial + sum`, and every intermediate undershoots it) but pays the mint's TLV unpack once instead of `N` times, and fails before any CPI is issued. When `max_supply_pda` is empty it's a no-op if the asset-class version leaves `CAP_MAX_SUPPLY` unset, and errors with `MaxSupplyNotSet` if that bit is set. The sum itself is folded with `checked_add` and errors with `AmountOverflow` if it overflows `u64`
 - **Every** destination's control-list PDA is re-derived (`ControlListPdaMismatch` if the passed PDA isn't the one derived for that destination), then all of them are passed in one call to `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda, &[..])` — the same mode-aware check `mint` runs: a no-op if no mode is active, otherwise `NotWhitelisted` in Whitelist mode if any is empty, or `Blacklisted` in Blacklist mode if any exists. Both run for the whole batch before the first `mint_to` CPI, so a single ineligible destination fails the instruction without minting to anyone.
@@ -94,7 +94,7 @@ For each destination `i` (`0..amounts.len()`), two consecutive entries:
 |---|---|---|---|---|
 | `authority` | no | yes | Signer | The caller; must hold `ROLE_ISSUER` on this mint |
 | `asset_configuration_pda` | no | no | Account<AssetConfiguration> | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID` |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; must be empty |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `mint` | yes | no | UncheckedAccount | Token-2022 mint to issue tokens from |
 | `mint_authority` | no | no | UncheckedAccount | seeds `["mint_authority", mint]` (owned by this program); signs the `mint_to` CPI per destination |
 | `max_supply_pda` | no | no | UncheckedAccount | seeds `["max_supply", mint]`, `seeds::program = CAP_PROGRAM_ID`; may be empty only when the asset-class version does not enable `CAP_MAX_SUPPLY` |

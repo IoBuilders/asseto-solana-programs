@@ -18,7 +18,7 @@ import {
 } from "./program_helpers/factory/factory_pda_helper";
 import { BOND_UPDATE_BOND_TERMS, DEACTIVATE_DEACTIVATE, PAUSE_PAUSE } from "./utils/functionalities";
 import { getAccountInfo } from "./program_helpers/account_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setMintPaused } from "./program_helpers/spl_token_helper";
 
 describe("bond", () => {
@@ -180,7 +180,7 @@ describe("bond", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("update_bond_terms: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await updateBondTerms({ authority, mint });

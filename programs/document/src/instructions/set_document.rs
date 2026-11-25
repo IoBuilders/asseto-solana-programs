@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
 use common::{
     pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
     roles,
@@ -25,7 +25,7 @@ pub fn set_document<'info>(
         common::functionalities::DOCUMENT_SET_DOCUMENT,
     )?;
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require!(!uri.is_empty(), ErrorCode::EmptyUri);
 
@@ -106,13 +106,12 @@ pub struct SetDocument<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     /// CHECK: Read-only; pause state validated by require_not_paused.
     pub mint: UncheckedAccount<'info>,

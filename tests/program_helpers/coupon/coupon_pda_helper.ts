@@ -64,7 +64,7 @@ type SetCouponArgs = {
 /**
  * Test-only: plants the on-chain state a real `create_coupon` would leave, directly
  * via surfpool — without the CPI, the `COUPON_CREATE_COUPON` functionality gate, or
- * the caller's role check (mirrors `setDeactivateMarker`). Reproduces the three
+ * the caller's role check (mirrors `setDeactivated`). Reproduces the three
  * observable effects a coupon creation has:
  *   - `coupon_counter` advanced to `couponId`,
  *   - the `coupon` PDA for `(mint, couponId)` recording `snapshotId`,
