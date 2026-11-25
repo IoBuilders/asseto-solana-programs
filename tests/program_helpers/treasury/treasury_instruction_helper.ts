@@ -9,12 +9,13 @@ import { MintWriteWithPayerContext } from "../base_helper";
 import { getEvent } from "../event_helper";
 import { Treasury } from "../../../target/types/treasury";
 import { bondTermsPda } from "../bond/bond_pda_helper";
-import { couponCounterPda, couponPda, getCoupon } from "../coupon/coupon_pda_helper";
+import { couponPda, getCoupon } from "../coupon/coupon_pda_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
 import {
   treasuryConfigPda,
   treasuryAuthorityPda,
   couponPaidPda,
+  couponDistributionPda,
   treasuryEventAuthorityPda,
 } from "./treasury_pda_helper";
 import { snapshotMerkleRootPda } from "../snapshot/snapshot_pda_helper";
@@ -49,7 +50,6 @@ export async function setPaymentToken(callContext: SetPaymentTokenContext): Prom
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       deactivatePda: deactivatePda(callContext.mint),
       treasuryConfig: treasuryConfigPda(callContext.mint),
-      couponCounter: couponCounterPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -84,12 +84,13 @@ export type PayCouponContext = MintWriteWithPayerContext & {
   paymentMint: PublicKey;
   treasuryTokenAccount: PublicKey;
   holderPaymentAccount: PublicKey;
-  holderTokenAccount: PublicKey;
+  holder: PublicKey;
 };
 
 type PayCouponArgs = {
   couponId: anchor.BN;
-  account?: PublicKey;
+  /** Overrides `callContext.holder` as the proven leaf key. */
+  holder?: PublicKey;
   balance: anchor.BN;
   merkleProof: number[][];
 };
@@ -102,12 +103,12 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
   const program = getTreasuryProgram();
 
   const authority = callContext.authority ?? program.provider.wallet.payer;
-  const account = args.account ?? callContext.holderTokenAccount;
+  const holder = args.holder ?? callContext.holder;
 
   const coupon = await getCoupon(callContext.mint, args.couponId);
 
   const signature = await getTreasuryProgram()
-    .methods.payCoupon(args.couponId, account, args.balance, args.merkleProof)
+    .methods.payCoupon(args.couponId, holder, args.balance, args.merkleProof)
     .accountsStrict({
       payer: callContext.payer ?? callContext.authority?.publicKey,
       authority: authority.publicKey,
@@ -122,7 +123,8 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
       bondTerms: bondTermsPda(callContext.mint),
       coupon: couponPda(callContext.mint, args.couponId),
       snapshotMerkleRoot: snapshotMerkleRootPda(callContext.mint, coupon.snapshotId),
-      couponPaid: couponPaidPda(callContext.mint, args.couponId, account),
+      couponPaid: couponPaidPda(callContext.mint, args.couponId, holder),
+      couponDistribution: couponDistributionPda(callContext.mint, args.couponId),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -142,7 +144,9 @@ export async function payCoupon(callContext: PayCouponContext, args: PayCouponAr
 type CouponPaidEvent = {
   mint: PublicKey;
   couponId: anchor.BN;
-  holderTokenAccount: PublicKey;
+  holder: PublicKey;
+  destination: PublicKey;
+  balance: anchor.BN;
   paymentMint: PublicKey;
   amount: anchor.BN;
   payer: PublicKey;

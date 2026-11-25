@@ -4,7 +4,9 @@ use anchor_lang::prelude::*;
 pub struct CouponPaid {
     pub mint: Pubkey,
     pub coupon_id: u64,
-    pub holder_token_account: Pubkey,
+    pub holder: Pubkey,
+    pub destination: Pubkey,
+    pub balance: u64,
     pub payment_mint: Pubkey,
     pub amount: u64,
     pub payer: Pubkey,

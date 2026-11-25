@@ -15,7 +15,7 @@ import {
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
 import { setSnapshotMerkleRoot } from "./program_helpers/snapshot/snapshot_pda_helper";
-import { leafHash, EMPTY_PROOF } from "./program_helpers/snapshot/merkle_helper";
+import { leafHash, nodeHash, EMPTY_PROOF } from "./program_helpers/snapshot/merkle_helper";
 import {
   getCouponPaidEvent,
   getPaymentTokenSetEvent,
@@ -23,6 +23,7 @@ import {
   setPaymentToken,
 } from "./program_helpers/treasury/treasury_instruction_helper";
 import {
+  getCouponDistribution,
   getCouponPaidMarker,
   getTreasuryConfigByPda,
   treasuryAuthorityPda,
@@ -35,6 +36,7 @@ import {
 import {
   BOND_UPDATE_BOND_TERMS,
   COUPON_CREATE_COUPON,
+  COUPON_SET_COUPON_RATE,
   DEACTIVATE_DEACTIVATE,
   MINT_MINT,
   PAUSE_PAUSE,
@@ -44,6 +46,7 @@ import {
 import { beforeEach } from "mocha";
 import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setCoupon } from "./program_helpers/coupon/coupon_pda_helper";
+import { setCouponRate } from "./program_helpers/coupon/coupon_instruction_helper";
 
 // ── Bond mint parameters ───────────────────────────────────────────────────────
 const MINT_DECIMALS = 6;
@@ -121,13 +124,14 @@ describe("treasury", () => {
 
     // 3. Plant the coupon + its snapshot state (setCoupon defaults the coupon's
     //    snapshot_id to couponId), then plant the snapshot's Merkle root as a
-    //    single-leaf tree over (holderTokenAccount, BOND_HOLDER_AMOUNT).
+    //    single-leaf tree over (holder, BOND_HOLDER_AMOUNT) — leaves are keyed by
+    //    the owning wallet, not the bond token account.
     const couponId = new anchor.BN(1);
     const periodStartDate = opts?.periodStartDate ?? PERIOD_START;
     const periodEndDate = opts?.periodEndDate ?? PERIOD_END;
     const paymentDate = opts?.paymentDate ?? PAYMENT_DATE;
     await setCoupon(mint, couponId, { periodStartDate, periodEndDate, paymentDate });
-    await setSnapshotMerkleRoot(mint, couponId, leafHash(holderTokenAccount, BOND_HOLDER_AMOUNT));
+    await setSnapshotMerkleRoot(mint, couponId, leafHash(holder, BOND_HOLDER_AMOUNT));
 
     // 4. Create the payment mint + the holder's payment-mint TA.
     const paymentMint = await createMint({ decimals: paymentMintDecimals });
@@ -142,6 +146,7 @@ describe("treasury", () => {
     return {
       mint,
       couponId,
+      holder,
       holderTokenAccount,
       paymentMint,
       paymentMintDecimals,
@@ -157,6 +162,9 @@ describe("treasury", () => {
       paymentMint: PublicKey;
       treasuryTokenAccount: PublicKey;
       holderPaymentAccount: PublicKey;
+      holder: PublicKey;
+      balance: anchor.BN;
+      merkleProof: number[][];
       payer: PublicKey;
       authority: Keypair;
       signers: Signer[];
@@ -170,11 +178,27 @@ describe("treasury", () => {
         paymentMint: overrides.paymentMint ?? base.paymentMint,
         treasuryTokenAccount: overrides.treasuryTokenAccount ?? base.treasuryTokenAccount,
         holderPaymentAccount: overrides.holderPaymentAccount ?? base.holderPaymentAccount,
-        holderTokenAccount: base.holderTokenAccount,
+        holder: overrides.holder ?? base.holder,
         signers: overrides?.signers,
       },
-      { couponId: base.couponId, balance: BOND_HOLDER_AMOUNT, merkleProof: EMPTY_PROOF }
+      {
+        couponId: base.couponId,
+        balance: overrides.balance ?? BOND_HOLDER_AMOUNT,
+        merkleProof: overrides.merkleProof ?? EMPTY_PROOF,
+      }
     );
+  }
+
+  // ── Helper: replace the single-leaf root with a two-holder tree ───────────
+  // Leaves are (ctx.holder, BOND_HOLDER_AMOUNT) and (holderB, BOND_HOLDER_AMOUNT);
+  // in a two-leaf sorted-pair tree each holder's proof is the other leaf.
+  async function plantSecondHolder(ctx: Awaited<ReturnType<typeof deployBondAndCoupon>>) {
+    const holderB = Keypair.generate().publicKey;
+    const leafA = leafHash(ctx.holder, BOND_HOLDER_AMOUNT);
+    const leafB = leafHash(holderB, BOND_HOLDER_AMOUNT);
+    await setSnapshotMerkleRoot(ctx.mint, ctx.couponId, nodeHash(leafA, leafB));
+    const holderBPaymentAccount = await createTokenAccount({ mint: ctx.paymentMint, owner: holderB });
+    return { holderB, holderBPaymentAccount, proofA: [leafB], proofB: [leafA] };
   }
 
   // ── Helper: compute expected coupon amount (mirrors Rust handler) ─────────
@@ -224,6 +248,7 @@ describe("treasury", () => {
         COUPON_CREATE_COUPON,
         DEACTIVATE_DEACTIVATE,
         MINT_MINT,
+        COUPON_SET_COUPON_RATE,
       ],
     });
     await setRoles(mint, authority!.publicKey, [ROLE_CORPORATE_ACTION, ROLE_TREASURER]);
@@ -340,31 +365,21 @@ describe("treasury", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("set_payment_token: fails with ClaimsInProgress when pay_coupon has already been called for the current coupon", async () => {
+    it("set_payment_token: succeeds while a coupon is mid-distribution, without affecting that coupon", async () => {
       const ctx = await deployBondAndCoupon();
+      await payCouponInternal(ctx);
 
-      // Execute one pay_coupon — this locks treasury_config.locked_for_coupon_id = 1.
-      await payCoupon(
-        {
-          authority,
-          mint: ctx.mint,
-          paymentMint: ctx.paymentMint,
-          treasuryTokenAccount: ctx.treasuryTokenAccount,
-          holderPaymentAccount: ctx.holderPaymentAccount,
-          holderTokenAccount: ctx.holderTokenAccount,
-        },
-        { couponId: ctx.couponId, balance: BOND_HOLDER_AMOUNT, merkleProof: EMPTY_PROOF }
-      );
-
-      // Attempting to change the payment mint now must fail.
       const newPaymentMint = await createMint();
-      try {
-        await setPaymentToken({ authority, mint: ctx.mint, paymentMint: newPaymentMint });
-        assert.fail("Expected ClaimsInProgress error but instruction succeeded");
-      } catch (err) {
-        assert.instanceOf(err, AnchorError);
-        assert.equal((err as AnchorError).error.errorCode.code, "ClaimsInProgress");
-      }
+      await setPaymentToken({ authority, mint: ctx.mint, paymentMint: newPaymentMint });
+
+      const cfg = await getTreasuryConfigByPda(treasuryPdaUtils.treasuryConfigPda(ctx.mint));
+      assert.equal(cfg!.paymentMint.toBase58(), newPaymentMint.toBase58(), "config should point at the new mint");
+      const dist = await getCouponDistribution(ctx.mint, ctx.couponId);
+      assert.equal(
+        dist!.paymentMint.toBase58(),
+        ctx.paymentMint.toBase58(),
+        "the open coupon must stay pinned to the mint it started with"
+      );
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -418,7 +433,7 @@ describe("treasury", () => {
       const ctx = await deployBondAndCoupon();
 
       // deployBondAndCoupon plants the snapshot merkle root as the single leaf hash
-      // for (holderTokenAccount, BOND_HOLDER_AMOUNT), so an EMPTY_PROOF verifies
+      // for (holder, BOND_HOLDER_AMOUNT), so an EMPTY_PROOF verifies
       // trivially against it (see setSnapshotMerkleRoot above). pay_coupon takes
       // the holder's balance as an explicit argument and checks it against that
       // root via require_balance_proof — the payout is computed from that verified
@@ -466,7 +481,7 @@ describe("treasury", () => {
         "treasury TA should be debited by the computed coupon amount"
       );
 
-      const marker = await getCouponPaidMarker(ctx.mint, ctx.couponId, ctx.holderTokenAccount);
+      const marker = await getCouponPaidMarker(ctx.mint, ctx.couponId, ctx.holder);
       assert.equal(
         marker.amount.toString(),
         expectedAmount.toString(),
@@ -478,14 +493,29 @@ describe("treasury", () => {
       assert.isNotNull(event, "CouponPaid event should be emitted");
       assert.equal(event!.mint.toBase58(), ctx.mint.toBase58(), "event mint should match the bond mint");
       assert.equal(event!.couponId.toString(), ctx.couponId.toString(), "event coupon_id should match");
+      assert.equal(event!.holder.toBase58(), ctx.holder.toBase58(), "event holder should be the proven wallet");
       assert.equal(
-        event!.holderTokenAccount.toBase58(),
-        ctx.holderTokenAccount.toBase58(),
-        "event holder_token_account should match"
+        event!.destination.toBase58(),
+        ctx.holderPaymentAccount.toBase58(),
+        "event destination should be the credited payment account"
       );
+      assert.equal(event!.balance.toString(), holderBalance.toString(), "event balance should be the proven balance");
       assert.equal(event!.paymentMint.toBase58(), ctx.paymentMint.toBase58(), "event payment_mint should match");
       assert.equal(event!.amount.toString(), expectedAmount.toString(), "event amount should match the payout");
       assert.equal(event!.payer.toBase58(), payer.toBase58(), "event payer should be the deployer");
+
+      // ── Assertions: coupon_distribution pinned on first payment ──────────────
+      const dist = await getCouponDistribution(ctx.mint, ctx.couponId);
+      assert.isNotNull(dist, "coupon_distribution should be created by the first payment");
+      assert.equal(dist!.paymentMint.toBase58(), ctx.paymentMint.toBase58());
+      assert.equal(dist!.paymentMintDecimals, ctx.paymentMintDecimals);
+      assert.equal(dist!.interestRate.toString(), DEFAULT_UPDATE_BOND_ARGS.interestRate.toString());
+      assert.equal(dist!.interestRateDecimals, DEFAULT_UPDATE_BOND_ARGS.interestRateDecimals);
+      assert.equal(dist!.parValue.toString(), DEFAULT_UPDATE_BOND_ARGS.parValue.toString());
+      assert.equal(dist!.parValueDecimals, DEFAULT_UPDATE_BOND_ARGS.parValueDecimals);
+      assert.equal(dist!.dayCountDays, 365);
+      assert.equal(dist!.paidCount.toString(), "1");
+      assert.equal(dist!.totalPaid.toString(), expectedAmount.toString());
     });
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -542,7 +572,7 @@ describe("treasury", () => {
         "treasury TA should be debited by the computed coupon amount"
       );
 
-      const marker = await getCouponPaidMarker(ctx.mint, ctx.couponId, ctx.holderTokenAccount);
+      const marker = await getCouponPaidMarker(ctx.mint, ctx.couponId, ctx.holder);
       assert.equal(
         marker.amount.toString(),
         expectedAmount.toString(),
@@ -560,7 +590,7 @@ describe("treasury", () => {
       const treasuryTAB = await createAndFundTreasuryTokenAccount(ctx.mint, paymentMint, BigInt(1_000_000_000));
       const holderPaymentAccountB = await createTokenAccount({
         mint: paymentMint,
-        owner: Keypair.generate().publicKey,
+        owner: ctx.holder,
       });
 
       // Update the config to point at paymentMint.
@@ -592,17 +622,22 @@ describe("treasury", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("pay_coupon: fails with ConstraintAddress when payment_mint != treasury_config.payment_mint", async () => {
+    it("pay_coupon: fails with PaymentMintMismatch when payment_mint != treasury_config.payment_mint on the first payment", async () => {
       const ctx = await deployBondAndCoupon();
       const wrongMint = await createMint();
+      const wrongTreasuryTA = await createAndFundTreasuryTokenAccount(ctx.mint, wrongMint, BigInt(1_000_000_000));
+      const wrongHolderTA = await createTokenAccount({ mint: wrongMint, owner: ctx.holder });
 
       try {
-        await payCouponInternal(ctx, { paymentMint: wrongMint });
-        assert.fail("Expected ConstraintAddress error but instruction succeeded");
+        await payCouponInternal(ctx, {
+          paymentMint: wrongMint,
+          treasuryTokenAccount: wrongTreasuryTA,
+          holderPaymentAccount: wrongHolderTA,
+        });
+        assert.fail("Expected PaymentMintMismatch error but instruction succeeded");
       } catch (err) {
         assert.instanceOf(err, AnchorError);
-        // Anchor's `address = treasury_config.payment_mint` constraint violation.
-        assert.equal((err as AnchorError).error.errorCode.code, "ConstraintAddress");
+        assert.equal((err as AnchorError).error.errorCode.code, "PaymentMintMismatch");
       }
     });
 
@@ -647,7 +682,7 @@ describe("treasury", () => {
 
       // Different payment mint → TA mint won't match treasury_config.payment_mint.
       const otherMint = await createMint();
-      const wrongHolderTA = await createTokenAccount({ mint: otherMint, owner: Keypair.generate().publicKey });
+      const wrongHolderTA = await createTokenAccount({ mint: otherMint, owner: ctx.holder });
 
       try {
         await payCouponInternal(ctx, { holderPaymentAccount: wrongHolderTA });
@@ -676,7 +711,7 @@ describe("treasury", () => {
     });
 
     // ────────────────────────────────────────────────────────────────────────────
-    it("pay_coupon: fails on the second call for the same (coupon_id, holder_token_account) — coupon_paid PDA already in use", async () => {
+    it("pay_coupon: fails on the second call for the same (coupon_id, holder) — coupon_paid PDA already in use", async () => {
       const ctx = await deployBondAndCoupon();
 
       // First pay — succeeds.
@@ -785,6 +820,149 @@ describe("treasury", () => {
           "error code should be AssetClassVersionNotFinalized"
         );
       }
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("pay_coupon: fails with PaymentDestinationMismatch when holder_payment_account is not owned by the proven holder", async () => {
+      const ctx = await deployBondAndCoupon();
+      const attackerTA = await createTokenAccount({ mint: ctx.paymentMint, owner: Keypair.generate().publicKey });
+      const treasuryBefore = (await getTokenAccount(ctx.treasuryTokenAccount)).amount;
+
+      try {
+        await payCouponInternal(ctx, { holderPaymentAccount: attackerTA });
+        assert.fail("Expected PaymentDestinationMismatch error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError);
+        assert.equal((err as AnchorError).error.errorCode.code, "PaymentDestinationMismatch");
+      }
+
+      const treasuryAfter = (await getTokenAccount(ctx.treasuryTokenAccount)).amount;
+      assert.equal(treasuryAfter.toString(), treasuryBefore.toString(), "treasury must not be debited");
+      assert.isNull(await getCouponPaidMarker(ctx.mint, ctx.couponId, ctx.holder), "holder must not be marked as paid");
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("pay_coupon: pays a holder that no longer has any bond token account (leaf is keyed by wallet)", async () => {
+      const ctx = await deployBondAndCoupon();
+      // holderB is a leaf of the snapshot tree but has no bond token account in
+      // this test — equivalent to one closed after the record date.
+      const { holderB, holderBPaymentAccount, proofB } = await plantSecondHolder(ctx);
+
+      await payCouponInternal(ctx, {
+        holder: holderB,
+        holderPaymentAccount: holderBPaymentAccount,
+        merkleProof: proofB,
+      });
+
+      const credited = (await getTokenAccount(holderBPaymentAccount)).amount;
+      assert.equal(credited.toString(), "50000000", "holderB should receive the canonical 50.000000 payout");
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("pay_coupon: late payers of an open coupon keep the pinned payment mint after set_payment_token", async () => {
+      const ctx = await deployBondAndCoupon();
+      const { holderB, holderBPaymentAccount, proofA, proofB } = await plantSecondHolder(ctx);
+
+      await payCouponInternal(ctx, { merkleProof: proofA });
+
+      // Treasurer switches currency mid-distribution.
+      const newMint = await createMint();
+      const newTreasuryTA = await createAndFundTreasuryTokenAccount(ctx.mint, newMint, BigInt(1_000_000_000));
+      const holderBNewTA = await createTokenAccount({ mint: newMint, owner: holderB });
+      await setPaymentToken({ authority, mint: ctx.mint, paymentMint: newMint });
+
+      // Paying holderB in the new mint is rejected for this coupon…
+      try {
+        await payCouponInternal(ctx, {
+          holder: holderB,
+          merkleProof: proofB,
+          paymentMint: newMint,
+          treasuryTokenAccount: newTreasuryTA,
+          holderPaymentAccount: holderBNewTA,
+        });
+        assert.fail("Expected PaymentMintMismatch error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError);
+        assert.equal((err as AnchorError).error.errorCode.code, "PaymentMintMismatch");
+      }
+
+      // …and succeeds in the mint the coupon was opened with.
+      await payCouponInternal(ctx, {
+        holder: holderB,
+        merkleProof: proofB,
+        holderPaymentAccount: holderBPaymentAccount,
+      });
+
+      const paidA = (await getTokenAccount(ctx.holderPaymentAccount)).amount;
+      const paidB = (await getTokenAccount(holderBPaymentAccount)).amount;
+      assert.equal(paidB.toString(), paidA.toString(), "both holders paid the same amount in the same mint");
+
+      const dist = await getCouponDistribution(ctx.mint, ctx.couponId);
+      assert.equal(dist!.paidCount.toString(), "2");
+      assert.equal(dist!.totalPaid.toString(), (paidA + paidB).toString());
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("pay_coupon: set_coupon_rate after the first payment does not change the coupon's payout", async () => {
+      const ctx = await deployBondAndCoupon();
+      // Re-plant the coupon with a 5% override (same as the bond rate). The
+      // setCoupon cheatcode sizes the account to its contents, so a `None`
+      // override leaves no room for set_coupon_rate to write a `Some` later —
+      // a real create_coupon allocates the full INIT_SPACE.
+      await setCoupon(ctx.mint, ctx.couponId, {
+        periodStartDate: PERIOD_START,
+        periodEndDate: PERIOD_END,
+        paymentDate: PAYMENT_DATE,
+        interestRateOverride: new anchor.BN(500),
+        interestRateOverrideDecimals: 4,
+      });
+      const { holderB, holderBPaymentAccount, proofA, proofB } = await plantSecondHolder(ctx);
+
+      await payCouponInternal(ctx, { merkleProof: proofA });
+      // 5% → 10% override, mid-distribution.
+      await setCouponRate(
+        { authority, mint: ctx.mint },
+        { couponId: ctx.couponId, interestRate: new anchor.BN(1_000), interestRateDecimals: 4 }
+      );
+      await payCouponInternal(ctx, {
+        holder: holderB,
+        merkleProof: proofB,
+        holderPaymentAccount: holderBPaymentAccount,
+      });
+
+      const paidA = (await getTokenAccount(ctx.holderPaymentAccount)).amount;
+      const paidB = (await getTokenAccount(holderBPaymentAccount)).amount;
+      assert.equal(paidB.toString(), paidA.toString(), "holderB must be paid at the rate pinned on the first payment");
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("pay_coupon: update_bond_terms after the first payment does not change the coupon's payout", async () => {
+      const ctx = await deployBondAndCoupon();
+      const { holderB, holderBPaymentAccount, proofA, proofB } = await plantSecondHolder(ctx);
+
+      await payCouponInternal(ctx, { merkleProof: proofA });
+      await updateBondTerms(
+        { authority, mint: ctx.mint },
+        {
+          ...DEFAULT_UPDATE_BOND_ARGS,
+          interestRate: new anchor.BN(1_000),
+          parValue: new anchor.BN(200_000),
+          dayCountConvention: { actual360: {} },
+        }
+      );
+      await payCouponInternal(ctx, {
+        holder: holderB,
+        merkleProof: proofB,
+        holderPaymentAccount: holderBPaymentAccount,
+      });
+
+      const paidA = (await getTokenAccount(ctx.holderPaymentAccount)).amount;
+      const paidB = (await getTokenAccount(holderBPaymentAccount)).amount;
+      assert.equal(
+        paidB.toString(),
+        paidA.toString(),
+        "holderB must be paid with the bond terms pinned on the first payment"
+      );
     });
   });
 });

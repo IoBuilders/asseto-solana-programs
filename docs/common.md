@@ -179,7 +179,7 @@ pub fn verify_balance_proof(
 ) -> bool;
 ```
 
-- **Leaf** — `leaf_hash = keccak(account || balance.to_le_bytes())`. The balance uses **all 8 bytes little-endian** (e.g. `1500` → `dc 05 00 00 00 00 00 00`). Exactly one leaf per account. `verify_balance_proof` always recomputes this from the `(account, balance)` inputs — it never accepts a raw leaf hash.
+- **Leaf** — `leaf_hash = keccak(account || balance.to_le_bytes())`. The balance uses **all 8 bytes little-endian** (e.g. `1500` → `dc 05 00 00 00 00 00 00`). Exactly one leaf per account — for `treasury::pay_coupon` the account is the holder **wallet**, with its bond token-account balances summed. `verify_balance_proof` always recomputes this from the `(account, balance)` inputs — it never accepts a raw leaf hash.
 - **Tree** — **sorted-pair** (commutative): every internal node is `keccak(sort(left, right))`, comparing the two 32-byte children lexicographically. Proofs therefore carry only the sibling hashes (no left/right direction bits), and only leaf *existence* is proven, not position.
 - **`verify_balance_proof`** — folds `proof` up from the leaf using the sorted-pair rule and returns `true` iff the result equals `root`. An empty `proof` means a single-leaf tree (`leaf_hash == root`). This is a **pure `bool` primitive**, deliberately Anchor-error-free so it stays host-testable (`assert!(verify_balance_proof(...))`).
 - **`require_balance_proof`** (defined in `lib.rs`, not `merkle`) — the `require_*`-style wrapper callers should use: `require_balance_proof(proof, root, account, balance)?` calls the primitive and raises `CommonError::InvalidMerkleProof` on failure. Same split as `verify_control_list_pda` — a pure check plus a `Result`-returning wrapper — so the crypto module never depends on Anchor's error machinery.
@@ -200,7 +200,7 @@ pub fn require_balance_proof(
 ### Security notes
 
 - **No explicit leaf/node domain separation.** Forgery of an internal node as a leaf (the classic second-preimage attack) is prevented *by length*: the leaf preimage is 40 bytes (32 + 8) while an internal-node preimage is 64 bytes, and the verifier always recomputes the leaf from structured inputs — so the two hash domains can never overlap. **This safety depends on the leaf staying < 64 bytes**; changing the leaf format to ≥ 64 bytes (or a variable size) would silently reintroduce the attack. If the leaf ever grows, add explicit prefix bytes (`0x00` leaf / `0x01` node) and match them off-chain.
-- **The verifier can only be as sound as the tree that produced `root`.** The off-chain builder must guarantee: exactly one leaf per account, canonical sorted-pair construction with safe odd-level handling (promote the lone node, do **not** naively duplicate it), and the same lexicographic (bytewise) sibling ordering + `u64` LE encoding used here.
+- **The verifier can only be as sound as the tree that produced `root`.** The off-chain builder must guarantee: exactly one leaf per account (per holder wallet for coupon snapshots), canonical sorted-pair construction with safe odd-level handling (promote the lone node, do **not** naively duplicate it), and the same lexicographic (bytewise) sibling ordering + `u64` LE encoding used here.
 - **Bound the proof length in the caller.** This pure function does not cap `proof.len()`; each level is a keccak syscall. On-chain callers (e.g. `treasury::pay_coupon`) should `require!` a sane maximum (a legitimate proof is `ceil(log2(N))` — well under 32) to keep compute-unit usage deterministic.
 
 ---
