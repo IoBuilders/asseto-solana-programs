@@ -3,7 +3,6 @@ import { AnchorError, Program } from "@anchor-lang/core";
 import { Keypair, PublicKey, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
-import { deactivatePda } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { transferControlModePda } from "./program_helpers/transfer_control/transfer_control_pda_helper";
 import {
   extraAccountMetaListPda,
@@ -89,9 +88,9 @@ describe("transfer-hook", () => {
   });
 
   describe("initialize_extra_account_meta_list", () => {
-    it("initialize_extra_account_meta_list: declares 10 read-only extra accounts", async () => {
+    it("initialize_extra_account_meta_list: declares 9 read-only extra accounts", async () => {
       const entries = await getExtraAccountMetaEntries(mint);
-      assert.equal(entries.length, 10, "metalist should hold exactly 10 extra entries");
+      assert.equal(entries.length, 9, "metalist should hold exactly 9 extra entries");
       assert.isTrue(
         entries.every((entry) => !entry.isSigner && !entry.isWritable),
         "every metalist entry should be read-only and non-signer"
@@ -102,11 +101,10 @@ describe("transfer-hook", () => {
       const entries = await getExtraAccountMetaEntries(mint);
 
       assertLiteral(entries, 5, mintCompliancePda(mint), "this mint's mint_compliance_pda");
-      assertLiteral(entries, 6, deactivatePda(mint), "this mint's deactivate_pda");
-      assertLiteral(entries, 8, transferControlModePda(mint), "this mint's transfer_control_mode_pda");
+      assertLiteral(entries, 7, transferControlModePda(mint), "this mint's transfer_control_mode_pda");
     });
 
-    it("initialize_extra_account_meta_list: no longer lists the deploy, factory and deactivate programs", async () => {
+    it("initialize_extra_account_meta_list: no longer lists the deploy, factory and deactivate accounts", async () => {
       const entries = await getExtraAccountMetaEntries(mint);
       const literals = entries
         .filter((entry) => entry.discriminator === LITERAL_PUBKEY)
@@ -120,36 +118,36 @@ describe("transfer-hook", () => {
     it("initialize_extra_account_meta_list: resolves the per-token-account PDAs through their programs", async () => {
       const entries = await getExtraAccountMetaEntries(mint);
 
-      assertLiteral(entries, 7, TRANSFER_CONTROL_PROGRAM_ID, "the transfer-control program");
+      assertLiteral(entries, 6, TRANSFER_CONTROL_PROGRAM_ID, "the transfer-control program");
       assertExternalPda(
         entries,
-        9,
-        7,
+        8,
+        6,
         [...literalSeed("control_list"), SEED_ACCOUNT_KEY, 1, SEED_ACCOUNT_KEY, 0],
         '["control_list", mint@1, source_token@0]'
       );
       assertExternalPda(
         entries,
-        10,
-        7,
+        9,
+        6,
         [...literalSeed("control_list"), SEED_ACCOUNT_KEY, 1, SEED_ACCOUNT_KEY, 2],
         '["control_list", mint@1, destination_token@2]'
       );
 
-      assertLiteral(entries, 11, FREEZE_PROGRAM_ID, "the freeze program");
+      assertLiteral(entries, 10, FREEZE_PROGRAM_ID, "the freeze program");
       assertExternalPda(
         entries,
-        12,
         11,
+        10,
         [...literalSeed("freeze_state"), SEED_ACCOUNT_KEY, 1, SEED_ACCOUNT_KEY, 0],
         '["freeze_state", mint@1, source_token@0]'
       );
 
-      assertLiteral(entries, 13, HOLD_PROGRAM_ID, "the hold program");
+      assertLiteral(entries, 12, HOLD_PROGRAM_ID, "the hold program");
       assertExternalPda(
         entries,
-        14,
         13,
+        12,
         [...literalSeed("hold_position"), SEED_ACCOUNT_KEY, 1, SEED_ACCOUNT_KEY, 0],
         '["hold_position", mint@1, source_token@0]'
       );
@@ -162,7 +160,7 @@ describe("transfer-hook", () => {
         getExtraAccountMetaEntries(otherMint),
       ]);
 
-      for (const hookIndex of [5, 6, 8]) {
+      for (const hookIndex of [5, 7]) {
         assert.notEqual(
           new PublicKey(entryAt(entries, hookIndex).addressConfig).toBase58(),
           new PublicKey(entryAt(otherEntries, hookIndex).addressConfig).toBase58(),
@@ -231,6 +229,30 @@ describe("transfer-hook", () => {
         assert.instanceOf(err, AnchorError, "error should be an AnchorError");
         assert.equal((err as AnchorError).error.errorCode.code, "ConstraintSeeds");
       }
+    });
+  });
+
+  describe("set_deactivated", () => {
+    it("set_deactivated: fails with ConstraintSeeds when not signed by deactivate's registry_writer PDA", async () => {
+      const program = anchor.workspace.TransferHook as Program<TransferHook>;
+      const impostor = Keypair.generate();
+
+      try {
+        await program.methods
+          .setDeactivated()
+          .accountsStrict({
+            registryWriter: impostor.publicKey,
+            mintCompliancePda: mintCompliancePda(mint),
+            mint,
+          })
+          .signers([impostor])
+          .rpc({ commitment: "confirmed" });
+        assert.fail("Expected ConstraintSeeds error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "ConstraintSeeds");
+      }
+      assert.equal((await getMintCompliance(mint))!.deactivated, 0, "the flag should be untouched");
     });
   });
 });

@@ -7,14 +7,14 @@ use common::{pda_utils, require_functionality, require_role, roles};
 use spl_token_2022_interface::extension::pausable::instruction::pause as spl_pause;
 
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
 
 pub fn pause(ctx: Context<PauseMint>) -> Result<()> {
     // ── Verify caller holds the pauser role ──────────────────────────────────
     require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_PAUSER)?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -72,13 +72,12 @@ pub struct PauseMint<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     /// CHECK: Writable; validated by Token-2022 during the pause CPI.
     #[account(mut)]

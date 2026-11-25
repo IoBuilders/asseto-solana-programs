@@ -8,8 +8,7 @@ use crate::errors::TransferHookError;
 use crate::state::MintCompliance;
 use common::pda_seeds;
 use common::program_ids::{
-    DEACTIVATE_PROGRAM_ID, DEPLOY_PROGRAM_ID, FREEZE_PROGRAM_ID, HOLD_PROGRAM_ID,
-    TRANSFER_CONTROL_PROGRAM_ID,
+    DEPLOY_PROGRAM_ID, FREEZE_PROGRAM_ID, HOLD_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID,
 };
 use common::state::COMPLIANCE_LAYOUT_VERSION;
 
@@ -17,7 +16,7 @@ use common::state::COMPLIANCE_LAYOUT_VERSION;
 /// Keep in sync with the `metas` vec length in the handler, and with
 /// `common::HOOK_FORWARDED_ACCOUNT_COUNT`, which is this plus the two accounts
 /// Token-2022 requires on top (the metalist itself and the hook program).
-const EXTRA_ACCOUNT_META_COUNT: usize = 10;
+const EXTRA_ACCOUNT_META_COUNT: usize = 9;
 
 pub fn initialize_extra_account_meta_list(
     ctx: Context<InitializeExtraAccountMetaList>,
@@ -32,10 +31,6 @@ pub fn initialize_extra_account_meta_list(
         record.transfer_hook_execute_enabled = transfer_hook_execute_enabled as u8;
     }
     let mint_compliance_pda = ctx.accounts.mint_compliance_pda.key();
-    let (deactivate_pda, _) = Pubkey::find_program_address(
-        &[pda_seeds::DEACTIVATE, mint.as_ref()],
-        &DEACTIVATE_PROGRAM_ID,
-    );
     let (transfer_control_mode_pda, _) = Pubkey::find_program_address(
         &pda_seeds::transfer_control_mode_seeds(&mint),
         &TRANSFER_CONTROL_PROGRAM_ID,
@@ -43,11 +38,10 @@ pub fn initialize_extra_account_meta_list(
 
     let metas = vec![
         ExtraAccountMeta::new_with_pubkey(&mint_compliance_pda, false, false)?,
-        ExtraAccountMeta::new_with_pubkey(&deactivate_pda, false, false)?,
         ExtraAccountMeta::new_with_pubkey(&TRANSFER_CONTROL_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_with_pubkey(&transfer_control_mode_pda, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            7,
+            6,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::CONTROL_LIST.to_vec(),
@@ -59,7 +53,7 @@ pub fn initialize_extra_account_meta_list(
             false,
         )?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            7,
+            6,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::CONTROL_LIST.to_vec(),
@@ -72,7 +66,7 @@ pub fn initialize_extra_account_meta_list(
         )?,
         ExtraAccountMeta::new_with_pubkey(&FREEZE_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            11,
+            10,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::FREEZE_STATE.to_vec(),
@@ -85,7 +79,7 @@ pub fn initialize_extra_account_meta_list(
         )?,
         ExtraAccountMeta::new_with_pubkey(&HOLD_PROGRAM_ID, false, false)?,
         ExtraAccountMeta::new_external_pda_with_seeds(
-            13,
+            12,
             &[
                 Seed::Literal {
                     bytes: pda_seeds::HOLD_POSITION.to_vec(),

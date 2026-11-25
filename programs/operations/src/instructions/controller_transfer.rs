@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 use common::pda_utils;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles as RolesCommon};
 use common::{pda_seeds, require_active, require_functionality, require_role, roles, HookAccounts};
 use spl_token_2022_interface::{
     extension::StateWithExtensions, instruction::transfer_checked, state::Mint as MintState,
@@ -20,7 +20,7 @@ pub fn controller_transfer<'info>(
         roles::ROLE_CONTROLLER,
     )?;
 
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -67,8 +67,7 @@ pub fn controller_transfer<'info>(
     let hook_accounts = HookAccounts {
         extra_account_meta_list: &ctx.accounts.extra_account_meta_list,
         transfer_hook_program: &ctx.accounts.transfer_hook_program,
-        mint_compliance_pda: &ctx.accounts.mint_compliance_pda,
-        deactivate_pda: &ctx.accounts.deactivate_pda,
+        mint_compliance_pda: ctx.accounts.mint_compliance_pda.as_ref(),
         transfer_control_program: &ctx.accounts.transfer_control_program,
         transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
         source_control_list_pda: &ctx.accounts.source_control_list_pda,
@@ -118,14 +117,6 @@ pub struct ControllerTransfer<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
-    #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
-    )]
-    pub deactivate_pda: UncheckedAccount<'info>,
-
     /// CHECK: Validated by Token-2022 during `transfer_checked`; decimals read in the handler.
     pub mint: UncheckedAccount<'info>,
 
@@ -160,13 +151,12 @@ pub struct ControllerTransfer<'info> {
     #[account(address = constants::FREEZE_PROGRAM_ID)]
     pub freeze_program: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; forwarded to the hook.
     #[account(
         seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
         seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
-        bump,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub mint_compliance_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]

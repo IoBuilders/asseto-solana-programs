@@ -50,7 +50,6 @@ pub fn hold_transfer(ctx: Context<HoldTransfer>, amount: u64) -> Result<()> {
         extra_account_meta_list: &ctx.accounts.extra_account_meta_list,
         transfer_hook_program: &ctx.accounts.transfer_hook_program,
         mint_compliance_pda: &ctx.accounts.mint_compliance_pda,
-        deactivate_pda: &ctx.accounts.deactivate_pda,
         transfer_control_program: &ctx.accounts.transfer_control_program,
         transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
         source_control_list_pda: &ctx.accounts.source_control_list_pda,
@@ -122,14 +121,6 @@ pub struct HoldTransfer<'info> {
         bump,
     )]
     pub mint_compliance_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; forwarded to the hook.
-    #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
-    )]
-    pub deactivate_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to the hook.
     #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]

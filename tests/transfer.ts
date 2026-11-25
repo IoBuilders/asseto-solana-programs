@@ -37,7 +37,7 @@ import {
   TRANSFER_CONTROL_INITIALIZE,
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   setTransferControlModeMarker,
   setControlListMarker,
@@ -516,7 +516,7 @@ describe("transfer", () => {
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
       // ── Deactivate the mint ────────────────────────────────────────────────
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       // ── Transfer must now be rejected with Deactivated ─────────────────────
       try {

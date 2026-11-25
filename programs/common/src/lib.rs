@@ -48,16 +48,8 @@ pub enum CommonError {
     InvalidMerkleProof,
 }
 
-/// Checks whether a `deactivate_pda` exists for a given mint.
-///
-/// Takes `&AccountInfo` rather than `Account<T>` so callers don't need `deactivate`
-/// as a dependency — the caller's own `seeds::program` constraint already guarantees
-/// the address is correct.
-///
-/// Returns `Ok(())` if the account does not exist (empty data).
-/// Returns `Err(CommonError::Deactivated)` if the account has been created.
-pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()> {
-    require!(deactivate_pda.data_is_empty(), CommonError::Deactivated);
+pub fn require_active(mint_compliance: Ref<state::MintCompliance>) -> Result<()> {
+    require!(!mint_compliance.is_deactivated(), CommonError::Deactivated);
     Ok(())
 }
 

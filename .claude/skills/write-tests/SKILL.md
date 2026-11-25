@@ -203,7 +203,7 @@ it("pause: fails with MissingRole when authority doesn't have required role", as
 ### Using `splTransfer()` from `transfer_helper.ts`
 
 A transfer is a single instruction — Token-2022's own `transfer_checked` with the
-transfer hook's 12 accounts appended. The helper builds and sends it, and raises the
+transfer hook's 11 accounts appended. The helper builds and sends it, and raises the
 compute budget:
 
 ```ts
@@ -217,7 +217,7 @@ await splTransfer(
 
 There is no verify pre-instruction to build or malform — all compliance runs inside
 `transfer-hook::execute`, so error cases are set up by planting state (control-list
-marker, frozen PDA, deactivate marker) and then calling `splTransfer` normally. Use
+marker, frozen PDA, `setDeactivated`) and then calling `splTransfer` normally. Use
 `buildSplTransferCheckedInstruction` if a test needs the instruction rather than a
 sent transaction, and `splTransferWithoutHookAccounts` for the "hook block omitted"
 error case.

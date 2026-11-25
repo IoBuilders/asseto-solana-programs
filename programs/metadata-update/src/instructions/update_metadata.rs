@@ -12,7 +12,7 @@ use spl_token_metadata_interface::{
 };
 
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
 use common::{
     pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
     roles,
@@ -78,7 +78,7 @@ pub fn update_metadata_field(
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -184,13 +184,12 @@ pub struct UpdateMetadata<'info> {
     )]
     pub metadata_update_authority: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,

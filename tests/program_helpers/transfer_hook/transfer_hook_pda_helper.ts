@@ -50,8 +50,9 @@ export type MintCompliance = {
   transferHookExecuteEnabled: number;
 };
 
-// Byte offset of `transfer_hook_execute_enabled` in the account data
-// (8-byte discriminator + 36). Pinned by the layout tests in common/src/state/compliance.rs.
+// Byte offsets in the account data (8-byte discriminator + struct offset). Pinned by
+// the layout tests in common/src/state/compliance.rs.
+const MINT_COMPLIANCE_DEACTIVATED_OFFSET = 8 + 34;
 const MINT_COMPLIANCE_TRANSFER_HOOK_EXECUTE_OFFSET = 8 + 36;
 
 export function mintCompliancePda(mint: PublicKey): PublicKey {
@@ -75,13 +76,22 @@ export async function getMintCompliance(mint: PublicKey): Promise<MintCompliance
  * mint's asset-class version after deploying use this to keep the copy in step.
  */
 export async function setMintComplianceTransferHookExecute(mint: PublicKey, enabled: boolean): Promise<void> {
+  await setMintComplianceFlag(mint, MINT_COMPLIANCE_TRANSFER_HOOK_EXECUTE_OFFSET, enabled);
+}
+
+/** Overwrites the record's `deactivated` flag via surfpool (the flag `execute` reads). */
+export async function setMintComplianceDeactivated(mint: PublicKey, deactivated: boolean): Promise<void> {
+  await setMintComplianceFlag(mint, MINT_COMPLIANCE_DEACTIVATED_OFFSET, deactivated);
+}
+
+async function setMintComplianceFlag(mint: PublicKey, offset: number, value: boolean): Promise<void> {
   const pda = mintCompliancePda(mint);
   const info = await anchor.getProvider().connection.getAccountInfo(pda, "confirmed");
   if (!info) {
     throw new Error(`MintCompliance not found for mint ${mint.toBase58()}`);
   }
   const data = Buffer.from(info.data);
-  data[MINT_COMPLIANCE_TRANSFER_HOOK_EXECUTE_OFFSET] = enabled ? 1 : 0;
+  data[offset] = value ? 1 : 0;
   await surfnetSetAccount(pda, {
     lamports: info.lamports,
     owner: info.owner.toBase58(),

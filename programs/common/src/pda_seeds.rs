@@ -53,9 +53,6 @@ pub fn pausable_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> 
     vec![PAUSABLE_AUTHORITY, mint.as_ref()]
 }
 
-/******************************** DEACTIVATE ********************************/
-pub const DEACTIVATE: &[u8] = b"deactivate";
-
 /***************************** TRANSFER-CONTROL *****************************/
 pub const TRANSFER_CONTROL_MODE: &[u8] = b"transfer_control_mode";
 pub const CONTROL_LIST: &[u8] = b"control_list";
@@ -80,6 +77,11 @@ pub const TRANSFER_HOOK_AUTHORITY: &[u8] = b"transfer_hook_authority";
 pub const EXTRA_ACCOUNT_METAS: &[u8] = b"extra-account-metas";
 pub const MINT_COMPLIANCE: &[u8] = b"mint_compliance";
 pub const ACCOUNT_COMPLIANCE: &[u8] = b"account_compliance";
+pub const REGISTRY_WRITER: &[u8] = b"registry_writer";
+
+pub fn registry_writer_seeds<'info>() -> Vec<&'info [u8]> {
+    vec![REGISTRY_WRITER]
+}
 
 pub fn mint_compliance_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info [u8]> {
     vec![MINT_COMPLIANCE, mint.as_ref()]

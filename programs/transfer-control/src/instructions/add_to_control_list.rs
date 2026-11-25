@@ -6,7 +6,7 @@ use common::{
 use crate::events::AccountAddedToControlList;
 use crate::state::ControlListStatus;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
 
 pub fn add_to_control_list(ctx: Context<AddToControlList>) -> Result<()> {
     require_role(
@@ -18,7 +18,7 @@ pub fn add_to_control_list(ctx: Context<AddToControlList>) -> Result<()> {
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
     // ── Verify mint has not been deactivated ──────────────────────────────────
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -63,13 +63,12 @@ pub struct AddToControlList<'info> {
     /// CHECK: Address used as a seed for control_list_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     #[account(
         init_if_needed,

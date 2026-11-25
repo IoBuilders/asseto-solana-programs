@@ -46,7 +46,7 @@ import {
   setControlListMarker,
   setTransferControlModeMarker,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_CONTROL_LIST, ROLE_ISSUER } from "./utils/roles";
 
@@ -199,7 +199,7 @@ describe("transfer-control", () => {
 
     // ── Error case: initialize — Deactivated ───────────────────────────────────────
     it("initialize: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await initializeTransferControlMode({ authority, mint });
@@ -319,7 +319,7 @@ describe("transfer-control", () => {
     // ── Error case: add_to_control_list — Deactivated ───────────────────────────────
     it("add_to_control_list: fails with Deactivated when mint has been deactivated", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await addToControlList({ authority, mint, account: tokenAccount });
@@ -451,7 +451,7 @@ describe("transfer-control", () => {
     it("remove_from_control_list: fails with Deactivated when mint has been deactivated", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
       await addToControlList({ authority, mint, account: tokenAccount });
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await removeFromControlList({ authority, mint, account: tokenAccount });

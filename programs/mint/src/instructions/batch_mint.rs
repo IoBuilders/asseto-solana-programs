@@ -4,7 +4,7 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::Token2022;
 use cap::require_within_max_supply;
 use common::pda_utils;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles as RolesCommon};
 use common::{
     pda_seeds, require_active, require_functionality, require_role, roles, verify_control_list_pda,
 };
@@ -36,7 +36,7 @@ pub fn batch_mint<'info>(
 
     require_role(ctx.accounts.authority_roles_pda.load()?, roles::ROLE_ISSUER)?;
 
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -141,13 +141,12 @@ pub struct BatchMintTokens<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     /// CHECK: Writable; validated by Token-2022 during the mint_to CPI.
     #[account(mut)]

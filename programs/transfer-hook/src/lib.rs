@@ -22,6 +22,10 @@ pub mod transfer_hook {
         )
     }
 
+    pub fn set_deactivated(ctx: Context<SetDeactivated>) -> Result<()> {
+        set_deactivated::set_deactivated(ctx)
+    }
+
     // Discriminator = sha256("spl-transfer-hook-interface:execute")[..8] — see
     // docs/transfer-hook.md ("Discriminator") for the full derivation.
     #[instruction(discriminator = &[105, 37, 101, 197, 75, 251, 102, 26])]

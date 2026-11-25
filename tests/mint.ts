@@ -37,7 +37,7 @@ import {
   PAUSE_PAUSE,
   TRANSFER_CONTROL_INITIALIZE,
 } from "./utils/functionalities";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   setTransferControlModeMarker,
   setControlListMarker,
@@ -114,7 +114,7 @@ describe("mint", () => {
 
   it("mint: fails with Deactivated when mint has been deactivated", async () => {
     const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
-    await setDeactivateMarker(mint);
+    await setDeactivated(mint);
 
     try {
       await mintTokens({ mint, destination, authority });
@@ -433,7 +433,7 @@ describe("batch_mint", () => {
 
   it("batch_mint: fails with Deactivated when mint has been deactivated", async () => {
     const destination = await createTokenAccount({ mint, owner: Keypair.generate().publicKey });
-    await setDeactivateMarker(mint);
+    await setDeactivated(mint);
 
     try {
       await batchMintTokens({ mint, authority, destinations: [destination] });

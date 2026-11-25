@@ -16,7 +16,7 @@ import {
   rolesPdaWithBump,
   setRoles,
 } from "./program_helpers/access_control/access_control_pda_helper";
-import { clearDeactivateMarker, setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { clearDeactivated, setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setAssetClassVersionForMint } from "./program_helpers/factory/factory_pda_helper";
 import { setMintPaused } from "./program_helpers/spl_token_helper";
 import { ACCESS_CONTROL_GRANT_ROLES, ACCESS_CONTROL_REVOKE_ROLES } from "./utils/functionalities";
@@ -46,7 +46,7 @@ describe("access-control", () => {
   beforeEach(async () => {
     account = Keypair.generate().publicKey;
     await setMintPaused(mint, false);
-    await clearDeactivateMarker(mint);
+    await clearDeactivated(mint);
     await setAssetClassVersionForMint(mint, {
       functionalities: [ACCESS_CONTROL_GRANT_ROLES, ACCESS_CONTROL_REVOKE_ROLES],
     });
@@ -165,7 +165,7 @@ describe("access-control", () => {
 
     // ──────────────────────────────────────────────────────────────────────
     it("grant_roles: fails with Deactivated when the mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await grantRoles({ authority, mint, account }, { roles: [1] });
@@ -284,7 +284,7 @@ describe("access-control", () => {
     // ──────────────────────────────────────────────────────────────────────
     it("revoke_roles: fails with Deactivated when the mint has been deactivated", async () => {
       await setRoles(mint, account, [1]);
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await revokeRoles({ authority, mint, account }, { roles: [1] });

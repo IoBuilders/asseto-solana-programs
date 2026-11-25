@@ -5,7 +5,7 @@ import { AccessControl } from "../../../target/types/access_control";
 import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import { assetConfigurationPda } from "../deploy/deploy_pda_helper";
 import { BaseWriteContext, MintContext, MintWriteWithPayerContext } from "../base_helper";
-import { deactivatePda } from "../deactivate/deactivate_pda_helper";
+import { mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import { assetClassVersionPdaForMint } from "../factory/factory_pda_helper";
 import { getEvent } from "../event_helper";
 import { accessControlEventAuthorityPda, rolesPda } from "./access_control_pda_helper";
@@ -74,7 +74,7 @@ export async function grantRoles(callContext: GrantRolesContext, args: GrantRole
       assetConfigurationPda: assetConfigurationPda(mint),
       authorityRolesPda: rolesPda(mint, authority.publicKey),
       account,
-      deactivatePda: deactivatePda(mint),
+      mintCompliancePda: mintCompliancePda(mint),
       mint,
       rolesPda: rolesPda(mint, account),
       systemProgram: SYSTEM_PROGRAM_ID,
@@ -113,7 +113,7 @@ export async function revokeRoles(
       assetConfigurationPda: assetConfigurationPda(mint),
       authorityRolesPda: rolesPda(mint, authority.publicKey),
       account,
-      deactivatePda: deactivatePda(mint),
+      mintCompliancePda: mintCompliancePda(mint),
       mint,
       rolesPda: rolesPda(mint, account),
       assetClassVersionPda: await assetClassVersionPdaForMint(mint),

@@ -4,7 +4,7 @@ import { PublicKey } from "@solana/web3.js";
 import { Bond } from "../../../target/types/bond";
 import { BOND_PROGRAM_ID, SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { deactivatePda } from "../deactivate/deactivate_pda_helper";
+import { mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import { MintWriteWithPayerContext } from "../base_helper";
 import { getEvent } from "../event_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
@@ -68,7 +68,7 @@ export async function updateBondTerms(
       authority: callContext.authority.publicKey,
       authorityRolesPda: rolesPda(callContext.mint, callContext.authority.publicKey),
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       mint: callContext.mint,
       bondTerms: bondTermsPda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(

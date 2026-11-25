@@ -1,7 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
 import { extraAccountMetaListPda, mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
-import { deactivatePda } from "../deactivate/deactivate_pda_helper";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
@@ -64,7 +63,7 @@ export async function burnTokens(
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       operationsAuthority: permanentDelegatePda(callContext.mint),
       permissionedBurnAuthority: permissionedBurnPda(callContext.mint),
       tokenAccountHoldPositionPda: holdPositionPda(callContext.mint, callContext.tokenAccount),
@@ -140,7 +139,7 @@ export async function batchBurnTokens(
     .accountsStrict({
       authority: callContext.authority.publicKey,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       mint: callContext.mint,
       operationsAuthority: permanentDelegatePda(callContext.mint),
       permissionedBurnAuthority: permissionedBurnPda(callContext.mint),
@@ -196,7 +195,6 @@ export async function controllerTransfer(
     .accountsStrict({
       authority: callContext.authority.publicKey,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
       mint: callContext.mint,
       from: callContext.from,
       to: callContext.to,

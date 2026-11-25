@@ -168,7 +168,7 @@ bits outside `roles` are left untouched).
 | `asset_configuration_pda` | no | no | `Account<AssetConfiguration>` | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `authority_roles_pda` | no | no | `AccountLoader<Roles>` | the signer's own PDA, seeds `[mint, authority]`; loaded and read by `require_role` (must exist & be owned by `access-control`) |
 | `account` | no | no | UncheckedAccount | The grantee; any account; used only as a `roles_pda` seed |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; checked by `require_active` |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `roles_pda` | yes | no | `AccountLoader<Roles>` | init_if_needed; seeds `["roles", mint, account]` |
 | `system_program` | no | no | Program<System> | |
@@ -179,7 +179,7 @@ bits outside `roles` are left untouched).
 
 1. `require_role(authority_roles_pda.load()?, ROLE_ADMIN)`
 2. `require_not_paused(&mint)`
-3. `require_active(&deactivate_pda)`
+3. `require_active(mint_compliance_pda.load()?)`
 4. `require_functionality(asset_class_version_pda.load()?, ACCESS_CONTROL_GRANT_ROLES)`
 5. Load the PDA: `load_init` (fresh account → also writes `bump`) or, if it already exists, `load_mut`
 6. `common::bitmask::set_bits(&mut roles_pda.mask, &roles)` — turns on each role bit
@@ -209,7 +209,7 @@ via `mask[byte] &= !(1 << bit)` (a targeted merge — bits outside `roles` are l
 | `asset_configuration_pda` | no | no | `Account<AssetConfiguration>` | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; supplies the asset-class ids |
 | `authority_roles_pda` | no | no | `AccountLoader<Roles>` | the signer's own PDA, seeds `[mint, authority]`; loaded and read by `require_role` (must exist & be owned by `access-control`) |
 | `account` | no | no | UncheckedAccount | The target; any account; used only as a `roles_pda` seed |
-| `deactivate_pda` | no | no | UncheckedAccount | seeds `["deactivate", mint]`, `seeds::program = DEACTIVATE_PROGRAM_ID`; checked by `require_active` |
+| `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `mint` | no | no | UncheckedAccount | Read by `require_not_paused` |
 | `roles_pda` | yes | no | `AccountLoader<Roles>` | mut; seeds `["roles", mint, account]`; must already exist |
 | `asset_class_version_pda` | no | no | `AccountLoader<AssetClassVersion>` | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`, ids from `asset_configuration_pda`; checked by `require_functionality` |
@@ -218,7 +218,7 @@ via `mask[byte] &= !(1 << bit)` (a targeted merge — bits outside `roles` are l
 
 1. `require_role(authority_roles_pda.load()?, ROLE_ADMIN)`
 2. `require_not_paused(&mint)`
-3. `require_active(&deactivate_pda)`
+3. `require_active(mint_compliance_pda.load()?)`
 4. `require_functionality(asset_class_version_pda.load()?, ACCESS_CONTROL_REVOKE_ROLES)`
 5. `load_mut` the PDA (fails at account resolution if it does not exist)
 6. `common::bitmask::clear_bits(&mut roles_pda.mask, &roles)` — turns off each role bit

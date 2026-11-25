@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token_interface::{Mint, TokenAccount};
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance};
 use common::{pda_seeds, pda_utils, require_active, require_functionality, require_not_paused};
 use freeze::require_locked_balance_covered;
 use operations::cpi::accounts::HoldTransfer;
@@ -18,7 +18,7 @@ pub fn execute_hold<'info>(
     amount: u64,
 ) -> Result<()> {
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
         common::functionalities::HOLD_CREATE_HOLD,
@@ -102,7 +102,6 @@ pub fn execute_hold<'info>(
                 extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
                 transfer_hook_program: ctx.accounts.transfer_hook_program.to_account_info(),
                 mint_compliance_pda: ctx.accounts.mint_compliance_pda.to_account_info(),
-                deactivate_pda: ctx.accounts.deactivate_pda.to_account_info(),
                 transfer_control_program: ctx.accounts.transfer_control_program.to_account_info(),
                 transfer_control_mode_pda: ctx.accounts.transfer_control_mode_pda.to_account_info(),
                 source_control_list_pda: ctx.accounts.source_control_list_pda.to_account_info(),
@@ -146,14 +145,6 @@ pub struct ExecuteHold<'info> {
         bump = asset_configuration_pda.bump,
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
-
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
-    #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
-    )]
-    pub deactivate_pda: UncheckedAccount<'info>,
 
     pub mint: Box<InterfaceAccount<'info, Mint>>,
 
@@ -221,13 +212,12 @@ pub struct ExecuteHold<'info> {
     #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
-    /// CHECK: seeds verified; forwarded to the hook.
     #[account(
         seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
         seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
-        bump,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub mint_compliance_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     #[account(
         seeds = [

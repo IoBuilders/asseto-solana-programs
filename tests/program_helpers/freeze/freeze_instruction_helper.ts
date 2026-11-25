@@ -1,6 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { deactivatePda } from "../deactivate/deactivate_pda_helper";
+import { mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID, FREEZE_PROGRAM_ID } from "../../utils/address_utils";
 import { MintWriteContext } from "../base_helper";
@@ -36,7 +36,7 @@ export async function freezeAccount(callContext: FreezeAccountContext): Promise<
       mint: callContext.mint,
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       freezeStatePda: freezeStatePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
@@ -104,7 +104,7 @@ export async function batchFreezeAccount(
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       mint: callContext.mint,
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -145,7 +145,7 @@ export async function unfreezeAccount(callContext: UnfreezeAccountContext): Prom
       mint: callContext.mint,
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       freezeStatePda: freezeStatePda(callContext.mint, callContext.account),
       eventAuthority: freezeEventAuthorityPda(),
       program: FREEZE_PROGRAM_ID,
@@ -212,7 +212,7 @@ export async function batchUnfreezeAccount(
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       mint: callContext.mint,
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -270,7 +270,7 @@ export async function freezeAccountPartial(
       mint: callContext.mint,
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       freezeStatePda: freezeStatePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
@@ -342,7 +342,7 @@ export async function batchFreezeAccountPartial(
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       mint: callContext.mint,
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
@@ -385,7 +385,7 @@ export async function unfreezeAccountPartial(
       mint: callContext.mint,
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       freezeStatePda: freezeStatePda(callContext.mint, callContext.account),
       systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: freezeEventAuthorityPda(),
@@ -453,7 +453,7 @@ export async function batchUnfreezeAccountPartial(
       authorityRolesPda: rolesPda(callContext.mint, authority.publicKey),
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       mint: callContext.mint,
-      deactivatePda: deactivatePda(callContext.mint),
+      mintCompliancePda: mintCompliancePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId

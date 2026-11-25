@@ -42,7 +42,7 @@ A **zero-copy** (`#[repr(C)]`, `Pod`, `Zeroable`) field-for-field mirror of `fac
 ```rust
 pub enum CommonError {
     MintPaused,                     // mint's Pausable extension has paused = true
-    Deactivated,                    // deactivate_pda account exists
+    Deactivated,                    // MintCompliance.deactivated is set
     FunctionalityOutOfBounds,       // functionality is past the AssetClassVersion.mask's capacity
     FunctionalityNotSupportedError, // functionality bit not set in AssetClassVersion.mask
     InvalidAssetConfigurationData,  // could not read the asset_configuration account data
@@ -70,12 +70,12 @@ Helpers across this workspace (here and in `cap`, `transfer-control`, …) take 
 ## Function: `require_active`
 
 ```rust
-pub fn require_active(deactivate_pda: &AccountInfo) -> Result<()>
+pub fn require_active(mint_compliance: Ref<MintCompliance>) -> Result<()>
 ```
 
-Checks that `deactivate_pda` (seeds `["deactivate", mint]`, owned by `deactivate`) has empty data. An empty account means the mint has not been deactivated. Returns `Err(CommonError::Deactivated)` if the PDA exists.
+Checks the `deactivated` flag of the mint's `MintCompliance` record (seeds `["mint_compliance", mint]`, owned by `transfer-hook`). Returns `Err(CommonError::Deactivated)` if it is set. The flag is the single deactivation source of truth: `deactivate` sets it via `transfer-hook::set_deactivated`, `transfer-hook::execute` reads it directly, and every other program reads it through this function.
 
-Callers pass the account as `&AccountInfo` to avoid importing `deactivate` as a crate dependency.
+Same calling convention as `require_role`: callers declare the account as `AccountLoader<'info, common::state::MintCompliance>` with `seeds::program = TRANSFER_HOOK_PROGRAM_ID` and pass `mint_compliance_pda.load()?` — the loader checks owner and discriminator, the seeds pin the address, and `common` needs no dependency on `transfer-hook` thanks to the mirror struct.
 
 ---
 
@@ -282,9 +282,9 @@ The block of accounts every `transfer_checked` on an Asseto mint must append so 
 resolve and invoke `transfer-hook::execute`.
 
 ```rust
-pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 12;
+pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 11;
 
-pub struct HookAccounts<'a, 'info> { /* 12 &AccountInfo fields, in wire order */ }
+pub struct HookAccounts<'a, 'info> { /* 11 &AccountInfo fields, in wire order */ }
 
 impl<'a, 'info> HookAccounts<'a, 'info> {
     pub fn ordered(&self) -> [&'a AccountInfo<'info>; HOOK_FORWARDED_ACCOUNT_COUNT]
@@ -295,7 +295,7 @@ impl<'a, 'info> HookAccounts<'a, 'info> {
 
 The field order **is** the wire order: Token-2022 matches forwarded accounts positionally against
 the list `transfer-hook::initialize_extra_account_meta_list` built, so a wrong order fails inside
-Token-2022 before the hook even runs. The 12 are the metalist's own 10 entries plus the two
+Token-2022 before the hook even runs. The 11 are the metalist's own 9 entries plus the two
 Token-2022 requires on top (`extra_account_meta_list` and `transfer_hook_program`) — keep
 `HOOK_FORWARDED_ACCOUNT_COUNT` and the hook's `EXTRA_ACCOUNT_META_COUNT` in step.
 

@@ -6,7 +6,7 @@ use spl_token_2022_interface::extension::permissioned_burn::instruction::burn as
 
 use crate::events::ControllerRedemption;
 use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, Roles as RolesCommon};
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles as RolesCommon};
 
 pub fn burn<'info>(ctx: Context<'info, BurnTokens<'info>>, amount: u64) -> Result<()> {
     require_role(
@@ -15,7 +15,7 @@ pub fn burn<'info>(ctx: Context<'info, BurnTokens<'info>>, amount: u64) -> Resul
     )?;
 
     // ── Verify mint has not been deactivated ─────────────────────────────────
-    require_active(&ctx.accounts.deactivate_pda.to_account_info())?;
+    require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
         ctx.accounts.asset_class_version_pda.load()?,
@@ -99,13 +99,12 @@ pub struct BurnTokens<'info> {
     )]
     pub asset_configuration_pda: Account<'info, AssetConfiguration>,
 
-    /// CHECK: Address verified by seeds/bump; emptiness checked by require_active.
     #[account(
-        seeds = [pda_seeds::DEACTIVATE, mint.key().as_ref()],
-        seeds::program = constants::DEACTIVATE_PROGRAM_ID,
-        bump,
+        seeds = [pda_seeds::MINT_COMPLIANCE, mint.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump = mint_compliance_pda.load()?.bump,
     )]
-    pub deactivate_pda: UncheckedAccount<'info>,
+    pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
     /// CHECK: Writable; validated by Token-2022 during the burn CPI.
     #[account(mut)]

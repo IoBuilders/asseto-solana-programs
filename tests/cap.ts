@@ -19,7 +19,7 @@ import {
 } from "./program_helpers/factory/factory_pda_helper";
 import { CAP_MAX_SUPPLY } from "./utils/functionalities";
 import { getAccountInfo } from "./program_helpers/account_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { createTokenAccount, mintTokensViaSurfpool, setMintPaused } from "./program_helpers/spl_token_helper";
 
 describe("cap", () => {
@@ -188,7 +188,7 @@ describe("cap", () => {
 
     // ────────────────────────────────────────────────────────────────────────────
     it("set_max_supply: fails with Deactivated when mint has been deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       try {
         await setMaxSupply({ authority, mint });

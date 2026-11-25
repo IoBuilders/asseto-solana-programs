@@ -25,7 +25,7 @@ import {
   mintTokensViaSurfpool,
   setMintPaused,
 } from "./program_helpers/spl_token_helper";
-import { setDeactivateMarker } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   setFreezeStatePda,
   setFrozenAccountPda,
@@ -257,7 +257,7 @@ describe("hold", () => {
     });
 
     it("create_hold: fails with Deactivated when the mint is deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       await assertFails("Deactivated", () =>
         createHold({ authority: holderKeypair, mint, tokenAccount: holderTokenAccount }, { amount: HOLD_AMOUNT })
@@ -587,7 +587,7 @@ describe("hold", () => {
     });
 
     it("execute_hold: fails with Deactivated when the mint is deactivated", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       await assertFails("Deactivated", () =>
         executeHold(
@@ -711,7 +711,7 @@ describe("hold", () => {
     });
 
     it("release_hold: still works after the mint is deactivated, so a lien is never stuck", async () => {
-      await setDeactivateMarker(mint);
+      await setDeactivated(mint);
 
       await releaseHold({ escrow: escrowKeypair, mint, tokenAccount: holderTokenAccount }, { amount: HOLD_AMOUNT });
 

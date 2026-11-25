@@ -128,7 +128,7 @@ Sets (or replaces) the mint used to settle coupon payments for this bond mint.
 | 0 | `payer` | Signer, mut. Funds rent for `treasury_config` on the first call. |
 | 1 | `authority` | Signer. Must hold `ROLE_TREASURER` on this mint. |
 | 2 | `asset_configuration_pda` | `Account<AssetConfiguration>`, owned by `deploy`. Seeds `["asset_configuration", mint]`. Used to derive `asset_class_version_pda`. |
-| 3 | `deactivate_pda` | Owned by `deactivate`. Seeds `["deactivate", mint]`. Must not exist (verified by `require_active`). |
+| 3 | `mint_compliance_pda` | `AccountLoader<MintCompliance>`, owned by `transfer-hook`. Seeds `["mint_compliance", mint]`. `deactivated` must be 0 (verified by `require_active`). |
 | 4 | `mint` | Bond's Token-2022 mint. Pause state checked by `require_not_paused`. |
 | 5 | `treasury_config` | Owned by `treasury`. `init_if_needed`. Seeds `["treasury_config", mint]`. |
 | 6 | `payment_mint` | `InterfaceAccount<Mint>` — classic SPL or Token-2022. Decimals read here. |
@@ -226,7 +226,7 @@ The `coupon_paid` marker PDA is created via `init` (not `init_if_needed`) and ke
 | 0 | `payer` | Signer, mut. Funds rent for the `coupon_paid` marker. |
 | 1 | `authority` | Signer. Must hold `ROLE_TREASURER` on this mint. |
 | 2 | `asset_configuration_pda` | `Account<AssetConfiguration>`. Seeds `["asset_configuration", mint]`. Used to derive `asset_class_version_pda`. |
-| 3 | `deactivate_pda` | Seeds `["deactivate", mint]`. Must not exist. |
+| 3 | `mint_compliance_pda` | `AccountLoader<MintCompliance>`. Seeds `["mint_compliance", mint]`. `deactivated` must be 0. |
 | 4 | `mint` | Bond's Token-2022 mint, loaded as `InterfaceAccount<Mint>` so `decimals` is available for the payout math. Pause state checked by `require_not_paused` from the same account data. |
 | 5 | `treasury_config` | Read-only. Seeds `["treasury_config", mint]`. Source of the payment mint pinned on a coupon's first payment. |
 | 6 | `treasury_authority` | Empty PDA. Seeds `["treasury_authority", mint]`. Owner of `treasury_token_account`; signs the transfer via `invoke_signed`. |

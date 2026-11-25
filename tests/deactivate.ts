@@ -4,8 +4,7 @@ import { PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import { deactivateMint, getDeactivatedEvent } from "./program_helpers/deactivate/deactivate_instruction_helper";
-import * as deactivatePdaUtils from "./program_helpers/deactivate/deactivate_pda_helper";
-import { getDeactivatePda } from "./program_helpers/deactivate/deactivate_pda_helper";
+import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
@@ -13,6 +12,7 @@ import {
 import { DEACTIVATE_DEACTIVATE } from "./utils/functionalities";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_DEACTIVATE } from "./utils/roles";
+import { getMintCompliance } from "./program_helpers/transfer_hook/transfer_hook_pda_helper";
 
 describe("deactivate", () => {
   const provider = anchor.AnchorProvider.env();
@@ -28,26 +28,31 @@ describe("deactivate", () => {
 
   describe("deactivate", () => {
     // ── Happy-path test ──────────────────────────────────────────────────────────
-    it("deactivate: creates the deactivate PDA for the mint", async () => {
-      // ── Verify the deactivate PDA was created and stores the correct bump ─────
-      const [deactivatePda, expectedBump] = deactivatePdaUtils.deactivatePdaWithBump(mint);
-      const deactivateStatusBefore = await getDeactivatePda(deactivatePda);
+    it("deactivate: sets the hook's MintCompliance.deactivated flag", async () => {
+      assert.equal((await getMintCompliance(mint))!.deactivated, 0, "mint should start active");
 
-      // ── Call the deactivate instruction ───────────────────────────────────────
       const { signature } = await deactivateMint({ authority, mint });
 
-      // ── Verify the deactivate PDA was created and stores the correct bump ─────
-      const deactivateStatusAfter = await getDeactivatePda(deactivatePda);
-
-      assert.isNull(deactivateStatusBefore, "deactivate PDA should not exist before calling deactivate");
-      assert.isNotNull(deactivateStatusAfter, "deactivate PDA should exist after calling deactivate");
-      assert.equal(deactivateStatusAfter.bump, expectedBump, "deactivate PDA bump should match the canonical bump");
+      assert.equal((await getMintCompliance(mint))!.deactivated, 1, "deactivate should set MintCompliance.deactivated");
 
       const event = await getDeactivatedEvent(signature);
 
       assert.isNotNull(event, "Deactivated event should be emitted");
       assert.equal(event!.mint.toBase58(), mint.toBase58(), "event mint should match the deployed mint");
       assert.equal(event!.operator.toBase58(), authority.publicKey.toBase58(), "event operator should match deployer");
+    });
+
+    // ────────────────────────────────────────────────────────────────────────────
+    it("deactivate: fails with Deactivated when the mint is already deactivated", async () => {
+      await setDeactivated(mint);
+
+      try {
+        await deactivateMint({ authority, mint });
+        assert.fail("Expected Deactivated error but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "Deactivated");
+      }
     });
 
     // ────────────────────────────────────────────────────────────────────────────
