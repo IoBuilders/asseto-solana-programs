@@ -4,7 +4,7 @@ import { ExtraAccountMeta, getExtraAccountMetas } from "@solana/spl-token";
 import { Program } from "@anchor-lang/core";
 import { TRANSFER_HOOK_PROGRAM_ID } from "../../utils/address_utils";
 import { TransferHook } from "../../../target/types/transfer_hook";
-import { surfnetSetAccount } from "../account_helper";
+import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
 
 function getTransferHookProgram(): Program<TransferHook> {
   return anchor.workspace.TransferHook as Program<TransferHook>;
@@ -95,6 +95,96 @@ async function setMintComplianceFlag(mint: PublicKey, offset: number, value: boo
   await surfnetSetAccount(pda, {
     lamports: info.lamports,
     owner: info.owner.toBase58(),
+    data: data.toString("hex"),
+    executable: false,
+    rentEpoch: 0,
+  });
+}
+
+// ── account_compliance PDA ──────────────────────────────────────────────────────────────
+
+export type AccountCompliance = {
+  mint: PublicKey;
+  tokenAccount: PublicKey;
+  frozenBalance: anchor.BN;
+  heldAmount: anchor.BN;
+  version: number;
+  bump: number;
+  inControlList: number;
+  fullyFrozen: number;
+};
+
+// Byte offsets in the account data (8-byte discriminator + struct offset). Pinned by
+// the layout tests in common/src/state/compliance.rs.
+const ACCOUNT_COMPLIANCE_SPACE = 160;
+const ACCOUNT_COMPLIANCE_MINT_OFFSET = 8 + 0;
+const ACCOUNT_COMPLIANCE_TOKEN_ACCOUNT_OFFSET = 8 + 32;
+const ACCOUNT_COMPLIANCE_FROZEN_BALANCE_OFFSET = 8 + 64;
+const ACCOUNT_COMPLIANCE_VERSION_OFFSET = 8 + 80;
+const ACCOUNT_COMPLIANCE_BUMP_OFFSET = 8 + 81;
+const ACCOUNT_COMPLIANCE_FULLY_FROZEN_OFFSET = 8 + 83;
+const COMPLIANCE_LAYOUT_VERSION = 1;
+
+export function accountCompliancePda(mint: PublicKey, tokenAccount: PublicKey): PublicKey {
+  return accountCompliancePdaWithBump(mint, tokenAccount)[0];
+}
+
+export function accountCompliancePdaWithBump(mint: PublicKey, tokenAccount: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("account_compliance"), mint.toBuffer(), tokenAccount.toBuffer()],
+    TRANSFER_HOOK_PROGRAM_ID
+  );
+}
+
+export async function getAccountComplianceByPda(pda: PublicKey): Promise<AccountCompliance | null> {
+  return (await getTransferHookProgram().account.accountCompliance.fetchNullable(
+    pda,
+    "confirmed"
+  )) as AccountCompliance | null;
+}
+
+export async function getAccountCompliance(
+  mint: PublicKey,
+  tokenAccount: PublicKey
+): Promise<AccountCompliance | null> {
+  return getAccountComplianceByPda(accountCompliancePda(mint, tokenAccount));
+}
+
+/**
+ * Plants the freeze fields of the `(mint, tokenAccount)` record via surfpool, creating
+ * the record if absent and keeping every field not in `changes` — the same effect a
+ * `freeze` instruction has through `set_freeze`, without its role/functionality gates.
+ */
+export async function setAccountComplianceFreeze(
+  mint: PublicKey,
+  tokenAccount: PublicKey,
+  changes: { fullyFrozen?: boolean; frozenBalance?: anchor.BN }
+): Promise<void> {
+  const [pda, bump] = accountCompliancePdaWithBump(mint, tokenAccount);
+  const info = await anchor.getProvider().connection.getAccountInfo(pda, "confirmed");
+  let data: Buffer;
+  if (info) {
+    data = Buffer.from(info.data);
+  } else {
+    data = Buffer.alloc(ACCOUNT_COMPLIANCE_SPACE);
+    const discriminator = getTransferHookProgram().idl.accounts.find(
+      (a) => a.name === "accountCompliance"
+    )!.discriminator;
+    Buffer.from(discriminator).copy(data, 0);
+    mint.toBuffer().copy(data, ACCOUNT_COMPLIANCE_MINT_OFFSET);
+    tokenAccount.toBuffer().copy(data, ACCOUNT_COMPLIANCE_TOKEN_ACCOUNT_OFFSET);
+    data[ACCOUNT_COMPLIANCE_VERSION_OFFSET] = COMPLIANCE_LAYOUT_VERSION;
+    data[ACCOUNT_COMPLIANCE_BUMP_OFFSET] = bump;
+  }
+  if (changes.fullyFrozen !== undefined) {
+    data[ACCOUNT_COMPLIANCE_FULLY_FROZEN_OFFSET] = changes.fullyFrozen ? 1 : 0;
+  }
+  if (changes.frozenBalance !== undefined) {
+    data.writeBigUInt64LE(BigInt(changes.frozenBalance.toString()), ACCOUNT_COMPLIANCE_FROZEN_BALANCE_OFFSET);
+  }
+  await surfnetSetAccount(pda, {
+    lamports: info?.lamports ?? (await getBalanceForRentExeption(data.length)),
+    owner: TRANSFER_HOOK_PROGRAM_ID.toBase58(),
     data: data.toString("hex"),
     executable: false,
     rentEpoch: 0,

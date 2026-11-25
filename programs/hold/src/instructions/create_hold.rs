@@ -26,7 +26,7 @@ pub fn create_hold<'info>(
         mint: ctx.accounts.mint.key(),
         token_account: ctx.accounts.token_account.key(),
         balance: ctx.accounts.token_account.amount,
-        freeze_state_pda: &ctx.accounts.token_account_freeze_state_pda,
+        account_compliance_pda: &ctx.accounts.token_account_compliance_pda,
     };
 
     record_new_hold(
@@ -89,13 +89,13 @@ pub struct CreateHold<'info> {
     )]
     pub token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// CHECK: seeds verified; read by freeze::freeze_status. May be empty (nothing frozen).
+    /// CHECK: seeds verified; read by common::freeze_status. May be empty (nothing recorded).
     #[account(
-        seeds = [pda_seeds::FREEZE_STATE, mint.key().as_ref(), token_account.key().as_ref()],
-        seeds::program = constants::FREEZE_PROGRAM_ID,
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), token_account.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]
-    pub token_account_freeze_state_pda: UncheckedAccount<'info>,
+    pub token_account_compliance_pda: UncheckedAccount<'info>,
 
     #[account(
         init_if_needed,

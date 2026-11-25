@@ -53,17 +53,6 @@ pub fn create_or_adopt_pda<'info>(
     Ok(())
 }
 
-pub fn close_pda(pda: &AccountInfo, authority: &AccountInfo) -> Result<()> {
-    let lamports = pda.lamports();
-    **pda.try_borrow_mut_lamports()? = 0;
-    **authority.try_borrow_mut_lamports()? = authority
-        .lamports()
-        .checked_add(lamports)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    pda.try_borrow_mut_data()?.fill(0);
-    Ok(())
-}
-
 pub fn resize_pda<'info>(
     payer: &AccountInfo<'info>,
     system_program: &AccountInfo<'info>,

@@ -4,7 +4,6 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { Hold } from "../../../target/types/hold";
 import {
-  FREEZE_PROGRAM_ID,
   HOLD_PROGRAM_ID,
   OPERATIONS_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
@@ -12,11 +11,14 @@ import {
   TRANSFER_HOOK_PROGRAM_ID,
 } from "../../utils/address_utils";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { extraAccountMetaListPda, mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
+import {
+  accountCompliancePda,
+  extraAccountMetaListPda,
+  mintCompliancePda,
+} from "../transfer_hook/transfer_hook_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { BaseWriteContext, MintContext, PayerContext } from "../base_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
-import { freezeStatePda } from "../freeze/freeze_pda_helper";
 import { permanentDelegatePda } from "../operations/operations_pda_helper";
 import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
 import { getEvent } from "../event_helper";
@@ -72,7 +74,7 @@ export async function createHold(
       mintCompliancePda: mintCompliancePda(callContext.mint),
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
-      tokenAccountFreezeStatePda: freezeStatePda(callContext.mint, callContext.tokenAccount),
+      tokenAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.tokenAccount),
       holdPosition: holdPositionPda(callContext.mint, callContext.tokenAccount),
       holdRecord: holdPda(callContext.mint, callContext.tokenAccount, holdId),
       assetClassVersionPda: assetClassVersionPda(
@@ -123,7 +125,7 @@ export async function controllerCreateHold(
       mintCompliancePda: mintCompliancePda(callContext.mint),
       mint: callContext.mint,
       tokenAccount: callContext.tokenAccount,
-      tokenAccountFreezeStatePda: freezeStatePda(callContext.mint, callContext.tokenAccount),
+      tokenAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.tokenAccount),
       holdPosition: holdPositionPda(callContext.mint, callContext.tokenAccount),
       holdRecord: holdPda(callContext.mint, callContext.tokenAccount, holdId),
       assetClassVersionPda: assetClassVersionPda(
@@ -194,8 +196,7 @@ export async function executeHold(
       transferControlModePda: transferControlModePda(callContext.mint),
       sourceControlListPda: controlListPda(callContext.mint, callContext.tokenAccount),
       destinationControlListPda: controlListPda(callContext.mint, callContext.destination),
-      freezeProgram: FREEZE_PROGRAM_ID,
-      sourceFreezeStatePda: freezeStatePda(callContext.mint, callContext.tokenAccount),
+      sourceAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.tokenAccount),
       holdProgram: HOLD_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: holdEventAuthorityPda(),

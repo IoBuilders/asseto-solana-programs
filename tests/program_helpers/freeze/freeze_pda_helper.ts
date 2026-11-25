@@ -1,10 +1,15 @@
 import { PublicKey } from "@solana/web3.js";
 import * as anchor from "@anchor-lang/core";
 import { FREEZE_PROGRAM_ID } from "../../utils/address_utils";
-import { getFreezeProgram } from "./freeze_instruction_helper";
-import { getBalanceForRentExeption, surfnetSetAccount } from "../account_helper";
+import {
+  accountCompliancePda,
+  getAccountComplianceByPda,
+  setAccountComplianceFreeze,
+} from "../transfer_hook/transfer_hook_pda_helper";
 
-// ── freeze_state PDA ───────────────────────────────────────────────────────────
+export { accountCompliancePda, accountCompliancePdaWithBump } from "../transfer_hook/transfer_hook_pda_helper";
+
+// ── freeze side of the hook's AccountCompliance ─────────────────────────────────
 
 export type FreezeState = {
   fullyFrozen: boolean;
@@ -12,57 +17,26 @@ export type FreezeState = {
   bump: number;
 };
 
-export function freezeStatePda(mint: PublicKey, account: PublicKey): PublicKey {
-  return freezeStatePdaWithBump(mint, account)[0];
-}
-
-export function freezeStatePdaWithBump(mint: PublicKey, account: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("freeze_state"), mint.toBuffer(), account.toBuffer()],
-    FREEZE_PROGRAM_ID
-  );
-}
-
+/** The freeze fields of the account's `AccountCompliance`, or null if no record exists. */
 export async function getFreezeStateByPda(pda: PublicKey): Promise<FreezeState | null> {
-  return await getFreezeProgram().account.freezeState.fetchNullable(pda, "confirmed");
+  const record = await getAccountComplianceByPda(pda);
+  if (!record) {
+    return null;
+  }
+  return { fullyFrozen: record.fullyFrozen !== 0, frozenBalance: record.frozenBalance, bump: record.bump };
 }
 
 export async function getFreezeState(mint: PublicKey, account: PublicKey): Promise<FreezeState | null> {
-  return await getFreezeStateByPda(freezeStatePda(mint, account));
+  return await getFreezeStateByPda(accountCompliancePda(mint, account));
 }
 
-/**
- * Plants the `freeze_state` PDA via surfpool, merging `changes` into whatever is
- * already on-chain so planting one freeze side never wipes the other. When both
- * sides end up clear the account is removed, mirroring the program's own close.
- */
+/** Plants freeze fields via surfpool, keeping the side not named in `changes`. */
 export async function setFreezeStatePda(
   mint: PublicKey,
   account: PublicKey,
   changes: Partial<Omit<FreezeState, "bump">>
 ): Promise<void> {
-  const [pda, bump] = freezeStatePdaWithBump(mint, account);
-  const current = await getFreezeStateByPda(pda);
-  const next = {
-    fullyFrozen: changes.fullyFrozen ?? current?.fullyFrozen ?? false,
-    frozenBalance: changes.frozenBalance ?? current?.frozenBalance ?? new anchor.BN(0),
-    bump,
-  };
-
-  if (!next.fullyFrozen && next.frozenBalance.isZero()) {
-    await surfnetSetAccount(pda, { lamports: 0 });
-    return;
-  }
-
-  const data = await getFreezeProgram().coder.accounts.encode("freezeState", next);
-  const lamports = await getBalanceForRentExeption(data.length);
-  await surfnetSetAccount(pda, {
-    lamports,
-    owner: FREEZE_PROGRAM_ID.toBase58(),
-    data: data.toString("hex"),
-    executable: false,
-    rentEpoch: 0,
-  });
+  await setAccountComplianceFreeze(mint, account, changes);
 }
 
 export async function setFrozenAccountPda(mint: PublicKey, account: PublicKey): Promise<void> {
@@ -75,6 +49,12 @@ export async function setFrozenBalancePda(mint: PublicKey, account: PublicKey, b
 
 export async function clearFrozenBalancePda(mint: PublicKey, account: PublicKey): Promise<void> {
   await setFreezeStatePda(mint, account, { frozenBalance: new anchor.BN(0) });
+}
+
+// ── registry_writer PDA ────────────────────────────────────────────────────────
+
+export function freezeRegistryWriterPda(): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("registry_writer")], FREEZE_PROGRAM_ID)[0];
 }
 
 // ── __event_authority PDA ──────────────────────────────────────────────────────

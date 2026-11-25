@@ -27,13 +27,6 @@ pub fn metadata_update_authority_seeds<'info>(mint: &'info Pubkey) -> Vec<&'info
     vec![METADATA_UPDATE_AUTHORITY, mint.as_ref()]
 }
 
-/********************************** FREEZE **********************************/
-pub const FREEZE_STATE: &[u8] = b"freeze_state";
-
-pub fn freeze_state_seeds<'info>(mint: &'info Pubkey, account: &'info Pubkey) -> Vec<&'info [u8]> {
-    vec![FREEZE_STATE, mint.as_ref(), account.as_ref()]
-}
-
 /******************************** OPERATIONS ********************************/
 pub const PERMANENT_DELEGATE: &[u8] = b"permanent_delegate";
 pub const PERMISSIONED_BURN: &[u8] = b"permissioned_burn";

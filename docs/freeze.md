@@ -2,50 +2,44 @@
 
 Program ID: `8L1kqDvAYC9dQXNNNnZbABtRbHGjzoxSgAPzbQZmwmSd`
 
-Controls all programmatic freezing. Freezing is expressed purely as one `freeze_state` PDA per `(mint, token account)`, owned by this program — no Token-2022 account state is ever changed, and no instruction here signs a Token-2022 CPI. This program owns no Token-2022 authority: mints are deployed with their freeze authority set to `None`, irreversibly (see [deploy.md](deploy.md)), so a token-level freeze is not available to it.
+Controls all programmatic freezing. A freeze is recorded in the transfer hook's per-account compliance record, `AccountCompliance` (`["account_compliance", mint, token_account]`, owned by `transfer-hook` — see [`transfer-hook.md`](transfer-hook.md#state)), which is the single source of truth for both freeze sides. This program holds no state of its own: it validates, then writes the record through a CPI to `transfer-hook::set_freeze`, signed by its `["registry_writer"]` PDA — the only writer the hook accepts for those fields (ADR option C, the same pattern `deactivate` uses for `MintCompliance.deactivated`).
+
+No Token-2022 account state is ever changed, and no instruction here signs a Token-2022 CPI. This program owns no Token-2022 authority: mints are deployed with their freeze authority set to `None`, irreversibly (see [deploy.md](deploy.md)), so a token-level freeze is not available to it.
 
 Exposes one category of instructions:
 - **Management** (`freeze_account`, `batch_freeze_account`, `unfreeze_account`, `batch_unfreeze_account`, `freeze_account_partial`, `batch_freeze_account_partial`, `unfreeze_account_partial`, `batch_unfreeze_account_partial`): called directly by an account holding `ROLE_FREEZE_MANAGER` to enforce account-level restrictions. Each emits an event via `emit_cpi!` (see [Emitting events](#emitting-events)).
 
-Enforcement is entirely read-side: `transfer-hook::execute` reads the `freeze_state` PDA through the verification functions below and aborts the transfer. A frozen account is therefore still `Initialized` (not `Frozen`) as far as Token-2022 is concerned.
-
-Also exports six verification/reader functions; `freeze_status` and `require_locked_balance_covered` are the pair the transfer hook links in.
+Enforcement is entirely read-side: `transfer-hook::execute` reads the record through `common::freeze_status` and aborts the transfer. A frozen account is therefore still `Initialized` (not `Frozen`) as far as Token-2022 is concerned.
 
 ---
 
-## State
+## Freeze state (in `AccountCompliance`)
 
-### `FreezeState`
+| Field | Meaning |
+|---|---|
+| `fully_frozen` (`u8` bool) | Full freeze (set by `freeze_account`). |
+| `frozen_balance` (`u64`) | Partial freeze: amount locked; 0 = no partial freeze. |
 
-```rust
-#[account]
-pub struct FreezeState {
-    pub fully_frozen: bool,   // full freeze (set by freeze_account)
-    pub frozen_balance: u64,  // partial freeze: amount locked; 0 = no partial freeze
-    pub bump: u8,
-}
-// LEN = 8 (discriminator) + 1 + 8 + 1 = 18 bytes
-// Seeds: ["freeze_state", mint, account]
-```
+The two sides stay **independent**: no instruction checks the other side's state, and clearing one side never touches the other. The record is created (by `set_freeze`'s `init_if_needed`, paid by `authority`) the first time either side is set, and is **never closed** — it is shared with the other compliance fields (control list, holds), so an all-clear freeze is just both fields at zero. An absent record means "nothing frozen".
 
-Holds **both** freeze sides of a token account. They used to live in two PDAs (`FrozenAccountStatus` at `["frozen_account", …]` and `FrozenBalance` at `["frozen_balance", …]`); merging them frees one slot in the transfer hook's `ExtraAccountMetaList`, which is capped by Token-2022's 32 KiB heap (see [`transfer-hook.md`](transfer-hook.md#metalist-contents)).
+The partial side is just `frozen_balance > 0`. That works because a partial freeze of 0 is **rejected** with `InvalidFreezeAmount`, matching the EVM implementation (ATS `checkNonZeroFreezeAmount` → `IFreeze.InvalidFreezeAmount`).
 
-The two sides stay **independent**: no instruction checks the other side's state, and clearing one side never touches the other. The account is created by whichever side is set first and **closed only once both sides are clear** (rent returned to the authority that clears the last side). An absent account means "nothing frozen".
-
-The partial side is just `frozen_balance > 0` (`FreezeState::is_partially_frozen`). That works because a partial freeze of 0 is **rejected** with `InvalidFreezeAmount`, matching the EVM implementation (ATS `checkNonZeroFreezeAmount` → `IFreeze.InvalidFreezeAmount`). Before the merge, a 0 partial freeze was accepted and created a removable `FrozenBalance` holding 0; it locked nothing, so rejecting it removes a no-op rather than a capability.
-
-State matrix (∅ = no account; F = full; P = partial):
+State matrix (∅ = no record or both sides clear; F = full; P = partial):
 
 | From \ op | `freeze_account` | `unfreeze_account` | `freeze_account_partial(b)` | `unfreeze_account_partial` |
 |---|---|---|---|---|
-| ∅ | F (creates) | `AccountNotInitialized` | P(b) (creates) | `AccountNotInitialized` |
-| F | `AccountFrozen` | ∅ (closes) | F+P(b) | `AccountNotPartiallyFrozen` |
-| P | F+P | `AccountNotFrozen` | P(b′) (overwrites) | ∅ (closes) |
-| F+P | `AccountFrozen` | **P (stays open)** | F+P(b′) | **F (stays open)** |
+| ∅ | F (creates the record if absent) | `AccountNotFrozen` | P(b) (creates the record if absent) | `AccountNotPartiallyFrozen` |
+| F | `AccountFrozen` | ∅ | F+P(b) | `AccountNotPartiallyFrozen` |
+| P | F+P | `AccountNotFrozen` | P(b′) (overwrites) | ∅ |
+| F+P | `AccountFrozen` | P | F+P(b′) | F |
 
-`b` is always > 0: `freeze_account_partial(0)` fails with `InvalidFreezeAmount` from any state and changes nothing.
+`b` is always > 0: `freeze_account_partial(0)` fails with `InvalidFreezeAmount` from any state and changes nothing. The batch variants follow the same matrix per entry.
 
-The batch variants follow the same matrix per entry, except that an absent account surfaces as `AccountNotFrozen` / `AccountNotPartiallyFrozen` instead of `AccountNotInitialized`.
+Each instruction reads the record with `common::freeze_status` (owner + discriminator checked, absent = all clear), applies its transition, and passes **both** sides to `set_freeze` — so the side it does not touch is written back unchanged.
+
+## PDA: `registry_writer`
+
+`["registry_writer"]` (owned by this program, no data). Signs every `transfer-hook::set_freeze` CPI; the hook accepts only this PDA as the writer of the freeze fields.
 
 ---
 
@@ -54,88 +48,15 @@ The batch variants follow the same matrix per entry, except that an absent accou
 ```rust
 pub enum ErrorCode {
     Unauthorized,                 // unused
-    AccountFrozen,                // full-freeze side already set / source is fully frozen
-    InsufficientUnfrozenBalance,  // locked amount no longer covered by the balance
     EmptyBatch,                   // batch with no entries
     InvalidRemainingAccounts,     // remaining accounts not paired with the entries
-    FreezeStatePdaMismatch,       // batch entry's freeze_state_pda is not the derived one
     AccountNotFrozen,             // unfreeze on an account whose full-freeze side is clear
     AccountNotPartiallyFrozen,    // partial unfreeze on an account whose partial side is clear
     InvalidFreezeAmount,          // partial freeze of 0
 }
 ```
 
----
-
-## Exported Verification Functions
-
-These functions gate transfers. They are called by `transfer-hook::execute`
-(which runs the compliance suite on every `transfer_checked`) and by any other
-program that needs the same checks. Every one that reads state takes the
-`freeze_state_pda` (seeds `["freeze_state", mint, account]`, `seeds::program = FREEZE_PROGRAM_ID`);
-the caller is responsible for validating those seeds.
-
-### `freeze_status`
-
-```rust
-pub struct FreezeStatus { pub fully_frozen: bool, pub frozen_balance: u64 }
-
-pub fn freeze_status(freeze_state_pda: &AccountInfo) -> Result<FreezeStatus>
-```
-
-Reads both sides in one go. An empty `freeze_state_pda` yields `FreezeStatus::default()` (not frozen, 0 locked); otherwise the account is loaded with `Account::<FreezeState>::try_from`, so a foreign owner or a wrong discriminator errors instead of being trusted. `frozen_balance` is 0 when there is no partial freeze. This is what `transfer-hook::execute`, `hold::execute_hold` and `hold`'s creation paths call, so each reads the PDA once.
-
-### `require_unfrozen_account`
-
-```rust
-pub fn require_unfrozen_account(freeze_state_pda: &AccountInfo) -> Result<()>
-```
-
-Returns `Err(ErrorCode::AccountFrozen)` if the full-freeze side of `freeze_state_pda` is set.
-
-### `require_unfrozen_balance`
-
-```rust
-pub fn require_unfrozen_balance(
-    amount: u64,
-    token_account: &AccountInfo,
-    freeze_state_pda: &AccountInfo,
-) -> Result<()>
-```
-
-Reads the current token balance from `token_account` and the partially frozen balance from `freeze_state_pda`. Computes `available = account_balance.saturating_sub(frozen_balance)` and returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `available < amount`. With no partial freeze, frozen balance is treated as zero. This is the **pre-debit** form (balance read before the transfer moves tokens).
-
-### `frozen_balance`
-
-```rust
-pub fn frozen_balance(freeze_state_pda: &AccountInfo) -> Result<u64>
-```
-
-Reads the amount locked by a partial freeze off `freeze_state_pda`, returning 0 when there is no partial freeze (absent PDA, or only the full-freeze side set) rather than erroring. This is the reader a caller uses to build the `total_locked` sum it passes to `require_locked_balance_covered` below.
-
-### `require_frozen_balance_covered`
-
-```rust
-pub fn require_frozen_balance_covered(
-    token_account: &AccountInfo,
-    freeze_state_pda: &AccountInfo,
-) -> Result<()>
-```
-
-**Post-debit** variant of `require_unfrozen_balance`. Token-2022 invokes the hook *after* moving tokens, so the source is already debited. The pre-debit invariant `balance_pre - frozen >= amount` is algebraically `balance_post >= frozen`, so this compares the (post-debit) balance directly against the locked amount and needs no `amount` argument. Returns `Err(ErrorCode::InsufficientUnfrozenBalance)` if `account_balance < frozen_balance`. For a batch the hook fires once per leg after that leg's debit, so checking `balance_post >= frozen` at every leg keeps the cumulative movement within the lock.
-
-Thin wrapper: reads `frozen_balance(freeze_state_pda)` and passes it straight to `require_locked_balance_covered`. Kept for a caller that only cares about the partial-freeze lien and has no other lien to add in; nothing in this workspace currently calls it, since every real caller also has a hold lien to fold in (see below).
-
-### `require_locked_balance_covered`
-
-```rust
-pub fn require_locked_balance_covered(
-    token_account: &AccountInfo,
-    total_locked: u64,
-) -> Result<()>
-```
-
-Asserts `balance >= total_locked`. This function owns no lien itself and reads no PDA — it is a pure comparator, so `total_locked` must already be the caller's own sum of every lien on the account (partial-freeze balance plus any lien owned by another program). That is what lets `freeze` stay free of a dependency on whichever program owns the other lien: today that is `hold`'s `held_amount`, which `transfer-hook::execute` and `hold::execute_hold` each read via `freeze::freeze_status` + `common::held_amount`, sum, and pass in — see [`docs/hold.md`](hold.md). This is the function the hook actually calls.
+`AccountFrozen` (full-freeze side already set / source fully frozen), `InsufficientUnfrozenBalance` (locked amount no longer covered by the balance) and `AccountCompliancePdaMismatch` (a batch entry's `account_compliance_pda` is not the derived one, from `common::verify_account_compliance_pda`) live in `common::CommonError`, next to the shared readers they come from (`transfer-hook` and `hold` cannot depend on this crate) (see [`common.md`](common.md#function-freeze_status)).
 
 ---
 
@@ -143,7 +64,7 @@ Asserts `balance >= total_locked`. This function owns no lien itself and reads n
 
 No parameters.
 
-Sets the full-freeze side of the account's `freeze_state_pda`, creating the PDA if the account has no freeze yet (`init_if_needed`); an existing partial freeze is kept untouched. After this call the transfer hook rejects any transfer out of this account. Fails with `AccountFrozen` if the full-freeze side is already set (explicit check — with the merged account the PDA may legitimately exist already, so Anchor's `init` "already in use" error no longer applies).
+Sets the full-freeze side of the account's `AccountCompliance`, creating the record if absent; an existing partial freeze is kept untouched. After this call the transfer hook rejects any transfer out of this account. Fails with `AccountFrozen` if the full-freeze side is already set (explicit check — with the merged account the PDA may legitimately exist already, so Anchor's `init` "already in use" error no longer applies).
 
 ### Preconditions
 
@@ -156,15 +77,17 @@ Sets the full-freeze side of the account's `freeze_state_pda`, creating the PDA 
 
 | Account                   | Mut | Signer | Type                             | Notes                                                                                                                                    |
 |---------------------------|-----|--------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; funds the PDA creation if needed                                                                        |
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; pays for the `AccountCompliance` record when `set_freeze` creates it |
 | `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                                   |
 | `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`                    |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                             |
 | `account`                 | no  | no     | UncheckedAccount                 | The token account to freeze; used only as a seed                                                                                         |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
-| `freeze_state_pda`        | yes | no     | `Account<FreezeState>`           | `init_if_needed`, `payer = authority`; seeds `["freeze_state", mint, account]`                                                           |
+| `account_compliance_pda` | yes | no | UncheckedAccount | seeds `["account_compliance", mint, account]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; read by `common::freeze_status` (may be absent), created/written by the `set_freeze` CPI |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`              |
-| `system_program`          | no  | no     | Program<System>                  |                                                                                                                                          |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the `set_freeze` CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_freeze` (`init_if_needed` on the record) |
 | `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountFrozen` |
 | `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI                                                    |
 
@@ -178,7 +101,7 @@ Sets the full-freeze side of the account's `freeze_state_pda`, creating the PDA 
 
 ## Instruction: `batch_freeze_account` (Management)
 
-Freezes, in a single instruction, every account passed in via `remaining_accounts` — the batched equivalent of calling `freeze_account` once per account. Runs the same authorization checks as `freeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountFrozen` event per account. Unlike the singular instruction, there is no per-account `freeze_state_pda` field in the typed accounts struct — Anchor's `init_if_needed` constraint can't target a variable number of accounts, so each `freeze_state_pda` is loaded (via `Account::try_from`) if it exists, or created manually inside the handler via `common::pda_utils::create_or_adopt_pda` (signed by the PDA's own seeds), and then written back with a manual discriminator + Borsh write. An existing partial freeze on the entry is kept. `create_or_adopt_pda` tolerates a target PDA that a griefer pre-funded with lamports before the transaction landed — see [`docs/common.md`](common.md#function-create_or_adopt_pda).
+Freezes, in a single instruction, every account passed in via `remaining_accounts` — the batched equivalent of calling `freeze_account` once per account. Runs the same authorization checks as `freeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountFrozen` event per account. An existing partial freeze on the entry is kept. Each entry is a `(account, account_compliance_pda)` pair in `remaining_accounts`: the PDA is checked against the derived address, read with `common::freeze_status`, and written with one `set_freeze` CPI per entry (the hook's `init_if_needed` creates the record on first use and tolerates a target a griefer pre-funded with lamports).
 
 ### Parameters
 
@@ -191,32 +114,34 @@ Two accounts per entry, in order, appended as `remaining_accounts`:
 | Offset (per entry `i`) | Account              | Mut | Notes                                                                                                                 |
 |------------------------|----------------------|-----|-----------------------------------------------------------------------------------------------------------------------|
 | `i * 2`                | `account`            | no  | The token account to freeze; used only as a seed                                                                      |
-| `i * 2 + 1`            | `freeze_state_pda`   | yes | Must equal the canonical `["freeze_state", mint, account]` PDA — verified on-chain; created if absent                |
+| `i * 2 + 1` | `account_compliance_pda` | yes | Must equal the canonical `["account_compliance", mint, account]` PDA of `transfer-hook` — verified on-chain; may be absent (created by `set_freeze` when a side is set) |
 
 ### Preconditions
 
 - `!remaining_accounts.is_empty()` — errors `EmptyBatch` if the batch is empty.
-- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `freeze_state_pda` per `account`).
+- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `account_compliance_pda` per `account`).
 - `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
 - `require_not_paused` — mint must not be paused.
 - `require_active` — mint must not be deactivated.
 - `require_functionality(FREEZE_FREEZE_ACCOUNT)` — the mint's asset-class version must be finalized and enable freezing (same functionality bit as `freeze_account`; batching doesn't get its own bit).
-- Per entry: the supplied `freeze_state_pda` must match the address `Pubkey::find_program_address(["freeze_state", mint, account], freeze_program_id)` derives, else `FreezeStatePdaMismatch`.
+- Per entry: the supplied `account_compliance_pda` must match the address `Pubkey::find_program_address(["account_compliance", mint, account], TRANSFER_HOOK_PROGRAM_ID)` derives, else `AccountCompliancePdaMismatch`.
 - Per entry: the full-freeze side must not already be set, else `AccountFrozen` (mirrors `freeze_account`).
 
 ### Accounts
 
-The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `freeze_state_pda` field here — both are supplied per entry instead.
+The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `account_compliance_pda` field here — both are supplied per entry instead.
 
 | Account                   | Mut | Signer | Type                             | Notes                                                                                                                       |
 |---------------------------|-----|--------|----------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; funds every `freeze_state_pda` creation                                                    |
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; pays for the `AccountCompliance` record when `set_freeze` creates it |
 | `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                      |
 | `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`       |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
-| `system_program`          | no  | no     | Program<System>                  | Target of the `create_or_adopt_pda` CPI(s) per entry                                                                       |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the `set_freeze` CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_freeze` (`init_if_needed` on the record) |
 | `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`                                                           |
 | `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID                                                               |
 
@@ -226,7 +151,7 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 |----------------------------|--------------------------------------------------------------------------------------|
 | `EmptyBatch`               | `remaining_accounts` is empty                                                        |
 | `InvalidRemainingAccounts` | `remaining_accounts.len() % 2 != 0`                                                  |
-| `FreezeStatePdaMismatch`   | Supplied `freeze_state_pda` does not match the canonical derived PDA for `account`   |
+| `AccountCompliancePdaMismatch`   | Supplied `account_compliance_pda` does not match the canonical derived PDA for `account`   |
 | `AccountFrozen`            | The entry's full-freeze side is already set                                          |
 
 ### Events
@@ -241,7 +166,7 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 
 No parameters.
 
-Clears the full-freeze side of the account's `freeze_state_pda`. If the account has no partial freeze, the PDA is then empty and is closed, returning its rent to `authority`; otherwise it stays open so the partial freeze keeps applying. Fails with `AccountNotInitialized` if the PDA does not exist, and with `AccountNotFrozen` if it exists but only carries a partial freeze.
+Clears the full-freeze side of the account's `AccountCompliance`; an existing partial freeze keeps applying. The record is never closed. Fails with `AccountNotFrozen` if the full-freeze side is not set (including when there is no record).
 
 ### Preconditions
 
@@ -252,14 +177,17 @@ Clears the full-freeze side of the account's `freeze_state_pda`. If the account 
 
 | Account                   | Mut | Signer | Type                             | Notes                                                                                                                                      |
 |---------------------------|-----|--------|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; receives the PDA's lamports if it is closed                                                               |
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; pays for the `AccountCompliance` record when `set_freeze` creates it |
 | `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                                     |
 | `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`                      |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                               |
 | `account`                 | no  | no     | UncheckedAccount                 | The token account to unfreeze; used only as a seed                                                                                         |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
-| `freeze_state_pda`        | yes | no     | `Account<FreezeState>`           | seeds `["freeze_state", mint, account]`; closed to `authority` in the handler when both sides are clear                                   |
+| `account_compliance_pda` | yes | no | UncheckedAccount | seeds `["account_compliance", mint, account]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; read by `common::freeze_status` (may be absent), created/written by the `set_freeze` CPI |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`                |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the `set_freeze` CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_freeze` (`init_if_needed` on the record) |
 | `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountUnfrozen` |
 | `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI                                                      |
 
@@ -273,7 +201,7 @@ Clears the full-freeze side of the account's `freeze_state_pda`. If the account 
 
 ## Instruction: `batch_unfreeze_account` (Management)
 
-Unfreezes, in a single instruction, every account passed in via `remaining_accounts` — the batched equivalent of calling `unfreeze_account` once per account. Runs the same authorization checks as `unfreeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountUnfrozen` event per account. Unlike the singular instruction, there is no per-account `freeze_state_pda` field in the typed accounts struct, so each entry's `freeze_state_pda` is loaded via `Account::try_from` and either written back (partial freeze still active) or, once both sides are clear, closed manually via `common::pda_utils::close_pda` (zeroing lamports and data, returning rent to `authority`) — see [`docs/common.md`](common.md#function-close_pda).
+Unfreezes, in a single instruction, every account passed in via `remaining_accounts` — the batched equivalent of calling `unfreeze_account` once per account. Runs the same authorization checks as `unfreeze_account` (freeze-manager role, not paused, active, functionality) and emits one `AccountUnfrozen` event per account. An existing partial freeze on the entry is kept. Each entry is a `(account, account_compliance_pda)` pair in `remaining_accounts`: the PDA is checked against the derived address, read with `common::freeze_status`, and written with one `set_freeze` CPI per entry (the hook's `init_if_needed` creates the record on first use and tolerates a target a griefer pre-funded with lamports).
 
 ### Parameters
 
@@ -286,31 +214,34 @@ Two accounts per entry, in order, appended as `remaining_accounts`:
 | Offset (per entry `i`) | Account              | Mut | Notes                                                                                                     |
 |------------------------|----------------------|-----|-------------------------------------------------------------------------------------------------------------|
 | `i * 2`                | `account`            | no  | The token account to unfreeze; used only as a seed                                                          |
-| `i * 2 + 1`            | `freeze_state_pda`   | yes | Must equal the canonical `["freeze_state", mint, account]` PDA — verified on-chain; must already exist |
+| `i * 2 + 1` | `account_compliance_pda` | yes | Must equal the canonical `["account_compliance", mint, account]` PDA of `transfer-hook` — verified on-chain; may be absent (created by `set_freeze` when a side is set) |
 
 ### Preconditions
 
 - `!remaining_accounts.is_empty()` — errors `EmptyBatch` if the batch is empty.
-- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `freeze_state_pda` per `account`).
+- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `account_compliance_pda` per `account`).
 - `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
 - `require_not_paused` — mint must not be paused.
 - `require_active` — mint must not be deactivated.
 - `require_functionality(FREEZE_UNFREEZE_ACCOUNT)` — the mint's asset-class version must be finalized and enable unfreezing (same functionality bit as `unfreeze_account`; batching doesn't get its own bit).
-- Per entry: the supplied `freeze_state_pda` must match the address `Pubkey::find_program_address(["freeze_state", mint, account], freeze_program_id)` derives, else `FreezeStatePdaMismatch`.
-- Per entry: `freeze_state_pda` must exist with its full-freeze side set, else `AccountNotFrozen`.
+- Per entry: the supplied `account_compliance_pda` must match the address `Pubkey::find_program_address(["account_compliance", mint, account], TRANSFER_HOOK_PROGRAM_ID)` derives, else `AccountCompliancePdaMismatch`.
+- Per entry: the full-freeze side must be set (an absent record counts as clear), else `AccountNotFrozen`.
 
 ### Accounts
 
-The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `freeze_state_pda` field here — both are supplied per entry instead.
+The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `account_compliance_pda` field here — both are supplied per entry instead.
 
 | Account                   | Mut | Signer | Type                             | Notes                                                                                                                       |
 |---------------------------|-----|--------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; receives the lamports of every `freeze_state_pda` it closes                              |
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; pays for the `AccountCompliance` record when `set_freeze` creates it |
 | `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                      |
 | `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`       |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the `set_freeze` CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_freeze` (`init_if_needed` on the record) |
 | `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`                                                           |
 | `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID                                                               |
 
@@ -320,8 +251,8 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 |----------------------------|----------------------------------------------------------------------------------------|
 | `EmptyBatch`               | `remaining_accounts` is empty                                                          |
 | `InvalidRemainingAccounts` | `remaining_accounts.len() % 2 != 0`                                                    |
-| `FreezeStatePdaMismatch`   | Supplied `freeze_state_pda` does not match the canonical derived PDA for `account`     |
-| `AccountNotFrozen`         | The entry's `freeze_state_pda` is absent or its full-freeze side is clear              |
+| `AccountCompliancePdaMismatch`   | Supplied `account_compliance_pda` does not match the canonical derived PDA for `account`     |
+| `AccountNotFrozen`         | The entry's full-freeze side is clear (or it has no record)              |
 
 ### Events
 
@@ -339,7 +270,7 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 balance: u64  // amount to lock (must not exceed actual token balance)
 ```
 
-Locks `balance` tokens of the account: sets the partial side of its `freeze_state_pda`, creating the PDA if the account has no freeze yet (`init_if_needed`), and overwrites the locked amount on subsequent calls. An existing full freeze is kept untouched. After this call the transfer hook rejects transfers that would leave less than the locked amount in the account. `balance` must be > 0, else `InvalidFreezeAmount` (as in EVM); lifting a partial freeze is `unfreeze_account_partial`'s job.
+Locks `balance` tokens of the account: sets the partial side of its `AccountCompliance`, creating the record if absent, and overwrites the locked amount on subsequent calls. An existing full freeze is kept untouched. After this call the transfer hook rejects transfers that would leave less than the locked amount in the account. `balance` must be > 0, else `InvalidFreezeAmount` (as in EVM); lifting a partial freeze is `unfreeze_account_partial`'s job.
 
 ### Preconditions
 
@@ -350,15 +281,17 @@ Locks `balance` tokens of the account: sets the partial side of its `freeze_stat
 
 | Account                   | Mut | Signer | Type                             | Notes                                                                                                                                             |
 |---------------------------|-----|--------|----------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; funds PDA creation if needed                                                                                     |
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; pays for the `AccountCompliance` record when `set_freeze` creates it |
 | `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                                            |
 | `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`                             |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                                      |
 | `account`                 | no  | no     | UncheckedAccount                 | The token account to partially freeze; used only as a seed                                                                                        |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
-| `freeze_state_pda`        | yes | no     | `Account<FreezeState>`           | `init_if_needed`, `payer = authority`; seeds `["freeze_state", mint, account]`                                                                    |
+| `account_compliance_pda` | yes | no | UncheckedAccount | seeds `["account_compliance", mint, account]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; read by `common::freeze_status` (may be absent), created/written by the `set_freeze` CPI |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`                       |
-| `system_program`          | no  | no     | Program<System>                  |                                                                                                                                                   |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the `set_freeze` CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_freeze` (`init_if_needed` on the record) |
 | `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountPartiallyFrozen` |
 | `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI                                                             |
 
@@ -372,7 +305,7 @@ Locks `balance` tokens of the account: sets the partial side of its `freeze_stat
 
 ## Instruction: `batch_freeze_account_partial` (Management)
 
-Partially freezes, in a single instruction, every account passed in via `remaining_accounts`, locking `balances[i]` for the `i`-th account — the batched equivalent of calling `freeze_account_partial` once per account. Runs the same authorization checks as `freeze_account_partial` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartiallyFrozen` event per account. Like the singular instruction, an existing partial freeze has its balance overwritten rather than rejected, and an existing full freeze is kept. Unlike the singular instruction, there is no per-account `freeze_state_pda` field in the typed accounts struct — Anchor's `init_if_needed` constraint can't target a variable number of accounts, so each `freeze_state_pda` is created manually on first use via `common::pda_utils::create_or_adopt_pda` (signed by the PDA's own seeds), which tolerates a target pre-funded by a griefer — see [`docs/common.md`](common.md#function-create_or_adopt_pda).
+Partially freezes, in a single instruction, every account passed in via `remaining_accounts`, locking `balances[i]` for the `i`-th account — the batched equivalent of calling `freeze_account_partial` once per account. Runs the same authorization checks as `freeze_account_partial` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartiallyFrozen` event per account. Like the singular instruction, an existing partial freeze has its balance overwritten rather than rejected, and an existing full freeze is kept. Each entry is a `(account, account_compliance_pda)` pair in `remaining_accounts`: the PDA is checked against the derived address, read with `common::freeze_status`, and written with one `set_freeze` CPI per entry (the hook's `init_if_needed` creates the record on first use and tolerates a target a griefer pre-funded with lamports).
 
 ### Parameters
 
@@ -387,32 +320,34 @@ Two accounts per entry, in order, appended as `remaining_accounts`:
 | Offset (per entry `i`) | Account              | Mut | Notes                                                                                                                |
 |------------------------|----------------------|-----|-----------------------------------------------------------------------------------------------------------------------|
 | `i * 2`                | `account`            | no  | The token account to partially freeze; used only as a seed                                                            |
-| `i * 2 + 1`            | `freeze_state_pda`   | yes | Must equal the canonical `["freeze_state", mint, account]` PDA — verified on-chain; created if absent, partial side overwritten |
+| `i * 2 + 1` | `account_compliance_pda` | yes | Must equal the canonical `["account_compliance", mint, account]` PDA of `transfer-hook` — verified on-chain; may be absent (created by `set_freeze` when a side is set) |
 
 ### Preconditions
 
 - `!balances.is_empty()` — errors `EmptyBatch` if the batch is empty.
-- `remaining_accounts.len() == balances.len() * 2` — errors `InvalidRemainingAccounts` otherwise (exactly one `freeze_state_pda` per balance).
+- `remaining_accounts.len() == balances.len() * 2` — errors `InvalidRemainingAccounts` otherwise (exactly one `account_compliance_pda` per balance).
 - `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
 - `require_not_paused` — mint must not be paused.
 - `require_active` — mint must not be deactivated.
 - `require_functionality(FREEZE_PARTIALLY_FREEZE_ACCOUNT)` — the mint's asset-class version must be finalized and enable partial freezing (same functionality bit as `freeze_account_partial`; batching doesn't get its own bit).
 - Every `balances[i]` must be > 0, else `InvalidFreezeAmount` (checked up front, before any entry is written).
-- Per entry: the supplied `freeze_state_pda` must match the address `Pubkey::find_program_address(["freeze_state", mint, account], freeze_program_id)` derives, else `FreezeStatePdaMismatch`.
+- Per entry: the supplied `account_compliance_pda` must match the address `Pubkey::find_program_address(["account_compliance", mint, account], TRANSFER_HOOK_PROGRAM_ID)` derives, else `AccountCompliancePdaMismatch`.
 
 ### Accounts
 
-The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `freeze_state_pda` field here — both are supplied per entry instead.
+The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `account_compliance_pda` field here — both are supplied per entry instead.
 
 | Account                   | Mut | Signer | Type                             | Notes                                                                                                                       |
 |---------------------------|-----|--------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; funds every `freeze_state_pda` creation                                                    |
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; pays for the `AccountCompliance` record when `set_freeze` creates it |
 | `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                      |
 | `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`       |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
-| `system_program`          | no  | no     | Program<System>                  | Target of the `create_or_adopt_pda` CPI(s) per entry                                                                       |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the `set_freeze` CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_freeze` (`init_if_needed` on the record) |
 | `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`                                                           |
 | `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID                                                               |
 
@@ -423,7 +358,7 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 | `EmptyBatch`               | `balances` is empty                                                                   |
 | `InvalidRemainingAccounts` | `remaining_accounts.len() != balances.len() * 2`                                       |
 | `InvalidFreezeAmount`      | Some `balances[i]` is 0                                                                 |
-| `FreezeStatePdaMismatch`   | Supplied `freeze_state_pda` does not match the canonical derived PDA for `account`     |
+| `AccountCompliancePdaMismatch`   | Supplied `account_compliance_pda` does not match the canonical derived PDA for `account`     |
 
 ### Events
 
@@ -437,7 +372,7 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 
 No parameters.
 
-Lifts the partial freeze: resets the locked amount of the account's `freeze_state_pda` to 0. If the account is not fully frozen, the PDA is then empty and is closed, returning its rent to `authority`; otherwise it stays open so the full freeze keeps applying. Fails with `AccountNotInitialized` if the PDA does not exist, and with `AccountNotPartiallyFrozen` if it exists but only carries a full freeze.
+Lifts the partial freeze: resets the account's `AccountCompliance.frozen_balance` to 0; an existing full freeze keeps applying. The record is never closed. Fails with `AccountNotPartiallyFrozen` if there is no partial freeze (including when there is no record).
 
 ### Preconditions
 
@@ -448,15 +383,17 @@ Lifts the partial freeze: resets the locked amount of the account's `freeze_stat
 
 | Account                   | Mut | Signer | Type                             | Notes                                                                                                                                                  |
 |---------------------------|-----|--------|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; receives the PDA's lamports if it is closed                                                                           |
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; pays for the `AccountCompliance` record when `set_freeze` creates it |
 | `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                                                 |
 | `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`                                  |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                                           |
 | `account`                 | no  | no     | UncheckedAccount                 | The token account whose partial freeze is removed; used only as a seed                                                                                 |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
-| `freeze_state_pda`        | yes | no     | `Account<FreezeState>`           | seeds `["freeze_state", mint, account]`; closed to `authority` in the handler when both sides are clear                                               |
+| `account_compliance_pda` | yes | no | UncheckedAccount | seeds `["account_compliance", mint, account]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; read by `common::freeze_status` (may be absent), created/written by the `set_freeze` CPI |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality`                            |
-| `system_program`          | no  | no     | Program<System>                  |                                                                                                                                                        |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the `set_freeze` CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_freeze` (`init_if_needed` on the record) |
 | `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]` (owned by this program); signs the self-CPI that emits `AccountPartialFreezeRemoved` |
 | `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID, target of the self-CPI                                                                  |
 
@@ -470,7 +407,7 @@ Lifts the partial freeze: resets the locked amount of the account's `freeze_stat
 
 ## Instruction: `batch_unfreeze_account_partial` (Management)
 
-Removes the partial freeze, in a single instruction, from every account passed in via `remaining_accounts` — the batched equivalent of calling `unfreeze_account_partial` once per account. Runs the same authorization checks as `unfreeze_account_partial` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartialFreezeRemoved` event per account. Unlike the singular instruction, there is no per-account `freeze_state_pda` field in the typed accounts struct, so each entry's `freeze_state_pda` is loaded via `Account::try_from` and either written back (full freeze still active) or, once both sides are clear, closed manually via `common::pda_utils::close_pda`.
+Removes the partial freeze, in a single instruction, from every account passed in via `remaining_accounts` — the batched equivalent of calling `unfreeze_account_partial` once per account. Runs the same authorization checks as `unfreeze_account_partial` (freeze-manager role, not paused, active, functionality) and emits one `AccountPartialFreezeRemoved` event per account. An existing full freeze on the entry is kept. Each entry is a `(account, account_compliance_pda)` pair in `remaining_accounts`: the PDA is checked against the derived address, read with `common::freeze_status`, and written with one `set_freeze` CPI per entry (the hook's `init_if_needed` creates the record on first use and tolerates a target a griefer pre-funded with lamports).
 
 ### Parameters
 
@@ -483,31 +420,34 @@ Two accounts per entry, in order, appended as `remaining_accounts`:
 | Offset (per entry `i`) | Account              | Mut | Notes                                                                                                        |
 |------------------------|----------------------|-----|-----------------------------------------------------------------------------------------------------------------|
 | `i * 2`                | `account`            | no  | The token account whose partial freeze is removed; used only as a seed                                          |
-| `i * 2 + 1`            | `freeze_state_pda`   | yes | Must equal the canonical `["freeze_state", mint, account]` PDA — verified on-chain; must already exist |
+| `i * 2 + 1` | `account_compliance_pda` | yes | Must equal the canonical `["account_compliance", mint, account]` PDA of `transfer-hook` — verified on-chain; may be absent (created by `set_freeze` when a side is set) |
 
 ### Preconditions
 
 - `!remaining_accounts.is_empty()` — errors `EmptyBatch` if the batch is empty.
-- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `freeze_state_pda` per `account`).
+- `remaining_accounts.len() % 2 == 0` — errors `InvalidRemainingAccounts` otherwise (exactly one `account_compliance_pda` per `account`).
 - `require_role(ROLE_FREEZE_MANAGER)` — the `authority` caller must sign and hold `ROLE_FREEZE_MANAGER` on this mint.
 - `require_not_paused` — mint must not be paused.
 - `require_active` — mint must not be deactivated.
 - `require_functionality(FREEZE_REMOVE_PARTIAL_FREEZE)` — the mint's asset-class version must be finalized and enable removing partial freezes (same functionality bit as `unfreeze_account_partial`; batching doesn't get its own bit).
-- Per entry: the supplied `freeze_state_pda` must match the address `Pubkey::find_program_address(["freeze_state", mint, account], freeze_program_id)` derives, else `FreezeStatePdaMismatch`.
-- Per entry: `freeze_state_pda` must exist with its partial side set, else `AccountNotPartiallyFrozen`.
+- Per entry: the supplied `account_compliance_pda` must match the address `Pubkey::find_program_address(["account_compliance", mint, account], TRANSFER_HOOK_PROGRAM_ID)` derives, else `AccountCompliancePdaMismatch`.
+- Per entry: the partial side must be set (an absent record counts as clear), else `AccountNotPartiallyFrozen`.
 
 ### Accounts
 
-The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `freeze_state_pda` field here — both are supplied per entry instead.
+The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, see above). Note there is no `account` or `account_compliance_pda` field here — both are supplied per entry instead.
 
 | Account                   | Mut | Signer | Type                             | Notes                                                                                                                       |
 |---------------------------|-----|--------|----------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; receives the lamports of every `freeze_state_pda` it closes                              |
+| `authority`               | yes | yes    | Signer                           | Must hold `ROLE_FREEZE_MANAGER`; pays for the `AccountCompliance` record when `set_freeze` creates it |
 | `authority_roles_pda`     | no  | no     | AccountLoader<Roles>             | seeds `[ROLES, mint, authority]`, `seeds::program = ACCESS_CONTROL_PROGRAM_ID`; read by `require_role`                      |
 | `asset_configuration_pda` | no  | no     | Account<AssetConfiguration>      | seeds `["asset_configuration", mint]`, `seeds::program = DEPLOY_PROGRAM_ID`; used to derive `asset_class_version_pda`       |
 | `mint`                    | no  | no     | UncheckedAccount                 | Read by `require_not_paused`                                                                                                |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`) |
 | `asset_class_version_pda` | no  | no     | AccountLoader<AssetClassVersion> | seeds `["asset_class_version", config_id, version]`, `seeds::program = FACTORY_PROGRAM_ID`; read by `require_functionality` |
+| `registry_writer` | no | no | UncheckedAccount | seeds `["registry_writer"]` (this program); signs the `set_freeze` CPI |
+| `transfer_hook_program` | no | no | UncheckedAccount | address constrained to `TRANSFER_HOOK_PROGRAM_ID`; target of the CPI |
+| `system_program` | no | no | Program<System> | Required by `set_freeze` (`init_if_needed` on the record) |
 | `event_authority`         | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected PDA, seeds `["__event_authority"]`                                                           |
 | `program`                 | no  | no     | UncheckedAccount                 | Anchor `#[event_cpi]`-injected account; this program's own ID                                                               |
 
@@ -517,8 +457,8 @@ The fixed accounts (the per-entry accounts are passed via `remaining_accounts`, 
 |-----------------------------|---------------------------------------------------------------------------------------|
 | `EmptyBatch`                | `remaining_accounts` is empty                                                          |
 | `InvalidRemainingAccounts`  | `remaining_accounts.len() % 2 != 0`                                                    |
-| `FreezeStatePdaMismatch`    | Supplied `freeze_state_pda` does not match the canonical derived PDA for `account`     |
-| `AccountNotPartiallyFrozen` | The entry's `freeze_state_pda` is absent or its partial side is clear                  |
+| `AccountCompliancePdaMismatch`    | Supplied `account_compliance_pda` does not match the canonical derived PDA for `account`     |
+| `AccountNotPartiallyFrozen` | The entry's partial side is clear (or it has no record)                  |
 
 ### Events
 
@@ -538,4 +478,4 @@ The management instructions emit their events with `emit_cpi!` (not `emit!`), wh
 
 Program IDs are imported from `common::program_ids` via `use common::program_ids as constants;` in each instruction file. There is no per-program `constants.rs`.
 
-No program CPIs into `freeze`. `transfer-hook` and `hold` depend on this crate only to link the verification functions above (`freeze_status`, `require_locked_balance_covered`) — plain function calls, not CPI. `transfer` and `operations` only derive the `freeze_state` PDA (via `common::pda_seeds::FREEZE_STATE`) to forward it in the hook block.
+No program CPIs into `freeze`, and no program depends on this crate for reads: `transfer-hook` and `hold` read the freeze state through `common::freeze_status` / `common::require_locked_balance_covered`. `freeze` depends on `transfer-hook` (with `cpi`) for the `set_freeze` CPI; the hook does not depend on `freeze`, so there is no cycle.

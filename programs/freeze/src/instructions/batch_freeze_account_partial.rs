@@ -1,14 +1,14 @@
 use anchor_lang::prelude::*;
-use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles as RolesCommon};
+use common::program_ids as constants;
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
 use common::{
-    pda_seeds, pda_utils, require_active, require_functionality, require_not_paused, require_role,
-    roles,
+    freeze_status, pda_seeds, require_active, require_functionality, require_not_paused,
+    require_role, roles, verify_account_compliance_pda,
 };
 
 use crate::errors::ErrorCode;
 use crate::events::AccountPartiallyFrozen;
-use crate::state::{load_freeze_state, FreezeState};
-use common::program_ids as constants;
+use crate::registry::RegistryWriter;
 
 pub fn batch_freeze_account_partial<'info>(
     ctx: Context<'info, BatchFreezeAccountPartial<'info>>,
@@ -40,49 +40,25 @@ pub fn batch_freeze_account_partial<'info>(
 
     let mint_key = ctx.accounts.mint.key();
     let authority_key = ctx.accounts.authority.key();
+    let writer = RegistryWriter {
+        registry_writer: &ctx.accounts.registry_writer,
+        bump: ctx.bumps.registry_writer,
+        payer: &ctx.accounts.authority,
+        mint: &ctx.accounts.mint,
+        system_program: &ctx.accounts.system_program,
+    };
 
-    for i in 0..balances.len() {
-        let balance = balances[i];
-        let account = &ctx.remaining_accounts[i * 2];
-        let freeze_state_pda = &ctx.remaining_accounts[i * 2 + 1];
-        let account_key = account.key();
+    for (entry, balance) in ctx.remaining_accounts.chunks_exact(2).zip(balances) {
+        let (account, account_compliance_pda) = (&entry[0], &entry[1]);
+        verify_account_compliance_pda(account_compliance_pda, account.key, &mint_key)?;
 
-        // ── Verify the client supplied the canonical PDA for this account ────
-        let freeze_state_seeds = pda_seeds::freeze_state_seeds(&mint_key, &account_key);
-        let (expected_pda, bump) =
-            Pubkey::find_program_address(&freeze_state_seeds, ctx.program_id);
-        require_keys_eq!(
-            freeze_state_pda.key(),
-            expected_pda,
-            ErrorCode::FreezeStatePdaMismatch
-        );
-
-        // ── Create the PDA on first use; keep the full-freeze side otherwise ──
-        let mut freeze_state = match load_freeze_state(freeze_state_pda)? {
-            Some(existing) => existing,
-            None => {
-                let signer_seeds = pda_utils::build_pda_signer_seeds(freeze_state_seeds, &bump);
-                pda_utils::create_or_adopt_pda(
-                    &ctx.accounts.authority.to_account_info(),
-                    freeze_state_pda,
-                    &ctx.accounts.system_program.to_account_info(),
-                    ctx.program_id,
-                    FreezeState::SPACE,
-                    signer_seeds.as_slice(),
-                )?;
-                FreezeState {
-                    bump,
-                    ..Default::default()
-                }
-            }
-        };
-
-        freeze_state.frozen_balance = balance;
-        pda_utils::serialize_pda(freeze_state_pda, &freeze_state)?;
+        let mut status = freeze_status(account_compliance_pda)?;
+        status.frozen_balance = balance;
+        writer.set_freeze(account, account_compliance_pda, status)?;
 
         emit_cpi!(AccountPartiallyFrozen {
             mint: mint_key,
-            account: account_key,
+            account: account.key(),
             frozen_balance: balance,
             operator: authority_key,
         });
@@ -102,7 +78,7 @@ pub struct BatchFreezeAccountPartial<'info> {
         seeds::program = constants::ACCESS_CONTROL_PROGRAM_ID,
         bump = authority_roles_pda.load()?.bump,
     )]
-    pub authority_roles_pda: AccountLoader<'info, RolesCommon>,
+    pub authority_roles_pda: AccountLoader<'info, Roles>,
 
     #[account(
         seeds = [pda_seeds::ASSET_CONFIGURATION, mint.key().as_ref()],
@@ -131,6 +107,15 @@ pub struct BatchFreezeAccountPartial<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+
+    /// CHECK: Address verified by seeds/bump; signs the set_freeze CPI, which accepts
+    /// only this PDA.
+    #[account(seeds = [pda_seeds::REGISTRY_WRITER], bump)]
+    pub registry_writer: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by constraint.
+    #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
+    pub transfer_hook_program: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }

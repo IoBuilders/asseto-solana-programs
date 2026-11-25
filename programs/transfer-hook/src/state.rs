@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use common::state::{
     discriminators_eq, AccountCompliance as AccountComplianceCommon,
     MintCompliance as MintComplianceCommon, ACCOUNT_COMPLIANCE_RESERVED_BYTES,
-    MINT_COMPLIANCE_RESERVED_BYTES,
+    COMPLIANCE_LAYOUT_VERSION, MINT_COMPLIANCE_RESERVED_BYTES,
 };
 
 #[account(zero_copy, discriminator = MintComplianceCommon::DISCRIMINATOR)]
@@ -39,6 +39,26 @@ impl MintCompliance {
 
 impl AccountCompliance {
     pub const SPACE: usize = AccountComplianceCommon::SPACE;
+}
+
+/// `load_init` only succeeds on a record `init_if_needed` has just created (its
+/// discriminator is still zero), so that is where the identity fields are stamped.
+pub(crate) fn load_or_init_account_compliance<'a, 'info>(
+    record: &'a AccountLoader<'info, AccountCompliance>,
+    bump: u8,
+    mint: Pubkey,
+    token_account: Pubkey,
+) -> Result<std::cell::RefMut<'a, AccountCompliance>> {
+    match record.load_init() {
+        Ok(mut fresh) => {
+            fresh.mint = mint;
+            fresh.token_account = token_account;
+            fresh.version = COMPLIANCE_LAYOUT_VERSION;
+            fresh.bump = bump;
+            Ok(fresh)
+        }
+        Err(_) => record.load_mut(),
+    }
 }
 
 const _: () = assert!(

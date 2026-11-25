@@ -219,7 +219,7 @@ describe("transfer", () => {
 
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      const freezeStatePda = freezePdaUtils.freezeStatePda(mint, source);
+      const compliancePda = freezePdaUtils.accountCompliancePda(mint, source);
 
       // ── Partially freeze 80 tokens (only 20 available) ───────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
@@ -245,7 +245,7 @@ describe("transfer", () => {
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
       await setFrozenBalancePda(mint, source, UPDATED_FROZEN_AMOUNT);
 
-      const frozenBalanceAfterUpdate = await getFreezeStateByPda(freezeStatePda);
+      const frozenBalanceAfterUpdate = await getFreezeStateByPda(compliancePda);
       assert.equal(
         frozenBalanceAfterUpdate.frozenBalance.toString(),
         UPDATED_FROZEN_AMOUNT.toString(),
@@ -334,7 +334,7 @@ describe("transfer", () => {
       // ── Create destination token account ──────────────────────────────────────
       const destination = await createTokenAccount({ mint, owner: destinationOwner });
 
-      const freezeStatePda = freezePdaUtils.freezeStatePda(mint, source);
+      const compliancePda = freezePdaUtils.accountCompliancePda(mint, source);
 
       // ── Partially freeze 40 tokens (available = 60 of 100) ────────────────────
       await setRoles(mint, authority.publicKey, [ROLE_FREEZE_MANAGER]);
@@ -342,22 +342,22 @@ describe("transfer", () => {
 
       // ── Burn 80 via permanent-delegate (issuer redemption) ────────────────────
       //
-      // Operations::burn doesn't read or adjust freeze_state_pda, so afterwards
-      // we have: token_account.amount = 20, freeze_state_pda.frozen_balance = 40.
+      // Operations::burn doesn't read or adjust account_compliance_pda, so afterwards
+      // we have: token_account.amount = 20, account_compliance_pda.frozen_balance = 40.
       // `require_unfrozen_balance` uses saturating_sub → available = 0.
       await burnTokensViaSurfpool(mint, source, BURN_AMOUNT);
 
       const sourceAfterBurn = (await getTokenAccount(source)).amount;
-      const frozenAfterBurn = await getFreezeStateByPda(freezeStatePda);
+      const frozenAfterBurn = await getFreezeStateByPda(compliancePda);
 
       // (1) Burn succeeded — balance is now below the recorded frozen amount.
       assert.equal(sourceAfterBurn.toString(), EXPECTED_REMAINDER.toString(), "burn should leave 20 tokens (100 − 80)");
 
-      // (2) PDA is stale — burn does not adjust freeze_state_pda by design.
+      // (2) PDA is stale — burn does not adjust account_compliance_pda by design.
       assert.equal(
         frozenAfterBurn.frozenBalance.toString(),
         FROZEN_AMOUNT.toString(),
-        "freeze_state_pda should still record the original 40 (stale, as documented)"
+        "account_compliance_pda should still record the original 40 (stale, as documented)"
       );
 
       // (3) Any positive outbound transfer must fail — saturating_sub clamps available to 0.
@@ -547,10 +547,10 @@ describe("transfer", () => {
     });
   });
 
-  // Full and partial freeze share one `freeze_state` PDA read by the hook. These run
+  // Full and partial freeze share the hook's `AccountCompliance` record. These run
   // the real freeze instructions (not planted state) to prove that undoing one side
   // leaves the other enforced on every transfer.
-  describe("compliance with the unified freeze_state PDA", async () => {
+  describe("compliance with the unified AccountCompliance record", async () => {
     const PARTIAL = new anchor.BN(800 * 10 ** MINT_DECIMALS); // 200 of 1 000 spendable
 
     async function setupFrozenSource(): Promise<{ source: PublicKey; destination: PublicKey }> {
