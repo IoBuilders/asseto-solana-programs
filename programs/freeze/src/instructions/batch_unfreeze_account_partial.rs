@@ -38,9 +38,7 @@ pub fn batch_unfreeze_account_partial<'info>(
     let writer = RegistryWriter {
         registry_writer: &ctx.accounts.registry_writer,
         bump: ctx.bumps.registry_writer,
-        payer: &ctx.accounts.authority,
         mint: &ctx.accounts.mint,
-        system_program: &ctx.accounts.system_program,
     };
 
     for entry in ctx.remaining_accounts.chunks_exact(2) {
@@ -53,7 +51,13 @@ pub fn batch_unfreeze_account_partial<'info>(
             ErrorCode::AccountNotPartiallyFrozen
         );
         status.frozen_balance = 0;
-        writer.set_freeze(account, account_compliance_pda, status)?;
+        writer.set_freeze(
+            &ctx.accounts.authority,
+            &ctx.accounts.system_program,
+            account,
+            account_compliance_pda,
+            status,
+        )?;
 
         emit_cpi!(AccountPartialFreezeRemoved {
             mint: mint_key,

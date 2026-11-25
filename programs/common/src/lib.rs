@@ -38,8 +38,6 @@ pub enum CommonError {
     RoleOutOfBounds,
     #[msg("Signer does not hold the required role")]
     MissingRole,
-    #[msg("A control-list PDA does not match the one derived for its destination")]
-    ControlListPdaMismatch,
     #[msg("Amount exceeds the balance left spendable by the account's hold liens")]
     InsufficientSpendableBalance,
     #[msg("Provided hold_position_pda does not match the derived PDA for this account")]
@@ -52,6 +50,10 @@ pub enum CommonError {
     InsufficientUnfrozenBalance,
     #[msg("Provided account_compliance_pda does not match the derived PDA for this account")]
     AccountCompliancePdaMismatch,
+    #[msg("The account is not whitelisted")]
+    NotWhitelisted,
+    #[msg("The account is blacklisted")]
+    Blacklisted,
 }
 
 pub fn require_active(mint_compliance: Ref<state::MintCompliance>) -> Result<()> {
@@ -117,28 +119,6 @@ pub fn require_role(roles_pda: Ref<Roles>, role: u16) -> Result<()> {
     Ok(())
 }
 
-/// Validates that a `control_list_pda` is the canonical PDA owned by `transfer-control`.
-///
-/// Returns `Ok(())` if the control-list PDA is correct.
-/// Returns `Err(CommonError::ControlListPdaMismatch)` on a mismatch.
-pub fn verify_control_list_pda(
-    control_list_pda: &AccountInfo,
-    destination: &Pubkey,
-    mint: &Pubkey,
-) -> Result<()> {
-    let (expected_control_list_pda, _) = Pubkey::find_program_address(
-        &pda_seeds::control_list_seeds(mint, destination),
-        &program_ids::TRANSFER_CONTROL_PROGRAM_ID,
-    );
-    require_keys_eq!(
-        control_list_pda.key(),
-        expected_control_list_pda,
-        CommonError::ControlListPdaMismatch
-    );
-
-    Ok(())
-}
-
 /// For an `account_compliance_pda` arriving through `remaining_accounts`, where no
 /// `seeds` constraint applies: without it a caller could have one account's record
 /// read in place of another's.
@@ -179,18 +159,53 @@ pub struct FreezeStatus {
 }
 
 /// An absent `AccountCompliance` means nothing was ever recorded for the account.
+fn load_account_compliance<'info>(
+    account_compliance_pda: &'info AccountInfo<'info>,
+) -> Result<Option<state::AccountCompliance>> {
+    if account_compliance_pda.data_is_empty() {
+        return Ok(None);
+    }
+    let loader = AccountLoader::<state::AccountCompliance>::try_from(account_compliance_pda)?;
+    let record = *loader.load()?;
+    Ok(Some(record))
+}
+
 pub fn freeze_status<'info>(
     account_compliance_pda: &'info AccountInfo<'info>,
 ) -> Result<FreezeStatus> {
-    if account_compliance_pda.data_is_empty() {
-        return Ok(FreezeStatus::default());
+    Ok(load_account_compliance(account_compliance_pda)?
+        .map(|record| FreezeStatus {
+            fully_frozen: record.is_fully_frozen(),
+            frozen_balance: record.frozen_balance,
+        })
+        .unwrap_or_default())
+}
+
+pub fn in_control_list<'info>(account_compliance_pda: &'info AccountInfo<'info>) -> Result<bool> {
+    Ok(load_account_compliance(account_compliance_pda)?
+        .is_some_and(|record| record.is_in_control_list()))
+}
+
+/// `transfer_mode` is `MintCompliance.transfer_mode`; every account in
+/// `account_compliance_pdas` must satisfy it (no mode set = no restriction).
+pub fn verify_transfer_control_mode<'info>(
+    transfer_mode: u8,
+    account_compliance_pdas: &[&'info AccountInfo<'info>],
+) -> Result<()> {
+    match transfer_mode {
+        state::TRANSFER_MODE_WHITELIST => {
+            for pda in account_compliance_pdas {
+                require!(in_control_list(pda)?, CommonError::NotWhitelisted);
+            }
+        }
+        state::TRANSFER_MODE_BLACKLIST => {
+            for pda in account_compliance_pdas {
+                require!(!in_control_list(pda)?, CommonError::Blacklisted);
+            }
+        }
+        _ => {}
     }
-    let loader = AccountLoader::<state::AccountCompliance>::try_from(account_compliance_pda)?;
-    let record = loader.load()?;
-    Ok(FreezeStatus {
-        fully_frozen: record.is_fully_frozen(),
-        frozen_balance: record.frozen_balance,
-    })
+    Ok(())
 }
 
 /// `total_locked` is the caller's sum of every lien on the account (partial freeze +

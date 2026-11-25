@@ -31,11 +31,11 @@ pub fn unfreeze_account<'info>(ctx: Context<'info, UnfreezeAccount<'info>>) -> R
     RegistryWriter {
         registry_writer: &ctx.accounts.registry_writer,
         bump: ctx.bumps.registry_writer,
-        payer: &ctx.accounts.authority,
         mint: &ctx.accounts.mint,
-        system_program: &ctx.accounts.system_program,
     }
     .set_freeze(
+        &ctx.accounts.authority,
+        &ctx.accounts.system_program,
         &ctx.accounts.account,
         &ctx.accounts.account_compliance_pda,
         status,

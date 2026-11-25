@@ -8,14 +8,14 @@ use transfer_hook::cpi::accounts::SetFreeze;
 pub(crate) struct RegistryWriter<'a, 'info> {
     pub registry_writer: &'a AccountInfo<'info>,
     pub bump: u8,
-    pub payer: &'a AccountInfo<'info>,
     pub mint: &'a AccountInfo<'info>,
-    pub system_program: &'a AccountInfo<'info>,
 }
 
 impl<'info> RegistryWriter<'_, 'info> {
     pub(crate) fn set_freeze(
         &self,
+        payer: &AccountInfo<'info>,
+        system_program: &AccountInfo<'info>,
         token_account: &AccountInfo<'info>,
         account_compliance_pda: &AccountInfo<'info>,
         status: FreezeStatus,
@@ -27,11 +27,11 @@ impl<'info> RegistryWriter<'_, 'info> {
                 TRANSFER_HOOK_PROGRAM_ID,
                 SetFreeze {
                     registry_writer: self.registry_writer.clone(),
-                    payer: self.payer.clone(),
+                    payer: payer.clone(),
                     account_compliance_pda: account_compliance_pda.clone(),
                     mint: self.mint.clone(),
                     token_account: token_account.clone(),
-                    system_program: self.system_program.clone(),
+                    system_program: system_program.clone(),
                 },
                 &[signer_seeds.as_slice()],
             ),

@@ -1,23 +1,21 @@
 use anchor_lang::prelude::*;
+use common::program_ids as constants;
+use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
 use common::{
     pda_seeds, require_active, require_functionality, require_not_paused, require_role, roles,
 };
 
 use crate::events::AccountAddedToControlList;
-use crate::state::ControlListStatus;
-use common::program_ids as constants;
-use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance, Roles};
+use crate::registry::RegistryWriter;
 
-pub fn add_to_control_list(ctx: Context<AddToControlList>) -> Result<()> {
+pub fn add_to_control_list<'info>(ctx: Context<'info, AddToControlList<'info>>) -> Result<()> {
     require_role(
         ctx.accounts.authority_roles_pda.load()?,
         roles::ROLE_CONTROL_LIST,
     )?;
 
-    // ── Verify mint is not paused ─────────────────────────────────────────────
     require_not_paused(&ctx.accounts.mint.to_account_info())?;
 
-    // ── Verify mint has not been deactivated ──────────────────────────────────
     require_active(ctx.accounts.mint_compliance_pda.load()?)?;
 
     require_functionality(
@@ -25,8 +23,18 @@ pub fn add_to_control_list(ctx: Context<AddToControlList>) -> Result<()> {
         common::functionalities::TRANSFER_CONTROL_ADD_TO_CONTROL_LIST,
     )?;
 
-    // ── Record canonical bump in the control-list marker PDA ─────────────────────
-    ctx.accounts.control_list_pda.bump = ctx.bumps.control_list_pda;
+    RegistryWriter {
+        registry_writer: &ctx.accounts.registry_writer,
+        bump: ctx.bumps.registry_writer,
+        mint: &ctx.accounts.mint,
+    }
+    .set_in_control_list(
+        &ctx.accounts.authority,
+        &ctx.accounts.system_program,
+        &ctx.accounts.account,
+        &ctx.accounts.account_compliance_pda,
+        true,
+    )?;
 
     emit_cpi!(AccountAddedToControlList {
         mint: ctx.accounts.mint.key(),
@@ -60,7 +68,7 @@ pub struct AddToControlList<'info> {
     /// CHECK: Read-only; validated by require_not_paused (checks the Pausable extension).
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: Address used as a seed for control_list_pda; not otherwise validated here.
+    /// CHECK: Address used as a seed for account_compliance_pda; not otherwise validated here.
     pub account: UncheckedAccount<'info>,
 
     #[account(
@@ -70,14 +78,16 @@ pub struct AddToControlList<'info> {
     )]
     pub mint_compliance_pda: AccountLoader<'info, MintCompliance>,
 
+    /// CHECK: Address verified by seeds/bump; may be empty (nothing recorded). Owner and
+    /// discriminator checked by common::in_control_list; created/written by the
+    /// transfer-hook::set_in_control_list CPI.
     #[account(
-        init_if_needed,
-        payer = authority,
-        space = ControlListStatus::DISCRIMINATOR.len() + ControlListStatus::INIT_SPACE,
-        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), account.key().as_ref()],
+        mut,
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), account.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]
-    pub control_list_pda: Account<'info, ControlListStatus>,
+    pub account_compliance_pda: UncheckedAccount<'info>,
 
     #[account(
         seeds = [
@@ -89,6 +99,15 @@ pub struct AddToControlList<'info> {
         bump = asset_class_version_pda.load()?.bump,
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
+
+    /// CHECK: Address verified by seeds/bump; signs the hook setter CPI, which accepts
+    /// only this PDA.
+    #[account(seeds = [pda_seeds::REGISTRY_WRITER], bump)]
+    pub registry_writer: UncheckedAccount<'info>,
+
+    /// CHECK: Address verified by constraint.
+    #[account(address = constants::TRANSFER_HOOK_PROGRAM_ID)]
+    pub transfer_hook_program: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }

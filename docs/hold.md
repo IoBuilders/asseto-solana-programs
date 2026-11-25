@@ -79,7 +79,7 @@ pub struct HoldPosition {
 | Field | Type | Meaning |
 |---|---|---|
 | `mint` | `Pubkey` | The mint this position belongs to. Stored first (immediately after the 8-byte discriminator) so `getProgramAccounts` + `memcmp(offset = 8, mint)` can enumerate every position for a mint. |
-| `token_account` | `Pubkey` | The token account the lien applies to. Liens are keyed by *token account*, not by owner, because the compliance layer (`control_list`, `account_compliance`) and the hook's balance check are keyed that way too. |
+| `token_account` | `Pubkey` | The token account the lien applies to. Liens are keyed by *token account*, not by owner, because the compliance layer (`account_compliance`) and the hook's balance check are keyed that way too. |
 | `held_amount` | `u64` | Sum of `current_amount` across the account's active holds. This is the number the transfer hook subtracts. |
 | `hold_count` | `u64` | Monotonic counter of holds created against this position, never reset. The id assigned to the next hold is `hold_count + 1`, so the first hold on an account gets `hold_id == 1` — matching `coupon`'s `count + 1` numbering rather than starting at 0. |
 | `bump` | `u8` | Bump for the position PDA. |
@@ -272,12 +272,12 @@ amount: u64
 - `status == Active` (`HoldNotActive`), `now < expiration` (`HoldExpired`).
 - `0 < amount <= current_amount` (`ZeroAmount` / `AmountExceedsHold`).
 - `destination_token` matches `hold_record.destination` when pinned (`DestinationMismatch`).
-- `verify_transfer_control_mode` over source and destination; the source must not be fully frozen (`common::freeze_status`, `AccountFrozen`).
+- `common::verify_transfer_control_mode` (mode from `MintCompliance`) over the source and destination `AccountCompliance`; the source must not be fully frozen (`common::freeze_status`, `AccountFrozen`).
 - `require_locked_balance_covered(source_token, frozen_balance + held_after + amount)`, with `frozen_balance` from the same `freeze_status` read.
 
 ### Why compliance is re-checked here
 
-`transfer-hook::execute` returns `Ok(())` immediately when the transfer authority is the `permanent_delegate` PDA, so `operations::controller_transfer` can seize tokens regardless of compliance. An execution routed through the same delegate inherits that exemption, which would let a hold deliver tokens to a unlisted account. `execute_hold` therefore calls the *same* linked-in functions the hook calls (`transfer_control::verify_transfer_control_mode`, `common::freeze_status`, `common::require_locked_balance_covered`, `common::require_active`, `common::require_not_paused`) — a second call site, not a second copy of the logic.
+`transfer-hook::execute` returns `Ok(())` immediately when the transfer authority is the `permanent_delegate` PDA, so `operations::controller_transfer` can seize tokens regardless of compliance. An execution routed through the same delegate inherits that exemption, which would let a hold deliver tokens to a unlisted account. `execute_hold` therefore calls the *same* linked-in functions the hook calls (`common::verify_transfer_control_mode`, `common::freeze_status`, `common::require_locked_balance_covered`, `common::require_active`, `common::require_not_paused`) — a second call site, not a second copy of the logic.
 
 `require_functionality(TRANSFER_HOOK_EXECUTE)` is the one hook check *not* mirrored: `execute_hold` gates on `HOLD_CREATE_HOLD`, so a hold stays resolvable on an asset class that permits holds but not ordinary transfers.
 
@@ -300,13 +300,11 @@ Both source and destination are re-validated on every execution, so a destinatio
 | `operations_authority` | no | no | UncheckedAccount | seeds `["permanent_delegate", mint]`, `seeds::program = OPERATIONS_PROGRAM_ID`; the authority that actually moves the tokens. |
 | `operations_program` | no | no | UncheckedAccount | address = `OPERATIONS_PROGRAM_ID`; target of the CPI. |
 | `asset_class_version_pda` | no | no | AccountLoader\<AssetClassVersion\> | seeds `["asset_class_version", config_id, version_id]`, `seeds::program = FACTORY_PROGRAM_ID`. |
-| `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`; may be empty. |
-| `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, source_token]`. |
-| `destination_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, destination_token]`. Not optional here — the destination is always known. |
-| `source_account_compliance_pda` | no | no | UncheckedAccount | seeds `["account_compliance", mint, source_token]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be empty. Read by `common::freeze_status` and forwarded to `operations`. |
+| `source_account_compliance_pda` | no | no | UncheckedAccount | seeds `["account_compliance", mint, source_token]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be empty. Read by `common::freeze_status` and `common::verify_transfer_control_mode`, and forwarded to `operations`. |
+| `destination_account_compliance_pda` | no | no | UncheckedAccount | seeds `["account_compliance", mint, destination_token]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be empty. Read by `common::verify_transfer_control_mode` and forwarded to `operations`. |
 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; forwarded to `operations`. |
 | `mint_compliance_pda` | no | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; `deactivated` must be 0 (checked by `require_active`); also forwarded to `operations` for the hook metalist. |
-| `transfer_hook_program`, `transfer_control_program`, `hold_program` | no | no | UncheckedAccount | Address-constrained program ids; forwarded to `operations` for the hook metalist. |
+| `transfer_hook_program`, `hold_program` | no | no | UncheckedAccount | Address-constrained program ids; forwarded to `operations` for the hook metalist. |
 | `token_2022_program` | no | no | Program\<Token2022\> | |
 | `event_authority`, `program` | no | no | UncheckedAccount | Added by `#[event_cpi]`. |
 
@@ -432,10 +430,10 @@ Both readers go through `try_from` (`Account` / `AccountLoader`) rather than `tr
 
 ## Interaction with the rest of the workspace
 
-**`transfer-hook`.** Its `ExtraAccountMetaList` carries 8 entries, the last two being the `hold` program id (index 11) and the source `hold_position` PDA (index 12). `execute` sums the partially frozen balance from `common::freeze_status(source_account_compliance_pda)` and `common::held_amount(source_hold_position_pda)` and passes the total to `common::require_locked_balance_covered(source_token, total_locked)`, asserting `balance_post >= frozen + held`. Because `initialize_extra_account_meta_list` allocates the account with `init` at a fixed size and there is no update path, a mint's metalist cannot grow after deployment — a mint whose metalist predates these two entries cannot support holds.
+**`transfer-hook`.** Its `ExtraAccountMetaList` carries 5 entries, the last two being the `hold` program id (index 8) and the source `hold_position` PDA (index 9). `execute` sums the partially frozen balance from `common::freeze_status(source_account_compliance_pda)` and `common::held_amount(source_hold_position_pda)` and passes the total to `common::require_locked_balance_covered(source_token, total_locked)`, asserting `balance_post >= frozen + held`. Because `initialize_extra_account_meta_list` allocates the account with `init` at a fixed size and there is no update path, a mint's metalist cannot grow after deployment — a mint whose metalist predates these two entries cannot support holds.
 
 **`operations`.** Owns the Auxiliary instruction `hold_transfer`, callable only by the `["hold_authority", mint]` PDA — see [`operations.md`](operations.md).
 
-**Every caller that forwards the hook block** (`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`, and clients sending a bare `transfer_checked`) appends the 10 accounts of `common::HookAccounts` — see [`common.md`](common.md#module-hook_accounts).
+**Every caller that forwards the hook block** (`transfer::batch_transfer`, `operations::controller_transfer`, `operations::hold_transfer`, and clients sending a bare `transfer_checked`) appends the 7 accounts of `common::HookAccounts` — see [`common.md`](common.md#module-hook_accounts).
 
 **The paths the hook does not cover enforce the lien themselves.** `operations::controller_transfer` signs as the permanent delegate, which the hook exempts, and `operations::burn` / `batch_burn` fire no hook at all. All three call `common::require_hold_covered` (`balance >= held + amount`) before moving or destroying tokens, so none of them can push `held` above the balance and leave holds unexecutable. A partial freeze is deliberately *not* part of that check — see [`operations.md`](operations.md#the-hold-lien-on-these-paths).

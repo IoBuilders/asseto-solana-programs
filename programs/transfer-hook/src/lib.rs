@@ -34,6 +34,17 @@ pub mod transfer_hook {
         set_freeze::set_freeze(ctx, fully_frozen, frozen_balance)
     }
 
+    pub fn set_transfer_mode(ctx: Context<SetTransferMode>, transfer_mode: u8) -> Result<()> {
+        set_transfer_mode::set_transfer_mode(ctx, transfer_mode)
+    }
+
+    pub fn set_in_control_list(
+        ctx: Context<SetInControlList>,
+        in_control_list: bool,
+    ) -> Result<()> {
+        set_in_control_list::set_in_control_list(ctx, in_control_list)
+    }
+
     // Discriminator = sha256("spl-transfer-hook-interface:execute")[..8] — see
     // docs/transfer-hook.md ("Discriminator") for the full derivation.
     #[instruction(discriminator = &[105, 37, 101, 197, 75, 251, 102, 26])]

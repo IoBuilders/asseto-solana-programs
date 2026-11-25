@@ -1,6 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
+import { accountCompliancePda, mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import * as anchor from "@anchor-lang/core";
 import { SYSTEM_PROGRAM_ID } from "../../utils/address_utils";
@@ -9,7 +9,6 @@ import { Program } from "@anchor-lang/core";
 import { Mint } from "../../../target/types/mint";
 import { getEvent, getEvents } from "../event_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
-import { transferControlModePda, controlListPda } from "../transfer_control/transfer_control_pda_helper";
 import { mintAuthorityPda, mintEventAuthorityPda } from "./mint_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 import { maxSupplyPda } from "../cap/cap_pda_helper";
@@ -59,8 +58,7 @@ export async function mintTokens(callContext: MintTokensContext, args?: MintToke
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       mintCompliancePda: mintCompliancePda(callContext.mint),
       mintAuthority: mintAuthorityPda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
-      destinationControlListPda: controlListPda(callContext.mint, callContext.destination),
+      destinationAccountCompliancePda: accountCompliancePda(callContext.mint, callContext.destination),
       maxSupplyPda: maxSupplyPda(callContext.mint),
       token2022Program: TOKEN_2022_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -102,7 +100,7 @@ type BatchMintTokensArgs = {
   // The `amounts` instruction argument. Defaults to `1` per destination.
   amounts?: anchor.BN[];
   // Overrides the remaining accounts. Defaults to
-  // `[destination (writable), controlListPda, destinationOwner]` per destination, in order. Provide this to exercise remaining-account error paths.
+  // `[destination (writable), accountCompliancePda, destinationOwner]` per destination, in order. Provide this to exercise remaining-account error paths.
   remainingAccounts?: AccountMeta[];
 };
 
@@ -117,12 +115,12 @@ export async function batchMintTokens(
   const amounts = args?.amounts ?? callContext.destinations.map(() => new anchor.BN(1));
 
   // Three remaining accounts per destination, in order:
-  // [destination (writable), controlListPda, destinationOwner].
+  // [destination (writable), accountCompliancePda, destinationOwner].
   const remainingAccounts: AccountMeta[] =
     args?.remainingAccounts ??
     callContext.destinations.flatMap((destination, i) => [
       { pubkey: destination, isWritable: true, isSigner: false },
-      { pubkey: controlListPda(callContext.mint, destination), isWritable: false, isSigner: false },
+      { pubkey: accountCompliancePda(callContext.mint, destination), isWritable: false, isSigner: false },
       {
         pubkey: callContext.destinationOwners?.[i] ?? mintProgram.programId,
         isWritable: false,
@@ -143,7 +141,6 @@ export async function batchMintTokens(
       mint: callContext.mint,
       mintAuthority: mintAuthorityPda(callContext.mint),
       maxSupplyPda: maxSupplyPda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId

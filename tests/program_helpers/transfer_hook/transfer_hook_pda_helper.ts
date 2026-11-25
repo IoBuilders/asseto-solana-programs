@@ -53,7 +53,13 @@ export type MintCompliance = {
 // Byte offsets in the account data (8-byte discriminator + struct offset). Pinned by
 // the layout tests in common/src/state/compliance.rs.
 const MINT_COMPLIANCE_DEACTIVATED_OFFSET = 8 + 34;
+const MINT_COMPLIANCE_TRANSFER_MODE_OFFSET = 8 + 35;
 const MINT_COMPLIANCE_TRANSFER_HOOK_EXECUTE_OFFSET = 8 + 36;
+
+// `MintCompliance.transfer_mode` values (common::state::TRANSFER_MODE_*).
+export const TRANSFER_MODE_NONE = 0;
+export const TRANSFER_MODE_WHITELIST = 1;
+export const TRANSFER_MODE_BLACKLIST = 2;
 
 export function mintCompliancePda(mint: PublicKey): PublicKey {
   return mintCompliancePdaWithBump(mint)[0];
@@ -84,14 +90,23 @@ export async function setMintComplianceDeactivated(mint: PublicKey, deactivated:
   await setMintComplianceFlag(mint, MINT_COMPLIANCE_DEACTIVATED_OFFSET, deactivated);
 }
 
+/** Overwrites the record's `transfer_mode` via surfpool (`TRANSFER_MODE_*`). */
+export async function setMintComplianceTransferMode(mint: PublicKey, transferMode: number): Promise<void> {
+  await setMintComplianceByte(mint, MINT_COMPLIANCE_TRANSFER_MODE_OFFSET, transferMode);
+}
+
 async function setMintComplianceFlag(mint: PublicKey, offset: number, value: boolean): Promise<void> {
+  await setMintComplianceByte(mint, offset, value ? 1 : 0);
+}
+
+async function setMintComplianceByte(mint: PublicKey, offset: number, value: number): Promise<void> {
   const pda = mintCompliancePda(mint);
   const info = await anchor.getProvider().connection.getAccountInfo(pda, "confirmed");
   if (!info) {
     throw new Error(`MintCompliance not found for mint ${mint.toBase58()}`);
   }
   const data = Buffer.from(info.data);
-  data[offset] = value ? 1 : 0;
+  data[offset] = value;
   await surfnetSetAccount(pda, {
     lamports: info.lamports,
     owner: info.owner.toBase58(),
@@ -122,6 +137,7 @@ const ACCOUNT_COMPLIANCE_TOKEN_ACCOUNT_OFFSET = 8 + 32;
 const ACCOUNT_COMPLIANCE_FROZEN_BALANCE_OFFSET = 8 + 64;
 const ACCOUNT_COMPLIANCE_VERSION_OFFSET = 8 + 80;
 const ACCOUNT_COMPLIANCE_BUMP_OFFSET = 8 + 81;
+const ACCOUNT_COMPLIANCE_IN_CONTROL_LIST_OFFSET = 8 + 82;
 const ACCOUNT_COMPLIANCE_FULLY_FROZEN_OFFSET = 8 + 83;
 const COMPLIANCE_LAYOUT_VERSION = 1;
 
@@ -150,15 +166,21 @@ export async function getAccountCompliance(
   return getAccountComplianceByPda(accountCompliancePda(mint, tokenAccount));
 }
 
+export type AccountComplianceChanges = {
+  fullyFrozen?: boolean;
+  frozenBalance?: anchor.BN;
+  inControlList?: boolean;
+};
+
 /**
- * Plants the freeze fields of the `(mint, tokenAccount)` record via surfpool, creating
- * the record if absent and keeping every field not in `changes` — the same effect a
- * `freeze` instruction has through `set_freeze`, without its role/functionality gates.
+ * Plants fields of the `(mint, tokenAccount)` record via surfpool, creating the record
+ * if absent and keeping every field not in `changes` — the same effect the capability
+ * programs have through the hook setters, without their role/functionality gates.
  */
-export async function setAccountComplianceFreeze(
+export async function setAccountComplianceFields(
   mint: PublicKey,
   tokenAccount: PublicKey,
-  changes: { fullyFrozen?: boolean; frozenBalance?: anchor.BN }
+  changes: AccountComplianceChanges
 ): Promise<void> {
   const [pda, bump] = accountCompliancePdaWithBump(mint, tokenAccount);
   const info = await anchor.getProvider().connection.getAccountInfo(pda, "confirmed");
@@ -178,6 +200,9 @@ export async function setAccountComplianceFreeze(
   }
   if (changes.fullyFrozen !== undefined) {
     data[ACCOUNT_COMPLIANCE_FULLY_FROZEN_OFFSET] = changes.fullyFrozen ? 1 : 0;
+  }
+  if (changes.inControlList !== undefined) {
+    data[ACCOUNT_COMPLIANCE_IN_CONTROL_LIST_OFFSET] = changes.inControlList ? 1 : 0;
   }
   if (changes.frozenBalance !== undefined) {
     data.writeBigUInt64LE(BigInt(changes.frozenBalance.toString()), ACCOUNT_COMPLIANCE_FROZEN_BALANCE_OFFSET);

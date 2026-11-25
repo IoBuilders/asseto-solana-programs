@@ -119,7 +119,7 @@ pub struct MaxSupplySet {
 
 ## Enforcing the cap: `require_within_max_supply`
 
-Exported from `cap`'s crate root (outside `#[program]`), so a program that mints can link it in and call it directly — no CPI, no compute cost beyond the account reads. Same pattern as `transfer_control::verify_transfer_control_mode`.
+Exported from `cap`'s crate root (outside `#[program]`), so a program that mints can link it in and call it directly — no CPI, no compute cost beyond the account reads. Same pattern as `common::verify_transfer_control_mode`.
 
 ```rust
 pub fn require_within_max_supply<'info>(

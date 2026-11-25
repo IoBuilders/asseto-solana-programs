@@ -860,7 +860,6 @@ dependencies = [
  "common",
  "operations",
  "spl-token-2022-interface 3.0.1",
- "transfer-control",
 ]
 
 [[package]]
@@ -1011,7 +1010,6 @@ dependencies = [
  "common",
  "snapshot",
  "spl-token-2022-interface 3.0.1",
- "transfer-control",
 ]
 
 [[package]]
@@ -2660,7 +2658,6 @@ dependencies = [
  "common",
  "solana-instructions-sysvar 4.0.0",
  "spl-token-2022-interface 3.0.1",
- "transfer-control",
  "transfer-hook",
 ]
 
@@ -2670,6 +2667,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "common",
+ "transfer-hook",
 ]
 
 [[package]]
@@ -2683,7 +2681,6 @@ dependencies = [
  "spl-tlv-account-resolution",
  "spl-token-2022-interface 3.0.1",
  "spl-transfer-hook-interface",
- "transfer-control",
 ]
 
 [[package]]

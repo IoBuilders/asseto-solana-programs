@@ -5,10 +5,9 @@ use common::program_ids as constants;
 use common::state::{AssetClassVersion, AssetConfiguration, MintCompliance};
 use common::{
     freeze_status, pda_seeds, pda_utils, require_active, require_functionality,
-    require_locked_balance_covered, require_not_paused, CommonError,
+    require_locked_balance_covered, require_not_paused, verify_transfer_control_mode, CommonError,
 };
 use operations::cpi::accounts::HoldTransfer;
-use transfer_control::verify_transfer_control_mode;
 
 use crate::errors::ErrorCode;
 use crate::events::HoldExecuted;
@@ -46,10 +45,10 @@ pub fn execute_hold<'info>(
     }
 
     verify_transfer_control_mode(
-        &ctx.accounts.transfer_control_mode_pda,
+        ctx.accounts.mint_compliance_pda.load()?.transfer_mode,
         &[
-            &ctx.accounts.source_control_list_pda,
-            &ctx.accounts.destination_control_list_pda,
+            &ctx.accounts.source_account_compliance_pda,
+            &ctx.accounts.destination_account_compliance_pda,
         ],
     )?;
     let freeze_status = freeze_status(&ctx.accounts.source_account_compliance_pda)?;
@@ -101,16 +100,13 @@ pub fn execute_hold<'info>(
                 extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
                 transfer_hook_program: ctx.accounts.transfer_hook_program.to_account_info(),
                 mint_compliance_pda: ctx.accounts.mint_compliance_pda.to_account_info(),
-                transfer_control_program: ctx.accounts.transfer_control_program.to_account_info(),
-                transfer_control_mode_pda: ctx.accounts.transfer_control_mode_pda.to_account_info(),
-                source_control_list_pda: ctx.accounts.source_control_list_pda.to_account_info(),
-                destination_control_list_pda: ctx
-                    .accounts
-                    .destination_control_list_pda
-                    .to_account_info(),
                 source_account_compliance_pda: ctx
                     .accounts
                     .source_account_compliance_pda
+                    .to_account_info(),
+                destination_account_compliance_pda: ctx
+                    .accounts
+                    .destination_account_compliance_pda
                     .to_account_info(),
                 hold_program: ctx.accounts.hold_program.to_account_info(),
                 source_hold_position_pda: ctx.accounts.hold_position.to_account_info(),
@@ -231,41 +227,23 @@ pub struct ExecuteHold<'info> {
     )]
     pub asset_class_version_pda: AccountLoader<'info, AssetClassVersion>,
 
-    /// CHECK: Address verified by constraint; forwarded to operations.
-    #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]
-    pub transfer_control_program: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; read by verify_transfer_control_mode. May be empty.
-    #[account(
-        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub transfer_control_mode_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; must exist in Whitelist mode.
-    #[account(
-        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), source_token.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub source_control_list_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; must exist in Whitelist mode.
-    #[account(
-        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), destination_token.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub destination_control_list_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; read by common::freeze_status and forwarded to operations. May be empty (nothing recorded).
+    /// CHECK: seeds verified; may be empty (nothing recorded). Owner and discriminator
+    /// checked by the common readers (freeze + control list); forwarded to operations.
     #[account(
         seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), source_token.key().as_ref()],
         seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]
     pub source_account_compliance_pda: UncheckedAccount<'info>,
+
+    /// CHECK: seeds verified; may be empty (nothing recorded). Owner and discriminator
+    /// checked by common::verify_transfer_control_mode; forwarded to operations.
+    #[account(
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), destination_token.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
+        bump,
+    )]
+    pub destination_account_compliance_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by constraint; forwarded to operations for the metalist.
     #[account(address = constants::HOLD_PROGRAM_ID)]

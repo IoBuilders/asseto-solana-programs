@@ -15,9 +15,9 @@ pub fn batch_transfer<'info>(
     amounts: Vec<u64>,
 ) -> Result<()> {
     require!(!amounts.is_empty(), TransferError::EmptyBatch);
-    // Two remaining accounts per leg: destination token account + its control-list
-    // PDA (the metalist resolves the destination control-list PDA from the destination,
-    // so the hook needs that account forwarded on every leg).
+    // Two remaining accounts per leg: destination token account + its
+    // AccountCompliance (the metalist derives it from the destination, so the hook
+    // needs that account forwarded on every leg).
     require!(
         ctx.remaining_accounts.len() == amounts.len() * 2,
         TransferError::InvalidRemainingAccounts
@@ -35,7 +35,7 @@ pub fn batch_transfer<'info>(
 
     for (i, &amount) in amounts.iter().enumerate() {
         let destination = &ctx.remaining_accounts[i * 2];
-        let destination_control_list_pda = &ctx.remaining_accounts[i * 2 + 1];
+        let destination_account_compliance_pda = &ctx.remaining_accounts[i * 2 + 1];
 
         // ── Transfer ───────────────────────────────────────────────────────
         let mut transfer_ix = transfer_checked(
@@ -53,11 +53,8 @@ pub fn batch_transfer<'info>(
             extra_account_meta_list: &ctx.accounts.extra_account_meta_list,
             transfer_hook_program: &ctx.accounts.transfer_hook_program,
             mint_compliance_pda: &ctx.accounts.mint_compliance_pda,
-            transfer_control_program: &ctx.accounts.transfer_control_program,
-            transfer_control_mode_pda: &ctx.accounts.transfer_control_mode_pda,
-            source_control_list_pda: &ctx.accounts.source_control_list_pda,
-            destination_control_list_pda,
             source_account_compliance_pda: &ctx.accounts.source_account_compliance_pda,
+            destination_account_compliance_pda,
             hold_program: &ctx.accounts.hold_program,
             source_hold_position_pda: &ctx.accounts.source_hold_position_pda,
         };
@@ -81,7 +78,7 @@ pub fn batch_transfer<'info>(
 ///
 /// Indices 0–2 (`source_owner`, `source`, `mint`) are fixed. The constant
 /// compliance PDAs and program ids the hook needs are named accounts; the
-/// per-leg `(destination, destination_control_list_pda)` pairs are appended as
+/// per-leg `(destination, destination_account_compliance_pda)` pairs are appended as
 /// `remaining_accounts` (`remaining_accounts.len() == amounts.len() * 2`).
 #[derive(Accounts)]
 pub struct BatchTransferTokens<'info> {
@@ -117,26 +114,6 @@ pub struct BatchTransferTokens<'info> {
         bump,
     )]
     pub mint_compliance_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by constraint; forwarded to the hook.
-    #[account(address = constants::TRANSFER_CONTROL_PROGRAM_ID)]
-    pub transfer_control_program: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; forwarded to the hook (may be empty — no mode active).
-    #[account(
-        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub transfer_control_mode_pda: UncheckedAccount<'info>,
-
-    /// CHECK: seeds verified; forwarded to the hook (must exist in Whitelist mode).
-    #[account(
-        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), source.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub source_control_list_pda: UncheckedAccount<'info>,
 
     /// CHECK: seeds verified; forwarded to the hook. May be empty (nothing recorded).
     #[account(

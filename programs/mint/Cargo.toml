@@ -27,7 +27,6 @@ spl-token-2022-interface = "=3.0.1"
 common = { path = "../common" }
 cap = { path = "../cap", features = ["cpi"] }
 snapshot = { path = "../snapshot", features = ["cpi"] }
-transfer-control = { path = "../transfer-control", features = ["cpi"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow" }

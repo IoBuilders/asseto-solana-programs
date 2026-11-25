@@ -36,9 +36,7 @@ pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>
     let writer = RegistryWriter {
         registry_writer: &ctx.accounts.registry_writer,
         bump: ctx.bumps.registry_writer,
-        payer: &ctx.accounts.authority,
         mint: &ctx.accounts.mint,
-        system_program: &ctx.accounts.system_program,
     };
 
     for entry in ctx.remaining_accounts.chunks_exact(2) {
@@ -48,7 +46,13 @@ pub fn batch_freeze_account<'info>(ctx: Context<'info, BatchFreezeAccount<'info>
         let mut status = freeze_status(account_compliance_pda)?;
         require!(!status.fully_frozen, CommonError::AccountFrozen);
         status.fully_frozen = true;
-        writer.set_freeze(account, account_compliance_pda, status)?;
+        writer.set_freeze(
+            &ctx.accounts.authority,
+            &ctx.accounts.system_program,
+            account,
+            account_compliance_pda,
+            status,
+        )?;
 
         emit_cpi!(AccountFrozen {
             mint: mint_key,

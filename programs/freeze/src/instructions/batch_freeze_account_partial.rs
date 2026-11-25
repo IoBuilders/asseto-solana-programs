@@ -43,9 +43,7 @@ pub fn batch_freeze_account_partial<'info>(
     let writer = RegistryWriter {
         registry_writer: &ctx.accounts.registry_writer,
         bump: ctx.bumps.registry_writer,
-        payer: &ctx.accounts.authority,
         mint: &ctx.accounts.mint,
-        system_program: &ctx.accounts.system_program,
     };
 
     for (entry, balance) in ctx.remaining_accounts.chunks_exact(2).zip(balances) {
@@ -54,7 +52,13 @@ pub fn batch_freeze_account_partial<'info>(
 
         let mut status = freeze_status(account_compliance_pda)?;
         status.frozen_balance = balance;
-        writer.set_freeze(account, account_compliance_pda, status)?;
+        writer.set_freeze(
+            &ctx.accounts.authority,
+            &ctx.accounts.system_program,
+            account,
+            account_compliance_pda,
+            status,
+        )?;
 
         emit_cpi!(AccountPartiallyFrozen {
             mint: mint_key,

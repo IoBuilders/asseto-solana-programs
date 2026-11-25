@@ -5,9 +5,11 @@ use anchor_spl::token_2022::Token2022;
 use cap::require_within_max_supply;
 use common::pda_utils;
 use common::state::Roles as RolesCommon;
-use common::{pda_seeds, require_active, require_functionality, require_role, roles};
+use common::{
+    pda_seeds, require_active, require_functionality, require_role, roles,
+    verify_transfer_control_mode,
+};
 use spl_token_2022_interface::instruction::mint_to;
-use transfer_control::verify_transfer_control_mode;
 
 use crate::events::Issued;
 use crate::instructions::destination_ata::create_destination_ata_if_missing;
@@ -27,8 +29,8 @@ pub fn mint<'info>(ctx: Context<'info, MintTokens<'info>>, amount: u64) -> Resul
 
     // ── Transfer control mode check ──────────────────────────────────────
     verify_transfer_control_mode(
-        &ctx.accounts.transfer_control_mode_pda,
-        &[&ctx.accounts.destination_control_list_pda],
+        ctx.accounts.mint_compliance_pda.load()?.transfer_mode,
+        &[&ctx.accounts.destination_account_compliance_pda],
     )?;
 
     // ── Supply cap check ─────────────────────────────────────────────────
@@ -135,21 +137,14 @@ pub struct MintTokens<'info> {
     /// CHECK: Address verified by the ATA program against `destination`.
     pub destination_owner: Option<UncheckedAccount<'info>>,
 
-    /// CHECK: Address verified by seeds/bump; contents read by verify_transfer_control_mode.
+    /// CHECK: Address verified by seeds/bump; may be empty (nothing recorded). Owner and
+    /// discriminator checked by verify_transfer_control_mode.
     #[account(
-        seeds = [pda_seeds::TRANSFER_CONTROL_MODE, mint.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
+        seeds = [pda_seeds::ACCOUNT_COMPLIANCE, mint.key().as_ref(), destination.key().as_ref()],
+        seeds::program = constants::TRANSFER_HOOK_PROGRAM_ID,
         bump,
     )]
-    pub transfer_control_mode_pda: UncheckedAccount<'info>,
-
-    /// CHECK: Address verified by seeds/bump; existence checked by verify_transfer_control_mode if needed
-    #[account(
-        seeds = [pda_seeds::CONTROL_LIST, mint.key().as_ref(), destination.key().as_ref()],
-        seeds::program = constants::TRANSFER_CONTROL_PROGRAM_ID,
-        bump,
-    )]
-    pub destination_control_list_pda: UncheckedAccount<'info>,
+    pub destination_account_compliance_pda: UncheckedAccount<'info>,
 
     /// CHECK: Address verified by seeds/bump; absence means no cap is set, contents read by require_within_max_supply.
     #[account(

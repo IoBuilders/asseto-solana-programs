@@ -1,6 +1,6 @@
 import * as anchor from "@anchor-lang/core";
 import { AnchorError } from "@anchor-lang/core";
-import { Keypair, PublicKey, SendTransactionError } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { assert } from "chai";
 import { deployMint } from "./program_helpers/deploy/deploy_instruction_helper";
 import {
@@ -20,9 +20,7 @@ import {
   initializeTransferControlMode,
   TRANSFER_CONTROL_WHITELIST,
   TRANSFER_CONTROL_BLACKLIST,
-  getTransferControlProgram,
 } from "./program_helpers/transfer_control/transfer_control_instruction_helper";
-import { getAccountInfo } from "./program_helpers/account_helper";
 import {
   ASSET_CLASS_VERSION_STATE_DRAFT,
   setAssetClassVersionForMint,
@@ -37,15 +35,15 @@ import {
   TRANSFER_HOOK_EXECUTE,
 } from "./utils/functionalities";
 import {
-  getTransferControlModeByPda,
-  getControlListStatusByPda,
-  transferControlModePda,
-  transferControlModePdaWithBump,
-  controlListPda,
-  controlListPdaWithBump,
+  getTransferMode,
+  isInControlList,
   setControlListMarker,
   setTransferControlModeMarker,
+  TRANSFER_MODE_BLACKLIST,
+  TRANSFER_MODE_NONE,
+  TRANSFER_MODE_WHITELIST,
 } from "./program_helpers/transfer_control/transfer_control_pda_helper";
+import { getAccountCompliance } from "./program_helpers/transfer_hook/transfer_hook_pda_helper";
 import { setDeactivated } from "./program_helpers/deactivate/deactivate_pda_helper";
 import { setRoles } from "./program_helpers/access_control/access_control_pda_helper";
 import { ROLE_CONTROL_LIST, ROLE_ISSUER } from "./utils/roles";
@@ -71,29 +69,14 @@ describe("transfer-control", () => {
   });
 
   describe("initialize", async () => {
-    // ── Happy-path: initialize creates the PDA and sets mode = Whitelist ───────────
-    it("initialize: creates the transfer_control_mode PDA with mode = Whitelist", async () => {
+    // ── Happy-path: initialize sets MintCompliance.transfer_mode = Whitelist ───────
+    it("initialize: sets the mint's transfer mode to Whitelist", async () => {
       const mode = TRANSFER_CONTROL_WHITELIST;
-      const transferControlMode = transferControlModePda(mint);
-      const [, expectedBump] = transferControlModePdaWithBump(mint);
+      assert.equal(await getTransferMode(mint), TRANSFER_MODE_NONE, "no mode should be set before initialize");
 
-      // ── Verify the PDA does not exist before the instruction ────────────────
-      const stateBefore = await getTransferControlModeByPda(transferControlMode);
-
-      // ── Call initialize(TRANSFER_CONTROL_WHITELIST) ────────────────────────────────────
       const { signature } = await initializeTransferControlMode({ authority, mint }, { mode });
 
-      // ── Fetch and verify the PDA ─────────────────────────────────────────────
-      const stateAfter = await getTransferControlModeByPda(transferControlMode);
-      const accountInfo = await getAccountInfo(transferControlMode);
-
-      const expectedSize = getTransferControlProgram().account.transferControlMode.size;
-
-      assert.isNull(stateBefore, "transfer_control_mode PDA should not exist before initialize");
-      assert.isNotNull(stateAfter, "transfer_control_mode PDA should exist after initialize");
-      assert.deepEqual(stateAfter.mode, mode, `mode should be ${mode}`);
-      assert.equal(stateAfter.bump, expectedBump, "bump should match the canonical bump");
-      assert.equal(accountInfo.data.length, expectedSize, `PDA size should be ${expectedSize} bytes`);
+      assert.equal(await getTransferMode(mint), TRANSFER_MODE_WHITELIST, "mode should be Whitelist");
 
       const modeSetEvent = await getTransferControlModeSetEvent(signature);
       assert.isNotNull(modeSetEvent, "TransferControlModesSet event should be emitted");
@@ -107,22 +90,12 @@ describe("transfer-control", () => {
     });
 
     // ── Happy-path: initialize with mode = Blacklist ──────────────────────────────
-    it("initialize: creates the transfer_control_mode PDA with mode = Blacklist", async () => {
+    it("initialize: sets the mint's transfer mode to Blacklist", async () => {
       const mode = TRANSFER_CONTROL_BLACKLIST;
-      const transferControlMode = transferControlModePda(mint);
-      const [, expectedBump] = transferControlModePdaWithBump(mint);
 
       const { signature } = await initializeTransferControlMode({ authority, mint }, { mode });
 
-      const state = await getTransferControlModeByPda(transferControlMode);
-      const accountInfo = await getAccountInfo(transferControlMode);
-      const expectedSize = getTransferControlProgram().account.transferControlMode.size;
-
-      assert.isNotNull(state, "transfer_control_mode PDA should exist after initialize");
-      assert.deepEqual(state.mode, mode, "mode should be Blacklist");
-      assert.equal(state.bump, expectedBump, "bump should match the canonical bump");
-      // Data-less variant: same account size as Whitelist.
-      assert.equal(accountInfo.data.length, expectedSize, `PDA size should be ${expectedSize} bytes`);
+      assert.equal(await getTransferMode(mint), TRANSFER_MODE_BLACKLIST, "mode should be Blacklist");
 
       const modeSetEvent = await getTransferControlModeSetEvent(signature);
       assert.isNotNull(modeSetEvent, "TransferControlModeSet event should be emitted");
@@ -130,42 +103,30 @@ describe("transfer-control", () => {
     });
 
     // ── Error case: initialize — mode is immutable once set ───────────────────────
-    it("initialize: cannot switch an existing Blacklist mode to Whitelist", async () => {
+    it("initialize: fails with TransferModeAlreadySet and cannot switch Blacklist to Whitelist", async () => {
       await initializeTransferControlMode({ authority, mint }, { mode: TRANSFER_CONTROL_BLACKLIST });
 
       try {
         await initializeTransferControlMode({ authority, mint }, { mode: TRANSFER_CONTROL_WHITELIST });
-        assert.fail("Expected failure but initialize overwrote the existing mode");
+        assert.fail("Expected TransferModeAlreadySet but initialize overwrote the existing mode");
       } catch (err) {
-        assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
-        const logs = (err as SendTransactionError).logs ?? [];
-        assert.isTrue(
-          logs.some((l) => l.includes("already in use")),
-          "transaction logs should mention account already in use"
-        );
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "TransferModeAlreadySet");
       }
 
-      const state = await getTransferControlModeByPda(transferControlModePda(mint));
-      assert.deepEqual(state.mode, TRANSFER_CONTROL_BLACKLIST, "mode should still be Blacklist");
+      assert.equal(await getTransferMode(mint), TRANSFER_MODE_BLACKLIST, "mode should still be Blacklist");
     });
 
-    // ── Error case: initialize — PDA already exists ────────────────────────────────
-    it("initialize: fails when the transfer_control_mode PDA already exists", async () => {
-      // Plant an existing transfer_control_mode PDA so a second `init` must fail.
+    // ── Error case: initialize — same mode twice ──────────────────────────────────
+    it("initialize: fails with TransferModeAlreadySet when called twice with the same mode", async () => {
       await initializeTransferControlMode({ authority, mint });
 
       try {
         await initializeTransferControlMode({ authority, mint });
-        assert.fail("Expected failure but initialize succeeded on an existing PDA");
+        assert.fail("Expected TransferModeAlreadySet but initialize succeeded twice");
       } catch (err) {
-        // `init` on an existing account fails in the System program with
-        // "already in use" — surfaced as a SendTransactionError, not an Anchor code.
-        assert.instanceOf(err, SendTransactionError, "error should be a SendTransactionError");
-        const logs = (err as SendTransactionError).logs ?? [];
-        assert.isTrue(
-          logs.some((l) => l.includes("already in use")),
-          "transaction logs should mention account already in use"
-        );
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "TransferModeAlreadySet");
       }
     });
 
@@ -255,22 +216,20 @@ describe("transfer-control", () => {
 
   describe("add_to_control_list", async () => {
     // ── Happy-path: add_to_control_list ─────────────────────────────────────────────
-    it("add_to_control_list: creates the control-list PDA for a token account", async () => {
+    it("add_to_control_list: sets the account's in_control_list flag, creating its AccountCompliance", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      const controlList = controlListPda(mint, tokenAccount);
-      const [, expectedBump] = controlListPdaWithBump(mint, tokenAccount);
+      assert.isNull(
+        await getAccountCompliance(mint, tokenAccount),
+        "no record should exist before add_to_control_list"
+      );
 
-      // ── Verify the PDA does not exist before the instruction ────────────────
-      const stateBefore = await getControlListStatusByPda(controlList);
-
-      // ── Call add_to_control_list ───────────────────────────────────────────────
       const { signature } = await addToControlList({ authority, mint, account: tokenAccount });
 
-      // ── Fetch and verify the PDA ─────────────────────────────────────────────
-      const stateAfter = await getControlListStatusByPda(controlList);
-      assert.isNull(stateBefore, "control-list PDA should not exist before add_to_control_list");
-      assert.isNotNull(stateAfter, "control-list PDA should exist after add_to_control_list");
-      assert.equal(stateAfter.bump, expectedBump, "bump should match the canonical bump");
+      const record = await getAccountCompliance(mint, tokenAccount);
+      assert.isNotNull(record, "AccountCompliance should exist after add_to_control_list");
+      assert.equal(record!.inControlList, 1, "in_control_list should be set");
+      assert.equal(record!.tokenAccount.toBase58(), tokenAccount.toBase58(), "record should belong to the account");
+      assert.equal(record!.fullyFrozen, 0, "other fields should stay clear");
 
       const addedEvent = await getAccountAddedToControlListEvent(signature);
       assert.isNotNull(addedEvent, "AccountAddedToControlList event should be emitted");
@@ -285,6 +244,16 @@ describe("transfer-control", () => {
         authority.publicKey.toBase58(),
         "event operator should match authority"
       );
+    });
+
+    // ── add_to_control_list is idempotent ───────────────────────────────────────
+    it("add_to_control_list: succeeds when the account is already in the control list", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
+      await addToControlList({ authority, mint, account: tokenAccount });
+
+      await addToControlList({ authority, mint, account: tokenAccount });
+
+      assert.isTrue(await isInControlList(mint, tokenAccount), "account should still be in the control list");
     });
 
     // ── Error case: add_to_control_list — MissingRole ──────────────────────
@@ -379,22 +348,17 @@ describe("transfer-control", () => {
 
   describe("remove_from_control_list", async () => {
     // ── Happy-path: remove_from_control_list ────────────────────────────────────────
-    it("remove_from_control_list: closes the control-list PDA for a token account", async () => {
+    it("remove_from_control_list: clears the in_control_list flag, keeping the record", async () => {
       const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
-      const controlList = controlListPda(mint, tokenAccount);
 
-      // ── First: add to the control list ─────────────────────────────────────────────
       await addToControlList({ authority, mint, account: tokenAccount });
+      assert.isTrue(await isInControlList(mint, tokenAccount), "account should be in the control list after add");
 
-      const stateAfterAdd = await getControlListStatusByPda(controlList);
-      assert.isNotNull(stateAfterAdd, "control-list PDA should exist after add_to_control_list");
-
-      // ── Then: remove from the control list ─────────────────────────────────────────
       const { signature } = await removeFromControlList({ authority, mint, account: tokenAccount });
 
-      // ── Verify the PDA has been closed ──────────────────────────────────────
-      const stateAfterRemove = await getControlListStatusByPda(controlList);
-      assert.isNull(stateAfterRemove, "control-list PDA should not exist after remove_from_control_list");
+      const record = await getAccountCompliance(mint, tokenAccount);
+      assert.isNotNull(record, "AccountCompliance is never closed");
+      assert.equal(record!.inControlList, 0, "in_control_list should be cleared");
 
       const accountRemovedFromControlListEvent = await getAccountRemovedFromControlListEvent(signature);
       assert.isNotNull(accountRemovedFromControlListEvent, "AccountRemovedFromControlList event should be emitted");
@@ -413,6 +377,19 @@ describe("transfer-control", () => {
         authority.publicKey.toBase58(),
         "event operator should match authority"
       );
+    });
+
+    // ── Error case: remove_from_control_list — not in the control list ───────────
+    it("remove_from_control_list: fails with AccountNotInControlList when the account is not listed", async () => {
+      const tokenAccount = await createTokenAccount({ mint, owner: authority.publicKey });
+
+      try {
+        await removeFromControlList({ authority, mint, account: tokenAccount });
+        assert.fail("Expected AccountNotInControlList but instruction succeeded");
+      } catch (err) {
+        assert.instanceOf(err, AnchorError, "error should be an AnchorError");
+        assert.equal((err as AnchorError).error.errorCode.code, "AccountNotInControlList");
+      }
     });
 
     // ── Error case: remove_from_control_list — MissingRole ─────────────────

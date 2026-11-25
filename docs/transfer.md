@@ -69,16 +69,13 @@ must be **appended** to that list.
 | 3 | `source_owner` | no | yes | Token-2022 enforces `source.owner == source_owner` natively |
 | 4 | `extra_account_meta_list` | no | no | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
 | 5 | `transfer_hook_program` | no | no | `TRANSFER_HOOK_PROGRAM_ID` |
-| 6 | `mint_compliance_pda` | no | no | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; a literal address in the metalist; the hook reads its `deactivated` flag and functionality bit |
-| 7 | `transfer_control_program` | no | no | `TRANSFER_CONTROL_PROGRAM_ID` |
-| 8 | `transfer_control_mode_pda` | no | no | seeds `["transfer_control_mode", mint]`; a literal address in the metalist; may be empty (no mode active) |
-| 9 | `source_control_list_pda` | no | no | seeds `["control_list", mint, source]`; must exist in Whitelist mode, must not in Blacklist mode |
-| 10 | `destination_control_list_pda` | no | no | seeds `["control_list", mint, destination]`; must exist in Whitelist mode, must not in Blacklist mode |
-| 11 | `source_account_compliance_pda` | no | no | seeds `["account_compliance", mint, source]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be empty (nothing recorded); must not be fully frozen |
-| 12 | `hold_program` | no | no | `HOLD_PROGRAM_ID` |
-| 13 | `source_hold_position_pda` | no | no | seeds `["hold_position", mint, source]`; may be empty (no hold ever created on the source) |
+| 6 | `mint_compliance_pda` | no | no | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; a literal address in the metalist; the hook reads its `deactivated` flag, transfer mode and functionality bit |
+| 7 | `source_account_compliance_pda` | no | no | seeds `["account_compliance", mint, source]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be empty (nothing recorded); must not be fully frozen; listed / not listed per the transfer mode |
+| 8 | `destination_account_compliance_pda` | no | no | seeds `["account_compliance", mint, destination]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be empty; listed / not listed per the transfer mode |
+| 9 | `hold_program` | no | no | `HOLD_PROGRAM_ID` |
+| 10 | `source_hold_position_pda` | no | no | seeds `["hold_position", mint, source]`; may be empty (no hold ever created on the source) |
 
-**Indices 4–13 are load-bearing in exactly this order** — 4 and 5 are the metalist
+**Indices 4–10 are load-bearing in exactly this order** — 4 and 5 are the metalist
 PDA and hook program, and 6–14 are the metalist's own entries in declaration
 order. Token-2022 re-derives the seed-based entries and checks the forwarded
 accounts against them, so a wrong order (or a missing account) fails inside
@@ -115,10 +112,10 @@ amounts: Vec<u64>  // raw token units per destination, in remaining-accounts ord
 ### Accounts
 
 The named accounts are the constant part of the hook block; the per-leg
-`(destination, destination_control_list_pda)` pairs are appended as
+`(destination, destination_account_compliance_pda)` pairs are appended as
 `remaining_accounts` (`remaining_accounts.len() == amounts.len() * 2`). The
-destination control-list PDA has to travel per leg because the metalist derives it
-from the destination token account.
+destination's `AccountCompliance` has to travel per leg because the metalist derives
+it from the destination token account.
 
 | Idx | Account | Mut | Signer | Type | Notes |
 |---|---|---|---|---|---|
@@ -128,19 +125,16 @@ from the destination token account.
 | 3 | `extra_account_meta_list` | no | no | UncheckedAccount | seeds `["extra-account-metas", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
 | 4 | `transfer_hook_program` | no | no | UncheckedAccount | address = `TRANSFER_HOOK_PROGRAM_ID` |
 | 5 | `mint_compliance_pda` | no | no | UncheckedAccount | seeds `["mint_compliance", mint]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID` |
-| 6 | `transfer_control_program` | no | no | UncheckedAccount | address = `TRANSFER_CONTROL_PROGRAM_ID` |
-| 7 | `transfer_control_mode_pda` | no | no | UncheckedAccount | seeds `["transfer_control_mode", mint]`; may be empty |
-| 8 | `source_control_list_pda` | no | no | UncheckedAccount | seeds `["control_list", mint, source]`; constant across legs |
-| 9 | `source_account_compliance_pda` | no | no | UncheckedAccount | seeds `["account_compliance", mint, source]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be empty |
-| 10 | `hold_program` | no | no | UncheckedAccount | address = `HOLD_PROGRAM_ID` |
-| 11 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, source]`; may be empty |
-| 12 | `token_2022_program` | no | no | Program\<Token2022\> | |
-| 13.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_control_list_pda` |
+| 6 | `source_account_compliance_pda` | no | no | UncheckedAccount | seeds `["account_compliance", mint, source]`, `seeds::program = TRANSFER_HOOK_PROGRAM_ID`; may be empty; constant across legs |
+| 7 | `hold_program` | no | no | UncheckedAccount | address = `HOLD_PROGRAM_ID` |
+| 8 | `source_hold_position_pda` | no | no | UncheckedAccount | seeds `["hold_position", mint, source]`; may be empty |
+| 9 | `token_2022_program` | no | no | Program\<Token2022\> | |
+| 10.. | `remaining_accounts` | — | no | — | per leg `i`: `destination_i` (writable) then its `destination_account_compliance_pda` |
 
 The declaration order above is not what defines the forwarding order. The forwarding order is defined once, by the field order
 of `common::HookAccounts` (see [`common.md`](common.md#module-hook_accounts)),
 which this instruction fills in per leg with **this leg's**
-`destination_control_list_pda` and the same constant entries for the rest. That
+`destination_account_compliance_pda` and the same constant entries for the rest. That
 order matches the metalist declaration in
 [`transfer-hook.md`](transfer-hook.md#metalist-contents).
 
@@ -151,7 +145,7 @@ order matches the metalist declaration in
 2. Read `decimals` from `mint` — once, before the loop.
 3. For each leg `i`: `invoke` → `transfer_checked(source, mint, destination_i,
    source_owner, amounts[i], decimals)`, with the constant hook block plus leg
-   `i`'s `destination_control_list_pda` appended. Token-2022 fires the hook for that
+   `i`'s `destination_account_compliance_pda` appended. Token-2022 fires the hook for that
    leg, which runs the full compliance suite.
 
 `batch_transfer` emits no event.

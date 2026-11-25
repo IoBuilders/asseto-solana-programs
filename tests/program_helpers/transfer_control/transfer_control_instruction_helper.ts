@@ -1,18 +1,14 @@
 import { PublicKey } from "@solana/web3.js";
 import { assetConfigurationPda, getAssetConfiguration } from "../deploy/deploy_pda_helper";
-import { mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
+import { accountCompliancePda, mintCompliancePda } from "../transfer_hook/transfer_hook_pda_helper";
 import * as anchor from "@anchor-lang/core";
 import { Program } from "@anchor-lang/core";
-import { SYSTEM_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID } from "../../utils/address_utils";
+import { SYSTEM_PROGRAM_ID, TRANSFER_CONTROL_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID } from "../../utils/address_utils";
 import { MintWriteContext } from "../base_helper";
 import { TransferControl } from "../../../target/types/transfer_control";
 import { getEvent } from "../event_helper";
 import { assetClassVersionPda } from "../factory/factory_pda_helper";
-import {
-  transferControlModePda,
-  transferControlEventAuthorityPda,
-  controlListPda,
-} from "./transfer_control_pda_helper";
+import { transferControlEventAuthorityPda, transferControlRegistryWriterPda } from "./transfer_control_pda_helper";
 import { rolesPda } from "../access_control/access_control_pda_helper";
 
 export const TRANSFER_CONTROL_WHITELIST = { whitelist: {} };
@@ -57,14 +53,14 @@ export async function initializeTransferControlMode(
       mint: callContext.mint,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       mintCompliancePda: mintCompliancePda(callContext.mint),
-      transferControlModePda: transferControlModePda(callContext.mint),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
-      systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: transferControlEventAuthorityPda(),
       program: TRANSFER_CONTROL_PROGRAM_ID,
+      registryWriter: transferControlRegistryWriterPda(),
+      transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
@@ -107,14 +103,16 @@ export async function addToControlList(callContext: AddToControlListContext): Pr
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       mintCompliancePda: mintCompliancePda(callContext.mint),
-      controlListPda: controlListPda(callContext.mint, callContext.account),
+      accountCompliancePda: accountCompliancePda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
-      systemProgram: SYSTEM_PROGRAM_ID,
       eventAuthority: transferControlEventAuthorityPda(),
       program: TRANSFER_CONTROL_PROGRAM_ID,
+      registryWriter: transferControlRegistryWriterPda(),
+      transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+      systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });
@@ -157,13 +155,16 @@ export async function removeFromControlList(callContext: RemoveFromControlListCo
       account: callContext.account,
       assetConfigurationPda: assetConfigurationPda(callContext.mint),
       mintCompliancePda: mintCompliancePda(callContext.mint),
-      controlListPda: controlListPda(callContext.mint, callContext.account),
+      accountCompliancePda: accountCompliancePda(callContext.mint, callContext.account),
       assetClassVersionPda: assetClassVersionPda(
         assetConfiguration.assetClassConfigId,
         assetConfiguration.assetClassVersionId
       ),
       eventAuthority: transferControlEventAuthorityPda(),
       program: TRANSFER_CONTROL_PROGRAM_ID,
+      registryWriter: transferControlRegistryWriterPda(),
+      transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+      systemProgram: SYSTEM_PROGRAM_ID,
     })
     .signers(callContext?.signers ?? [authority])
     .rpc({ commitment: "confirmed" });

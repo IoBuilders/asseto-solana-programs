@@ -50,7 +50,7 @@ mint-scoped PDAs and compliance records (see [PDAs](#pdas)).
 
 ## State: compliance registry
 
-The hook owns two records that hold all the state `execute` reads, so the metalist needs only one fixed entry for the mint plus one derived entry per side of the transfer, and no program entries (the records are hook-owned). This is Option C of the *Transfer-hook metalist reduction* ADR. Each capability program keeps its own instructions, roles and events. It writes only its own fields, through a hook auxiliary instruction signed by its own PDA. The registry is filled in one capability at a time. Today `MintCompliance` is created by `deploy_mint` (through [`initialize_extra_account_meta_list`](#instruction-initialize_extra_account_meta_list-auxiliary)) and `deactivate` sets its `deactivated` flag (through [`set_deactivated`](#instruction-set_deactivated-auxiliary)); `freeze` creates `AccountCompliance` and writes both freeze fields (through [`set_freeze`](#instruction-set_freeze-auxiliary)). `execute` reads all of these. `transfer_mode`, `in_control_list` and `held_amount` are not written yet, and `execute` still reads that state from `transfer-control` and `hold` until their migrations land.
+The hook owns two records that hold all the state `execute` reads, so the metalist needs only one fixed entry for the mint plus one derived entry per side of the transfer, and no program entries (the records are hook-owned). This is Option C of the *Transfer-hook metalist reduction* ADR. Each capability program keeps its own instructions, roles and events. It writes only its own fields, through a hook auxiliary instruction signed by its own PDA. The registry is filled in one capability at a time. Today `MintCompliance` is created by `deploy_mint` (through [`initialize_extra_account_meta_list`](#instruction-initialize_extra_account_meta_list-auxiliary)) and `deactivate` sets its `deactivated` flag (through [`set_deactivated`](#instruction-set_deactivated-auxiliary)); `freeze` writes both freeze fields of `AccountCompliance` (through [`set_freeze`](#instruction-set_freeze-auxiliary)); `transfer-control` writes `transfer_mode` and `in_control_list` (through [`set_transfer_mode`](#instruction-set_transfer_mode-auxiliary) and [`set_in_control_list`](#instruction-set_in_control_list-auxiliary)). `execute` reads all of these. `held_amount` is not written yet, and `execute` still reads the hold lien from `hold`'s `hold_position` until that migration lands.
 
 Both are **zero-copy** (`#[account(zero_copy)]`, `#[repr(C)]`). The canonical definitions live in `transfer_hook::state`. `common::state` has field-for-field mirrors so that readers which cannot depend on `transfer-hook` (`mint`, `hold`, `operations`, …) can load them with `AccountLoader::<T>::try_from`. Compile-time size and discriminator asserts in `transfer-hook/src/state.rs` keep the two definitions in sync. A round-trip test there catches a same-size field reorder, and offset tests in `common/src/state/compliance.rs` pin every offset.
 
@@ -70,7 +70,7 @@ Booleans are stored as `u8` (`0` = false, non-zero = true) because `bool` is not
 | 32 | `version` | `u8` | hook | Layout version (`COMPLIANCE_LAYOUT_VERSION`) |
 | 33 | `bump` | `u8` | hook | PDA bump |
 | 34 | `deactivated` | `u8` (bool) | `deactivate` (via [`set_deactivated`](#instruction-set_deactivated-auxiliary)) | Mint permanently deactivated. The single deactivation source of truth: `execute` reads it directly, every other program through `common::require_active` |
-| 35 | `transfer_mode` | `u8` | `transfer-control` (planned) | `TRANSFER_MODE_NONE` (0) / `TRANSFER_MODE_WHITELIST` (1) / `TRANSFER_MODE_BLACKLIST` (2). `NONE` is the same as today's absent `transfer_control_mode` PDA: no list check |
+| 35 | `transfer_mode` | `u8` | `transfer-control` (via [`set_transfer_mode`](#instruction-set_transfer_mode-auxiliary)) | `TRANSFER_MODE_NONE` (0) / `TRANSFER_MODE_WHITELIST` (1) / `TRANSFER_MODE_BLACKLIST` (2). `NONE` = no list check. Set once by `transfer-control::initialize` |
 | 36 | `transfer_hook_execute_enabled` | `u8` (bool) | `deploy` (creation) | Copy of the version's `TRANSFER_HOOK_EXECUTE` functionality bit, so `execute` no longer needs `asset_configuration` → factory → `asset_class_version` (3 metalist entries) to read one bit. The copy stays exact because a mint never changes asset-class version and a `Finalized` version is immutable; any future "migrate mint to version N" instruction must refresh it. Another functionality the hook needs later gets its own flag from `_reserved` |
 | 37 | `_padding` | `[u8; 3]` | — | Not required by `Pod` (the struct is 1-aligned); keeps `_reserved` at an 8-byte offset so a future `u64` carved from it stays aligned |
 | 40 | `_reserved` | `[u8; 128]` | — | Future per-mint fields (e.g. External Eligibility list config) |
@@ -87,7 +87,7 @@ Total: 8 + 168 = **176 bytes**.
 | 72 | `held_amount` | `u64` | `hold` (planned) | Sum of active hold liens. Moved (not copied) out of `HoldPosition`, which keeps only `hold_count` |
 | 80 | `version` | `u8` | hook | Layout version |
 | 81 | `bump` | `u8` | hook | PDA bump |
-| 82 | `in_control_list` | `u8` (bool) | `transfer-control` (planned) | Control-list membership |
+| 82 | `in_control_list` | `u8` (bool) | `transfer-control` (via [`set_in_control_list`](#instruction-set_in_control_list-auxiliary)) | Control-list membership |
 | 83 | `fully_frozen` | `u8` (bool) | `freeze` (via [`set_freeze`](#instruction-set_freeze-auxiliary)) | Full freeze |
 | 84 | `_padding` | `[u8; 4]` | — | Alignment |
 | 88 | `_reserved` | `[u8; 64]` | — | Future per-account fields |
@@ -96,7 +96,7 @@ Total: 8 + 152 = **160 bytes**.
 
 ¹ Offset within the struct; add 8 for the discriminator to get the offset in the account data.
 
-**Membership is a flag, not existence.** Today a token account is "in the control list" if its `control_list` PDA exists. An `AccountCompliance` record can exist only because the account is frozen or held, so membership must always be read from `in_control_list`, never from whether the record exists. An absent record means "every field is zero". The record is created the first time a capability writes one of its fields and is **never closed**, since it is shared by every capability.
+**Membership is a flag, not existence.** An `AccountCompliance` record can exist because the account is frozen (or, later, held) without being listed, so membership must always be read from `in_control_list`, never from whether the record exists. An absent record means "every field is zero". The record is created the first time a capability writes one of its fields and is **never closed**, since it is shared by every capability.
 
 **Seeds keep the mint** even though a token account address is already unique across mints. This keeps the derivation the same shape as every other per-account PDA in the workspace, so Token-2022 can resolve it from metalist indices 0/1/2 with no data lookup.
 
@@ -152,13 +152,10 @@ interface (`source_token`, `mint`, `destination_token`, `owner`,
 | Hook idx | Entry | Kind |
 |---|---|---|
 | 5 | `mint_compliance_pda` | literal pubkey — `["mint_compliance", mint]` of this program, created by the same call |
-| 6 | `transfer-control` program | literal pubkey — resolves @8, @9 |
-| 7 | `transfer_control_mode_pda` | literal pubkey — `["transfer_control_mode", mint]` of `transfer-control`, derived at init |
-| 8 | `source_control_list_pda` | external PDA via @6 — seeds `["control_list", mint@1, source_token@0]` |
-| 9 | `destination_control_list_pda` | external PDA via @6 — seeds `["control_list", mint@1, destination_token@2]` |
-| 10 | `source_account_compliance_pda` | PDA of this program — seeds `["account_compliance", mint@1, source_token@0]` |
-| 11 | `hold` program | literal pubkey — resolves @12 |
-| 12 | `source_hold_position_pda` | external PDA via @11 — seeds `["hold_position", mint@1, source_token@0]` |
+| 6 | `source_account_compliance_pda` | PDA of this program — seeds `["account_compliance", mint@1, source_token@0]` |
+| 7 | `destination_account_compliance_pda` | PDA of this program — seeds `["account_compliance", mint@1, destination_token@2]` |
+| 8 | `hold` program | literal pubkey — resolves @9 |
+| 9 | `source_hold_position_pda` | external PDA via @8 — seeds `["hold_position", mint@1, source_token@0]` |
 
 **Mint-only PDAs are literals.** Each mint has its own metalist, written once by
 `deploy_mint`, so a PDA whose seeds depend only on the mint has a fixed address for
@@ -168,7 +165,7 @@ is why `deploy` is not in the list at all, and why the hook's own `mint_complian
 needs no program entry either. A PDA seeded by a token account must be derived per
 transfer, but when it belongs to the hook itself (`account_compliance`) Token-2022
 derives it from the hook's program id, so it needs no program entry; only external
-ones (`control_list`, `hold_position`) still need their program listed. The hook's
+ones (today just `hold_position`) still need their program listed. The hook's
 own `seeds` constraints re-check every one of these addresses, so a wrong literal
 would fail transfers, not admit them.
 
@@ -196,9 +193,11 @@ invoking the hook, each forwarded PDA is guaranteed canonical by the time
 > `asset_class_version` replaced those three entries with one literal (10 entries),
 > and reading deactivation from `MintCompliance.deactivated` instead of the
 > former `["deactivate", mint]` marker dropped one more (9 entries). Moving the freeze
-> state into the hook's own `AccountCompliance` dropped the `freeze` program entry,
-> leaving 8 entries with 4 PDA derivations — seven slots below the 15 this list is
-> known to resolve at. Literals are also the cheapest entry for
+> state into the hook's own `AccountCompliance` dropped the `freeze` program entry
+> (8 entries). Moving the transfer mode and control-list membership into the registry
+> replaced the `transfer-control` program, the mode literal and both `control_list`
+> PDAs with the destination's `AccountCompliance`, leaving 5 entries with 3 PDA
+> derivations — ten slots below the 15 this list is known to resolve at. Literals are also the cheapest entry for
 > the heap: they derive nothing, and Token-2022's bump allocator never frees what a
 > derivation allocates.
 >
@@ -271,6 +270,51 @@ frozen_balance: u64  // 0 = no partial freeze
 
 ---
 
+## Instruction: `set_transfer_mode` (Auxiliary)
+
+Writes `MintCompliance.transfer_mode`. Called exclusively via CPI from
+`transfer-control::initialize`, which enforces that the mode is set only once.
+Authorised by requiring `transfer-control`'s `["registry_writer"]` PDA as `Signer`
+(`seeds::program = TRANSFER_CONTROL_PROGRAM_ID`). Rejects any value other than
+`TRANSFER_MODE_WHITELIST` / `TRANSFER_MODE_BLACKLIST` with `InvalidTransferMode`.
+
+### Parameters
+
+```rust
+transfer_mode: u8  // 1 = Whitelist, 2 = Blacklist
+```
+
+### Accounts
+
+| Account | Mut | Signer | Type | Notes |
+|---|---|---|---|---|
+| `registry_writer` | no | yes | Signer | seeds `["registry_writer"]`, `seeds::program = TRANSFER_CONTROL_PROGRAM_ID` |
+| `mint_compliance_pda` | yes | no | `AccountLoader<MintCompliance>` | seeds `["mint_compliance", mint]` |
+| `mint` | no | no | UncheckedAccount | Seed component |
+
+---
+
+## Instruction: `set_in_control_list` (Auxiliary)
+
+Writes `AccountCompliance.in_control_list` for a token account, creating the record
+(`init_if_needed`, paid by `payer`) on first use, like `set_freeze`. Called
+exclusively via CPI from `transfer-control::add_to_control_list` (`true`) and
+`remove_from_control_list` (`false`), authorised by `transfer-control`'s
+`["registry_writer"]` PDA. It writes no other field.
+
+### Parameters
+
+```rust
+in_control_list: bool
+```
+
+### Accounts
+
+Same as [`set_freeze`](#instruction-set_freeze-auxiliary), with `registry_writer`
+checked against `TRANSFER_CONTROL_PROGRAM_ID`.
+
+---
+
 ## Instruction: `execute` (SPL Transfer Hook Interface)
 
 ### Parameters
@@ -287,7 +331,7 @@ discriminator when invoking the hook during `transfer_checked`.
 
 ### Accounts
 
-Indices 0–4 are fixed by the SPL interface; 5–12 are the metalist entries above,
+Indices 0–4 are fixed by the SPL interface; 5–9 are the metalist entries above,
 in order.
 
 | Index | Account |
@@ -298,13 +342,10 @@ in order.
 | 3 | `owner` (transfer authority) |
 | 4 | `extra_account_meta_list` |
 | 5 | `mint_compliance_pda` (`AccountLoader<MintCompliance>`; owner, discriminator and seeds checked by Anchor) |
-| 6 | `transfer_control_program` |
-| 7 | `transfer_control_mode_pda` |
-| 8 | `source_control_list_pda` |
-| 9 | `destination_control_list_pda` |
-| 10 | `source_account_compliance_pda` (may be empty — nothing recorded) |
-| 11 | `hold_program` |
-| 12 | `source_hold_position_pda` |
+| 6 | `source_account_compliance_pda` (may be empty — nothing recorded) |
+| 7 | `destination_account_compliance_pda` (may be empty — nothing recorded) |
+| 8 | `hold_program` |
+| 9 | `source_hold_position_pda` |
 
 ### Execution
 
@@ -318,12 +359,12 @@ in order.
    skipping steps 3–6. See [below](#permanent-delegate-bypass).
 3. `mint_compliance_pda.deactivated` must be clear, else `CommonError::Deactivated`
    (the same flag and error as `common::require_active`, read inline here because
-   the record is loaded once for this step and step 7).
-4. `transfer_control::verify_transfer_control_mode(&transfer_control_mode_pda,
-   &[&source_control_list_pda, &destination_control_list_pda])` — a no-op when
-   `transfer_control_mode_pda` is empty (no mode active); in Whitelist mode both
-   markers must exist, else `NotWhitelisted`; in Blacklist mode neither may exist,
-   else `Blacklisted`.
+   the record is loaded once for this step, step 4 and step 7).
+4. `common::verify_transfer_control_mode(mint_compliance.transfer_mode,
+   &[&source_account_compliance_pda, &destination_account_compliance_pda])` — a
+   no-op when no mode is set; in Whitelist mode both accounts' `in_control_list`
+   must be set, else `NotWhitelisted`; in Blacklist mode neither may be set, else
+   `Blacklisted` (an absent record counts as "not listed").
 5. `common::freeze_status(&source_account_compliance_pda)` — reads both freeze sides
    from the source's `AccountCompliance` (absent = nothing frozen). The source must
    not be fully frozen, else `CommonError::AccountFrozen`.
@@ -409,11 +450,12 @@ just one level up.
 pub enum TransferHookError {
     InvalidAccountSize,   // ExtraAccountMetaList size mismatch during init
     NotTransferring,      // execute invoked outside a Token-2022 transfer
+    InvalidTransferMode,  // set_transfer_mode with a value other than Whitelist (1) / Blacklist (2)
 }
 ```
 
 Compliance failures propagate from the helpers the hook calls:
-`common::CommonError::Deactivated`, `transfer_control::TransferControlError::{NotWhitelisted, Blacklisted}`,
+`common::CommonError::{Deactivated, NotWhitelisted, Blacklisted}`,
 `common::CommonError::{AccountFrozen, InsufficientUnfrozenBalance}`, and
 `common::CommonError::FunctionalityNotSupportedError` when the mint's
 `MintCompliance` copy of `TRANSFER_HOOK_EXECUTE` is off.

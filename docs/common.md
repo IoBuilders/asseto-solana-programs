@@ -49,11 +49,12 @@ pub enum CommonError {
     AssetClassVersionNotFinalized,  // asset-class version is still Draft
     RoleOutOfBounds,                // role id is past the Roles.mask's capacity
     MissingRole,                    // signer's Roles PDA lacks the required role bit
-    ControlListPdaMismatch,         // a remaining_accounts control-list PDA doesn't match the derived address for its destination
+    AccountCompliancePdaMismatch,   // a remaining_accounts account_compliance_pda doesn't match the derived address for its token account
     InvalidMerkleProof,             // (account, balance) not proven against the snapshot root
     AccountFrozen,                  // full-freeze side set (freeze_account twice / transfer or hold from a frozen account)
     InsufficientUnfrozenBalance,    // the balance no longer covers every lien on the account
-    AccountCompliancePdaMismatch,   // a remaining_accounts account_compliance_pda doesn't match the derived address for its token account
+    NotWhitelisted,                 // Whitelist mode and an account's in_control_list is clear
+    Blacklisted,                    // Blacklist mode and an account's in_control_list is set
     InsufficientSpendableBalance,   // amount exceeds balance − held (see require_hold_covered)
     HoldPositionPdaMismatch,        // supplied hold_position_pda is not the derived one
 }
@@ -120,20 +121,6 @@ The caller passes a `Ref<Roles>` obtained from its own `AccountLoader<Roles>` vi
 
 ---
 
-## Function: `verify_control_list_pda`
-
-```rust
-pub fn verify_control_list_pda(
-    control_list_pda: &AccountInfo,
-    destination: &Pubkey,
-    mint: &Pubkey,
-) -> Result<()>
-```
-
-Re-derives the canonical `["control_list", mint, destination]` PDA (owned by `transfer-control`) and checks it matches `control_list_pda.key()`, returning `Err(CommonError::ControlListPdaMismatch)` on a mismatch. Needed only where a control-list PDA arrives without an Anchor `seeds` constraint — e.g. `mint::batch_mint`, which reads a control-list PDA per destination from `remaining_accounts` (Anchor can't constrain seeds against a dynamic account list). Whether the PDA must *exist* is a separate, mode-aware check left to the caller — see `transfer_control::verify_transfer_control_mode`.
-
----
-
 ## Function: `verify_account_compliance_pda`
 
 ```rust
@@ -144,7 +131,24 @@ pub fn verify_account_compliance_pda(
 ) -> Result<()>
 ```
 
-Re-derives the canonical `["account_compliance", mint, token_account]` PDA (owned by `transfer-hook`) and checks it matches `account_compliance_pda.key()`, returning `Err(CommonError::AccountCompliancePdaMismatch)` on a mismatch. Needed only where the record arrives without an Anchor `seeds` constraint — the `freeze` batch instructions, which take one per entry from `remaining_accounts`. Without it a caller could have one account's record read in place of another's. It only derives an address from `pda_seeds` + `program_ids`, so it does not depend on the record's layout.
+Re-derives the canonical `["account_compliance", mint, token_account]` PDA (owned by `transfer-hook`) and checks it matches `account_compliance_pda.key()`, returning `Err(CommonError::AccountCompliancePdaMismatch)` on a mismatch. Needed only where the record arrives without an Anchor `seeds` constraint — `mint::batch_mint` and the `freeze` batch instructions, which take one per entry from `remaining_accounts`. Without it a caller could have one account's record read in place of another's.
+
+---
+
+## Function: `verify_transfer_control_mode`
+
+```rust
+pub fn in_control_list(account_compliance_pda: &AccountInfo) -> Result<bool>
+
+pub fn verify_transfer_control_mode(
+    transfer_mode: u8,
+    account_compliance_pdas: &[&AccountInfo],
+) -> Result<()>
+```
+
+`in_control_list` reads `AccountCompliance.in_control_list` (absent record = `false`; loaded with `AccountLoader::try_from`, so owner and discriminator are checked). `verify_transfer_control_mode` takes the mint's `MintCompliance.transfer_mode` and checks every account against it: no mode (`0`) is a no-op; Whitelist (`1`) requires every account to be listed, else `NotWhitelisted`; Blacklist (`2`) requires none to be, else `Blacklisted`. The caller validates each address (its own `seeds` constraint, or `verify_account_compliance_pda`).
+
+Called by `transfer-hook::execute` (source + destination), `mint::mint` (destination), `mint::batch_mint` (every destination) and `hold::execute_hold` (source + destination). It lives here, not in `transfer-control`, so none of those depends on that crate — `transfer-control` depends on the hook for its setter CPIs, so the hook depending back on it would be a cycle.
 
 ---
 
@@ -191,7 +195,7 @@ pub fn verify_balance_proof(
 - **Leaf** — `leaf_hash = keccak(account || balance.to_le_bytes())`. The balance uses **all 8 bytes little-endian** (e.g. `1500` → `dc 05 00 00 00 00 00 00`). Exactly one leaf per account — for `treasury::pay_coupon` the account is the holder **wallet**, with its bond token-account balances summed. `verify_balance_proof` always recomputes this from the `(account, balance)` inputs — it never accepts a raw leaf hash.
 - **Tree** — **sorted-pair** (commutative): every internal node is `keccak(sort(left, right))`, comparing the two 32-byte children lexicographically. Proofs therefore carry only the sibling hashes (no left/right direction bits), and only leaf *existence* is proven, not position.
 - **`verify_balance_proof`** — folds `proof` up from the leaf using the sorted-pair rule and returns `true` iff the result equals `root`. An empty `proof` means a single-leaf tree (`leaf_hash == root`). This is a **pure `bool` primitive**, deliberately Anchor-error-free so it stays host-testable (`assert!(verify_balance_proof(...))`).
-- **`require_balance_proof`** (defined in `lib.rs`, not `merkle`) — the `require_*`-style wrapper callers should use: `require_balance_proof(proof, root, account, balance)?` calls the primitive and raises `CommonError::InvalidMerkleProof` on failure. Same split as `verify_control_list_pda` — a pure check plus a `Result`-returning wrapper — so the crypto module never depends on Anchor's error machinery.
+- **`require_balance_proof`** (defined in `lib.rs`, not `merkle`) — the `require_*`-style wrapper callers should use: `require_balance_proof(proof, root, account, balance)?` calls the primitive and raises `CommonError::InvalidMerkleProof` on failure. Same split as `verify_account_compliance_pda` — a pure check plus a `Result`-returning wrapper — so the crypto module never depends on Anchor's error machinery.
 
 ```rust
 pub fn require_balance_proof(
@@ -291,9 +295,9 @@ The block of accounts every `transfer_checked` on an Asseto mint must append so 
 resolve and invoke `transfer-hook::execute`.
 
 ```rust
-pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 10;
+pub const HOOK_FORWARDED_ACCOUNT_COUNT: usize = 7;
 
-pub struct HookAccounts<'a, 'info> { /* 10 &AccountInfo fields, in wire order */ }
+pub struct HookAccounts<'a, 'info> { /* 7 &AccountInfo fields, in wire order */ }
 
 impl<'a, 'info> HookAccounts<'a, 'info> {
     pub fn ordered(&self) -> [&'a AccountInfo<'info>; HOOK_FORWARDED_ACCOUNT_COUNT]
@@ -304,7 +308,7 @@ impl<'a, 'info> HookAccounts<'a, 'info> {
 
 The field order **is** the wire order: Token-2022 matches forwarded accounts positionally against
 the list `transfer-hook::initialize_extra_account_meta_list` built, so a wrong order fails inside
-Token-2022 before the hook even runs. The 10 are the metalist's own 8 entries plus the two
+Token-2022 before the hook even runs. The 7 are the metalist's own 5 entries plus the two
 Token-2022 requires on top (`extra_account_meta_list` and `transfer_hook_program`) — keep
 `HOOK_FORWARDED_ACCOUNT_COUNT` and the hook's `EXTRA_ACCOUNT_META_COUNT` in step.
 
