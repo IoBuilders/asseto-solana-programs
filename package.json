@@ -6,7 +6,12 @@
   },
   "dependencies": {
     "@anchor-lang/core": "^1.0.0",
-    "@solana/spl-token": "^0.4.15"
+    "@solana-program/token": "^0.13.0",
+    "@solana/kit": "^6.10.0",
+    "@solana/kit-plugin-rpc": "^0.11.1",
+    "@solana/kit-plugin-signer": "^0.10.0",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/subscriptions": "^0.4.0"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",
