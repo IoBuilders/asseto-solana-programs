@@ -54,3 +54,6 @@ host = "127.0.0.1"
 online = false
 log_level = "warn"
 block_production_mode = "clock"
+# 50 ms instead of the default 400 ms: ~4x faster suite. Requires the blockhash
+# cache patch in tests/setup.ts (blockhashes now expire in ~7.5 s).
+slot_time = 50
